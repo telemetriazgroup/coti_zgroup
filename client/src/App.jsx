@@ -10,6 +10,7 @@ import { ProjectsPage } from './pages/ProjectsPage';
 import { UsersPage } from './pages/UsersPage';
 import { CatalogPage } from './pages/CatalogPage';
 import { ProjectBudgetPage } from './pages/ProjectBudgetPage';
+import { ProjectPlansPage } from './pages/ProjectPlansPage';
 
 function RequireAuth() {
   const { user, ready } = useAuth();
@@ -37,6 +38,7 @@ export function App() {
           <Route path="clients" element={<ClientsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId/presupuesto" element={<ProjectBudgetPage />} />
+          <Route path="projects/:projectId/planos" element={<ProjectPlansPage />} />
           <Route path="catalog" element={<CatalogPage />} />
           <Route path="users" element={<UsersPage />} />
         </Route>

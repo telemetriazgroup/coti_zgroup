@@ -1,9 +1,25 @@
 const express = require('express');
+const multer = require('multer');
 const { body, param, validationResult } = require('express-validator');
 const { validate: uuidValidate } = require('uuid');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { getCached, setCached, invalidateCatalogCache } = require('../lib/catalogRedis');
+const { buildCatalogXlsx, parseImportBuffer, validateImportRows, applyImportRows } = require('../lib/catalogExcel');
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok =
+      /\.(xlsx|xls)$/i.test(file.originalname) ||
+      [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+      ].includes(file.mimetype);
+    cb(null, ok);
+  },
+});
 
 const router = express.Router();
 router.use(requireAuth);
@@ -23,6 +39,7 @@ function mapItem(row) {
   return {
     id: row.id,
     categoryId: row.category_id,
+    categoryNombre: row.category_nombre || null,
     codigo: row.codigo,
     descripcion: row.descripcion,
     unidad: row.unidad,
@@ -46,12 +63,12 @@ async function fetchCatalogFromDb(includeInactive) {
   let itemSql;
   if (includeInactive) {
     itemSql = `
-      SELECT i.* FROM catalog_items i
+      SELECT i.*, c.nombre AS category_nombre FROM catalog_items i
       JOIN catalog_categories c ON c.id = i.category_id
       ORDER BY c.sort_order ASC, i.sort_order ASC, i.codigo ASC`;
   } else {
     itemSql = `
-      SELECT i.* FROM catalog_items i
+      SELECT i.*, c.nombre AS category_nombre FROM catalog_items i
       INNER JOIN catalog_categories c ON c.id = i.category_id
       WHERE i.active = true AND c.active = true
       ORDER BY c.sort_order ASC, i.sort_order ASC, i.codigo ASC`;
@@ -63,6 +80,96 @@ async function fetchCatalogFromDb(includeInactive) {
     items: itemRows.map(mapItem),
   };
 }
+
+// ─── GET /api/catalog/export — Excel (todos los roles autenticados) ─
+router.get('/export', async (req, res) => {
+  try {
+    const includeInactive = req.query.includeInactive === 'true' && req.user.role === 'ADMIN';
+    const data = await fetchCatalogFromDb(includeInactive);
+    const buf = buildCatalogXlsx(data);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="zgroup-catalogo.xlsx"');
+    return res.send(buf);
+  } catch (err) {
+    console.error('[CATALOG] export:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/catalog/import/preview — ADMIN ───────────────────
+router.post('/import/preview', requireRole('ADMIN'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file || !req.file.buffer) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'NO_FILE', message: 'Adjunte un archivo .xlsx' },
+      });
+    }
+    const { rows: parsed, parseError } = parseImportBuffer(req.file.buffer);
+    if (parseError) {
+      return res.status(400).json({ success: false, error: { code: 'PARSE_ERROR', message: parseError } });
+    }
+    if (parsed.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'EMPTY', message: 'No hay filas de datos (solo encabezados).' },
+      });
+    }
+    const { rows, canApply } = await validateImportRows(parsed);
+    return res.json({
+      success: true,
+      data: { rows, canApply, total: rows.length },
+    });
+  } catch (err) {
+    console.error('[CATALOG] import preview:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/catalog/import/apply — ADMIN ─────────────────────
+router.post('/import/apply', requireRole('ADMIN'), async (req, res) => {
+  try {
+    const incoming = req.body?.rows;
+    if (!Array.isArray(incoming) || incoming.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Envíe rows[] con la previsualización validada' },
+      });
+    }
+    const reparsed = incoming.map((r) => ({
+      rowIndex: r.rowIndex,
+      categoria: r.categoria,
+      codigo: r.codigo,
+      descripcion: r.descripcion,
+      unidad: r.unidad,
+      tipoRaw: r.tipo,
+      precioRaw: r.precio,
+    }));
+    const { rows, canApply } = await validateImportRows(reparsed);
+    if (!canApply) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'IMPORT_INVALID',
+          message: 'La validación falló. Vuelva a previsualizar el archivo.',
+          data: { rows },
+        },
+      });
+    }
+    const { inserted } = await applyImportRows(rows, req.user.id);
+    await invalidateCatalogCache();
+    return res.json({ success: true, data: { inserted } });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: { code: 'DUPLICATE_CODE', message: 'Código duplicado en categoría (conflicto al insertar)' },
+      });
+    }
+    console.error('[CATALOG] import apply:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
 
 // ─── GET /api/catalog — lectura (Redis + fallback BD) ───────────
 router.get('/', async (req, res) => {

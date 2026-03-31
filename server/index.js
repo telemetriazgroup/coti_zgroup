@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { initSchema, pool } = require('./config/db');
 const app = require('./app');
+const storage = require('./services/storage.service');
 
 const PORT = process.env.PORT || 3000;
 
@@ -25,6 +26,19 @@ async function start() {
   try {
     await initSchema();
     await runMigrations();
+    try {
+      await storage.ensureBucket();
+    } catch (e) {
+      console.warn('[S3] Bucket MinIO:', e.message);
+    }
+    try {
+      const exp = require('./routes/export');
+      if (exp.shouldUsePdfQueue && exp.shouldUsePdfQueue()) {
+        exp.startExportWorker();
+      }
+    } catch (e) {
+      console.warn('[EXPORT] Worker PDF:', e.message);
+    }
     app.listen(PORT, () => {
       console.log(`\n╔══════════════════════════════════════════╗`);
       console.log(`║  ZGROUP Cotizaciones — Server v1.0.0     ║`);

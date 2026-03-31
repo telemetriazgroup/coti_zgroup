@@ -1,7 +1,18 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { api } from '../lib/api';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { api, getBlob, postFormData } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
+
+const ISSUE_LABELS = {
+  FALTA_RAZON_SOCIAL: 'Falta razón social',
+  RAZON_DUP_LOTE: 'Razón social repetida en el archivo',
+  RAZON_EN_BD: 'Razón social ya existe en el sistema',
+  RUC_VACIO_INVALIDO: 'RUC con caracteres no numéricos inválidos',
+  RUC_FORMATO: 'RUC debe tener 11 dígitos (Perú) o dejar vacío',
+  RUC_DUP_LOTE: 'RUC repetido en el archivo',
+  RUC_EN_BD: 'RUC ya registrado',
+  EMAIL_INVALIDO: 'Email inválido',
+};
 
 const emptyForm = {
   razonSocial: '',
@@ -24,6 +35,12 @@ export function ClientsPage() {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [err, setErr] = useState(null);
+
+  const fileInputRef = useRef(null);
+  const [importModal, setImportModal] = useState(false);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importApplying, setImportApplying] = useState(false);
 
   const fetchList = useCallback(async (search) => {
     setLoading(true);
@@ -64,6 +81,55 @@ export function ClientsPage() {
     setModal('edit');
   }
 
+  async function downloadExcel() {
+    setErr(null);
+    try {
+      const blob = await getBlob('/api/clients/export');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'zgroup-clientes.xlsx';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function onImportFile(e) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setErr(null);
+    setImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const data = await postFormData('/api/clients/import/preview', fd);
+      setImportPreview(data);
+      setImportModal(true);
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function applyExcelImport() {
+    if (!importPreview?.canApply || !importPreview.rows?.length) return;
+    setErr(null);
+    setImportApplying(true);
+    try {
+      await api.post('/api/clients/import/apply', { rows: importPreview.rows });
+      setImportModal(false);
+      setImportPreview(null);
+      fetchList(q);
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setImportApplying(false);
+    }
+  }
+
   async function submitClient(e) {
     e.preventDefault();
     setErr(null);
@@ -97,11 +163,33 @@ export function ClientsPage() {
           <h1 className="page-title">Clientes</h1>
           <p className="page-sub muted">CRM · contador de proyectos activos por cliente</p>
         </div>
-        {canWrite && (
-          <button type="button" className="btn btn-primary" onClick={openNew}>
-            Nuevo cliente
+        <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-ghost mono" onClick={downloadExcel} disabled={loading}>
+            Descargar Excel
           </button>
-        )}
+          {canWrite && (
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost mono"
+                disabled={loading || importBusy}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {importBusy ? 'Leyendo…' : 'Importar Excel…'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                style={{ display: 'none' }}
+                onChange={onImportFile}
+              />
+              <button type="button" className="btn btn-primary" onClick={openNew}>
+                Nuevo cliente
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="toolbar">
@@ -166,6 +254,86 @@ export function ClientsPage() {
           </table>
         </div>
       </div>
+
+      {importModal && importPreview && canWrite && (
+        <Modal
+          wide
+          title="Previsualización de importación"
+          onClose={() => {
+            setImportModal(false);
+            setImportPreview(null);
+          }}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setImportModal(false);
+                  setImportPreview(null);
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!importPreview.canApply || importApplying}
+                onClick={applyExcelImport}
+              >
+                {importApplying ? 'Importando…' : 'Confirmar importación'}
+              </button>
+            </>
+          }
+        >
+          <p className="muted mono" style={{ fontSize: 12, marginBottom: 10 }}>
+            Filas: {importPreview.total}. Se valida razón social y RUC (11 dígitos) frente al archivo y a la base.{' '}
+            {importPreview.canApply ? (
+              <span style={{ color: 'var(--green)' }}>Listo para importar.</span>
+            ) : (
+              <span style={{ color: 'var(--red)' }}>Corrija el archivo y vuelva a subir.</span>
+            )}
+          </p>
+          <div className="table-wrap catalog-import-table-wrap">
+            <table className="data-table data-table--compact">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Razón social</th>
+                  <th>RUC</th>
+                  <th>Contacto</th>
+                  <th>Email</th>
+                  <th>Ciudad</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importPreview.rows.map((r) => (
+                  <tr key={r.rowIndex} className={r.issues?.length ? 'catalog-import-row--err' : ''}>
+                    <td className="mono">{r.rowIndex}</td>
+                    <td>{r.razonSocial}</td>
+                    <td className="mono">{r.rucDisplay || '—'}</td>
+                    <td>{r.contactoNombre || '—'}</td>
+                    <td className="mono">{r.contactoEmail || '—'}</td>
+                    <td>{r.ciudad || '—'}</td>
+                    <td className="mono" style={{ fontSize: 10, lineHeight: 1.35 }}>
+                      {r.issues?.length ? (
+                        r.issues.map((code) => (
+                          <div key={code} className="catalog-issue-tag" title={code}>
+                            {ISSUE_LABELS[code] || code}
+                          </div>
+                        ))
+                      ) : (
+                        <span style={{ color: 'var(--green)' }}>OK</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Modal>
+      )}
 
       {modal && canWrite && (
         <Modal

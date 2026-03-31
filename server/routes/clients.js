@@ -1,7 +1,29 @@
 const express = require('express');
+const multer = require('multer');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const {
+  parseImportBuffer,
+  validateImportRows,
+  applyImportRows,
+  buildClientsXlsx,
+  fetchAllClientsForExport,
+} = require('../lib/clientsExcel');
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok =
+      /\.(xlsx|xls)$/i.test(file.originalname) ||
+      [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+      ].includes(file.mimetype);
+    cb(null, ok);
+  },
+});
 
 const router = express.Router();
 router.use(requireAuth);
@@ -48,6 +70,87 @@ router.get('/', async (req, res) => {
     return res.json({ success: true, data: rows.map(mapClient) });
   } catch (err) {
     console.error('[CLIENTS] list:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/clients/export — Excel ───────────────────────────
+router.get('/export', async (req, res) => {
+  try {
+    const rows = await fetchAllClientsForExport();
+    const buf = buildClientsXlsx(rows);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="zgroup-clientes.xlsx"');
+    return res.send(buf);
+  } catch (err) {
+    console.error('[CLIENTS] export:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/clients/import/preview — ADMIN + COMERCIAL ──────
+router.post('/import/preview', requireRole('ADMIN', 'COMERCIAL'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'NO_FILE', message: 'Adjunte un archivo .xlsx' },
+      });
+    }
+    const { rows: parsed, parseError } = parseImportBuffer(req.file.buffer);
+    if (parseError) {
+      return res.status(400).json({ success: false, error: { code: 'PARSE_ERROR', message: parseError } });
+    }
+    if (parsed.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'EMPTY', message: 'No hay filas de datos.' },
+      });
+    }
+    const { rows, canApply } = await validateImportRows(parsed);
+    return res.json({ success: true, data: { rows, canApply, total: rows.length } });
+  } catch (err) {
+    console.error('[CLIENTS] import preview:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/clients/import/apply — ADMIN + COMERCIAL ──────
+router.post('/import/apply', requireRole('ADMIN', 'COMERCIAL'), async (req, res) => {
+  try {
+    const incoming = req.body?.rows;
+    if (!Array.isArray(incoming) || incoming.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Envíe rows[] con la previsualización' },
+      });
+    }
+    const reparsed = incoming.map((r) => ({
+      rowIndex: r.rowIndex,
+      razonSocial: r.razonSocial,
+      ruc: r.rucDisplay != null ? String(r.rucDisplay) : '',
+      contactoNombre: r.contactoNombre || '',
+      contactoEmail: r.contactoEmail || '',
+      contactoTelefono: r.contactoTelefono || '',
+      ciudad: r.ciudad || '',
+      direccion: r.direccion || '',
+      notas: r.notas || '',
+    }));
+    const { rows, canApply } = await validateImportRows(reparsed);
+    if (!canApply) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'IMPORT_INVALID',
+          message: 'La validación falló. Vuelva a previsualizar.',
+          data: { rows },
+        },
+      });
+    }
+    const { inserted } = await applyImportRows(rows, req.user.id);
+    return res.json({ success: true, data: { inserted } });
+  } catch (err) {
+    console.error('[CLIENTS] import apply:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });

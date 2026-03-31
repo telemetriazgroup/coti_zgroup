@@ -200,6 +200,56 @@ async function seed() {
 
     console.log(`✅ Catálogo: ${totalItems} nuevos ítems creados`);
 
+    // ── 3b. CATÁLOGO v10 (zgroup-cotizaciones-v10-final.html) ───
+    const CATALOG_V10 = require('./catalog-v10-html');
+    let v10Count = 0;
+    function v10Descripcion(it) {
+      const d = it.detalle && String(it.detalle).trim();
+      return d ? `${it.name} — ${d}` : it.name;
+    }
+    function v10Unidad(u) {
+      const s = String(u || 'und').trim().toUpperCase();
+      return s.slice(0, 30) || 'UND';
+    }
+    function v10Tipo(t) {
+      const u = String(t || '').toUpperCase();
+      if (u.includes('CONSUM')) return 'CONSUMIBLE';
+      return 'ACTIVO';
+    }
+    for (const it of CATALOG_V10) {
+      const { rows: catRow } = await client.query(`SELECT id FROM catalog_categories WHERE nombre = $1`, [it.cat]);
+      if (!catRow.length) continue;
+      const categoryId = catRow[0].id;
+      const { rows: ex } = await client.query(
+        `SELECT id FROM catalog_items WHERE category_id = $1 AND codigo = $2`,
+        [categoryId, it.code]
+      );
+      if (ex.length) continue;
+      const { rows: so } = await client.query(
+        `SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM catalog_items WHERE category_id = $1`,
+        [categoryId]
+      );
+      await client.query(
+        `INSERT INTO catalog_items
+          (category_id, codigo, descripcion, unidad, tipo, unit_price, sort_order, created_by)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+        [
+          categoryId,
+          it.code,
+          v10Descripcion(it),
+          v10Unidad(it.unit),
+          v10Tipo(it.tipo),
+          it.price,
+          so[0].n,
+          adminId,
+        ]
+      );
+      v10Count++;
+    }
+    if (v10Count > 0) {
+      console.log(`✅ Catálogo v10 (HTML): ${v10Count} ítems EST/FRI/ACC/PTA añadidos`);
+    }
+
     await client.query('COMMIT');
     console.log('\n✅ Seed completado exitosamente!');
     console.log('─────────────────────────────────────');

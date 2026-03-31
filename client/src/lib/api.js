@@ -88,6 +88,105 @@ export async function request(url, options = {}) {
   return json.data;
 }
 
+export async function getBlob(url) {
+  const makeReq = (token) =>
+    fetch(url, {
+      credentials: 'include',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+  let res = await makeReq(accessToken);
+  if (res.status === 401) {
+    const body = await res.clone().json().catch(() => ({}));
+    if (body?.error?.code === 'TOKEN_EXPIRED') {
+      try {
+        const newToken = await refresh();
+        res = await makeReq(newToken);
+      } catch {
+        throw new Error('SESSION_EXPIRED');
+      }
+    } else {
+      throw new Error('SESSION_EXPIRED');
+    }
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `HTTP ${res.status}`);
+  }
+  return res.blob();
+}
+
+export async function postFormData(url, formData) {
+  const makeReq = (token) =>
+    fetch(url, {
+      method: 'POST',
+      credentials: 'include',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: formData,
+    });
+
+  let res = await makeReq(accessToken);
+  if (res.status === 401) {
+    const body = await res.clone().json().catch(() => ({}));
+    if (body?.error?.code === 'TOKEN_EXPIRED') {
+      try {
+        const newToken = await refresh();
+        res = await makeReq(newToken);
+      } catch {
+        throw new Error('SESSION_EXPIRED');
+      }
+    } else {
+      throw new Error('SESSION_EXPIRED');
+    }
+  }
+  const json = await res.json();
+  if (!res.ok || !json.success) {
+    const error = new Error(json?.error?.message || `HTTP ${res.status}`);
+    error.code = json?.error?.code || 'API_ERROR';
+    error.status = res.status;
+    throw error;
+  }
+  return json.data;
+}
+
+/**
+ * Subida multipart con progreso (0–1). No hace refresh de token en 401 (flujo simple).
+ */
+export function postFormDataWithProgress(url, formData, onProgress) {
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+    xhr.open('POST', url);
+    xhr.withCredentials = true;
+    if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
+    xhr.upload.onprogress = (e) => {
+      if (e.lengthComputable && onProgress) onProgress(e.loaded / e.total);
+    };
+    xhr.onload = () => {
+      let json;
+      try {
+        json = JSON.parse(xhr.responseText || '{}');
+      } catch {
+        reject(new Error('Respuesta inválida'));
+        return;
+      }
+      if (xhr.status >= 200 && xhr.status < 300 && json.success) {
+        resolve(json.data);
+        return;
+      }
+      const err = new Error(json?.error?.message || `HTTP ${xhr.status}`);
+      err.code = json?.error?.code;
+      err.status = xhr.status;
+      reject(err);
+    };
+    xhr.onerror = () => reject(new Error('Error de red'));
+    xhr.send(formData);
+  });
+}
+
 export const api = {
   get: (url, opts = {}) => request(url, { ...opts, method: 'GET' }),
   post: (url, body, opts = {}) =>

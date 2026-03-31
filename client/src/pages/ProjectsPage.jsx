@@ -242,6 +242,9 @@ export function ProjectsPage() {
                       <Link className="btn-link mono" to={`/projects/${row.id}/presupuesto`}>
                         Presupuesto
                       </Link>
+                      <Link className="btn-link mono" to={`/projects/${row.id}/planos`}>
+                        Planos
+                      </Link>
                       <button type="button" className="btn-link mono" onClick={() => openAudit(row)}>
                         Auditoría
                       </button>

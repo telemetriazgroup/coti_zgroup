@@ -150,17 +150,17 @@ express-rate-limit, dotenv, nodemon (dev)
 **Objetivo:** Gestión de archivos con trazabilidad de versiones.
 
 ### Entregables
-- [ ] `db/schema.sql` ampliado: project_plans
-- [ ] `server/config/s3.js` — Cliente MinIO/S3
-- [ ] `server/services/storage.service.js` — upload, signed URL, delete
-- [ ] `server/routes/plans.js` — CRUD planos con versioning
-- [ ] Multer config: max 25MB, validación MIME
-- [ ] Panel planos: drag & drop, lista de archivos con versiones
-- [ ] Preview imágenes con URL firmada (TTL 15min)
-- [ ] Historial de versiones para ADMIN y COMERCIAL
-- [ ] Vista VIEWER: solo plano `is_current=true` con versión mayor
-- [ ] Badge contador de planos en la pestaña
-- [ ] Notas de revisión al subir nueva versión
+- [x] `db/schema.sql` ampliado: project_plans
+- [x] `server/config/s3.js` — Cliente MinIO/S3
+- [x] `server/services/storage.service.js` — upload, signed URL, delete
+- [x] `server/routes/plans.js` — CRUD planos con versioning
+- [x] Multer config: max 25MB, validación MIME
+- [x] Panel planos: drag & drop, lista de archivos con versiones
+- [x] Preview imágenes con URL firmada (TTL 15min)
+- [x] Historial de versiones para ADMIN y COMERCIAL
+- [x] Vista VIEWER: solo plano `is_current=true` con versión mayor
+- [x] Badge contador de planos en la pestaña
+- [x] Notas de revisión al subir nueva versión
 
 ### Criterios de aceptación
 - Upload arrastra o hace click, muestra progress bar
@@ -177,18 +177,18 @@ express-rate-limit, dotenv, nodemon (dev)
 **Objetivo:** Reportes profesionales y dashboard gerencial.
 
 ### Entregables
-- [ ] `server/workers/pdf.worker.js` — BullMQ + Puppeteer
-- [ ] `server/services/pdf.service.js` — Templates HTML para PDFs
-- [ ] `server/routes/export.js` — POST /api/export/pdf (async job)
-- [ ] Polling frontend: GET /api/export/status/:jobId cada 2s
-- [ ] **PDF Gerencia**: portada + presupuesto + análisis financiero completo + panel gerencial
-- [ ] **PDF Cliente**: portada + totales por modalidad + plano final (sin datos internos)
-- [ ] Logo ZGROUP en header de PDFs
-- [ ] **M5 Panel Gerencial**: comparativa CP vs LP, veredicto, horizonte configurable
-- [ ] Vista admin: `#/dashboard` — KPIs globales, KPIs por comercial
-- [ ] Vista admin: `#/dashboard` — Proyectos por estado, valor pipeline, ratio cierre
-- [ ] Record por comercial: tabla con métricas individuales
-- [ ] `db/schema.sql` ampliado: project_budget_snapshots
+- [x] `server/workers/pdf.worker.js` — BullMQ + Puppeteer
+- [x] `server/services/pdf.service.js` — Templates HTML para PDFs
+- [x] `server/routes/export.js` — POST /api/export/pdf (async job)
+- [x] Polling frontend: GET /api/export/status/:jobId cada 2s
+- [x] **PDF Gerencia**: portada + presupuesto + análisis financiero completo + panel gerencial
+- [x] **PDF Cliente**: portada + totales por modalidad + plano final (sin datos internos)
+- [x] Logo ZGROUP en header de PDFs
+- [x] **M5 Panel Gerencial**: comparativa CP vs LP, veredicto, horizonte configurable
+- [x] Vista admin: `#/dashboard` — KPIs globales, KPIs por comercial
+- [x] Vista admin: `#/dashboard` — Proyectos por estado, valor pipeline, ratio cierre
+- [x] Record por comercial: tabla con métricas individuales
+- [x] `db/schema.sql` ampliado: project_budget_snapshots
 
 ### Criterios de aceptación
 - PDF Gerencia incluye Panel Gerencial con todos los parámetros
@@ -237,8 +237,8 @@ express-rate-limit, dotenv, nodemon (dev)
 | 2 | Catálogo Administrable | 2 | Medio | ⏳ Pendiente |
 | 3 | Módulo Presupuesto | 2 | Alto | ⏳ Pendiente |
 | 4 | Módulos Financieros M1-M4 | 2 | Alto | ⏳ Pendiente |
-| 5 | Planos Técnicos | 1.5 | Medio | ⏳ Pendiente |
-| 6 | PDF + Panel Gerencial | 2 | Alto | ⏳ Pendiente |
+| 5 | Planos Técnicos | 1.5 | Medio | ✅ Hecho |
+| 6 | PDF + Panel Gerencial | 2 | Alto | ✅ Hecho |
 | 7 | Pulimiento + Deploy | 2 | Medio | ⏳ Pendiente |
 | **Total** | | **15.5 semanas** | | |
 

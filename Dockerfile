@@ -18,12 +18,20 @@ FROM node:20-alpine AS runner
 WORKDIR /app
 
 ENV NODE_ENV=production
+# Puppeteer / Chromium (PDF) — el binario real en Alpine suele ser /usr/lib/chromium/chromium
+RUN apk add --no-cache chromium nss freetype harfbuzz ca-certificates ttf-freefont font-noto-emoji \
+ && if [ -x /usr/lib/chromium/chromium ]; then \
+      ln -sf /usr/lib/chromium/chromium /usr/bin/chromium; \
+      ln -sf /usr/lib/chromium/chromium /usr/bin/chromium-browser; \
+    fi
+ENV PUPPETEER_EXECUTABLE_PATH=/usr/lib/chromium/chromium
 
 RUN addgroup -S zgroup && adduser -S zgroup -G zgroup
 
 COPY --from=builder --chown=zgroup:zgroup /app/package.json ./package.json
 COPY --from=builder --chown=zgroup:zgroup /app/node_modules ./node_modules
 COPY --from=builder --chown=zgroup:zgroup /app/server ./server
+COPY --from=builder --chown=zgroup:zgroup /app/shared ./shared
 COPY --from=builder --chown=zgroup:zgroup /app/client/dist ./client/dist
 
 USER zgroup

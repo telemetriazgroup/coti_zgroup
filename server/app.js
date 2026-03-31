@@ -14,6 +14,8 @@ const projectItemRoutes = require('./routes/projectItems');
 const projectRoutes = require('./routes/projects');
 const dashboardRoutes = require('./routes/dashboard');
 const catalogRoutes = require('./routes/catalog');
+const planRoutes = require('./routes/plans');
+const exportRoutes = require('./routes/export');
 
 const app = express();
 
@@ -37,6 +39,19 @@ function buildAllowedOrigins() {
 
 const allowedOrigins = buildAllowedOrigins();
 
+function s3OriginsForCsp() {
+  const extra = [];
+  const u = process.env.S3_PUBLIC_ENDPOINT || process.env.S3_ENDPOINT || '';
+  if (u) {
+    try {
+      extra.push(new URL(u).origin);
+    } catch {
+      /* ignore */
+    }
+  }
+  return extra;
+}
+
 app.use(helmet({
   contentSecurityPolicy: {
     directives: {
@@ -45,7 +60,8 @@ app.use(helmet({
       scriptSrc:  ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com"],
       styleSrc:   ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
       fontSrc:    ["'self'", "https://fonts.gstatic.com"],
-      imgSrc:     ["'self'", "data:", "blob:"],
+      imgSrc:     ["'self'", "data:", "blob:", ...s3OriginsForCsp()],
+      frameSrc:   ["'self'", "blob:", ...s3OriginsForCsp()],
       connectSrc: ["'self'"],
     },
   },
@@ -65,7 +81,7 @@ app.use(cors({
 app.use(compression());
 app.use(morgan(process.env.NODE_ENV === 'production' ? 'combined' : 'dev'));
 app.use(cookieParser());
-app.use(express.json({ limit: '2mb' }));
+app.use(express.json({ limit: '5mb' }));
 app.use(express.urlencoded({ extended: true }));
 
 const clientDist = path.join(__dirname, '../client/dist');
@@ -78,9 +94,11 @@ app.use('/api/users', userRoutes);
 app.use('/api/employees', employeeRoutes);
 app.use('/api/clients', clientRoutes);
 app.use('/api/projects', projectItemRoutes);
+app.use('/api/projects', planRoutes);
 app.use('/api/projects', projectRoutes);
 app.use('/api/dashboard', dashboardRoutes);
 app.use('/api/catalog', catalogRoutes);
+app.use('/api/export', exportRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({

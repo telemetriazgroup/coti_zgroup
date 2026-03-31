@@ -7,6 +7,11 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
   root: path.join(__dirname, 'client'),
+  resolve: {
+    alias: {
+      '@shared': path.join(__dirname, 'shared'),
+    },
+  },
   plugins: [react()],
   build: {
     outDir: path.join(__dirname, 'client/dist'),
@@ -14,6 +19,9 @@ export default defineConfig({
   },
   server: {
     port: 5173,
+    fs: {
+      allow: [path.join(__dirname), path.join(__dirname, 'shared')],
+    },
     proxy: {
       '/api': {
         target: 'http://localhost:3000',

@@ -1,9 +1,12 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, getToken } from '../lib/api';
 import { fetchCatalog } from '../lib/catalogApi';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
+import { FinanceModules } from '../components/finance/FinanceModules';
+import { ProjectWorkNav } from '../components/ProjectWorkNav';
+import { mergeFinanceParams } from '@shared/finance-engine.js';
 
 const STATUS_LABEL = {
   BORRADOR: 'Borrador',
@@ -21,8 +24,9 @@ function formatUsd(n) {
 
 export function ProjectBudgetPage() {
   const { projectId } = useParams();
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const canWrite = hasRole('ADMIN', 'COMERCIAL');
+  const viewerMode = user?.role === 'VIEWER';
 
   const [project, setProject] = useState(null);
   const [projectStatus, setProjectStatus] = useState(null);
@@ -54,6 +58,17 @@ export function ProjectBudgetPage() {
   const draftsRef = useRef({});
   const itemsRef = useRef([]);
   const flushTimers = useRef({});
+  const [financeParams, setFinanceParams] = useState(() => mergeFinanceParams({}));
+  const financePersistRef = useRef('');
+  const [pdfBusy, setPdfBusy] = useState(false);
+  const [pdfMsg, setPdfMsg] = useState(null);
+  const pdfPollRef = useRef(null);
+
+  useEffect(() => {
+    return () => {
+      if (pdfPollRef.current) clearInterval(pdfPollRef.current);
+    };
+  }, []);
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(qInput), 200);
@@ -71,6 +86,9 @@ export function ProjectBudgetPage() {
         fetchCatalog(false).then((r) => r.data),
       ]);
       setProject(proj);
+      const mergedFp = mergeFinanceParams(proj.financeParams);
+      setFinanceParams(mergedFp);
+      financePersistRef.current = JSON.stringify(mergedFp);
       setProjectStatus(budget.projectStatus);
       setItems(budget.items || []);
       setTotals(budget.totals || { activos: 0, consumibles: 0, lista: 0 });
@@ -95,6 +113,23 @@ export function ProjectBudgetPage() {
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
+
+  useEffect(() => {
+    if (!projectId || !canWrite) return;
+    const j = JSON.stringify(financeParams);
+    if (j === financePersistRef.current) return;
+    const t = setTimeout(async () => {
+      try {
+        const data = await api.put(`/api/projects/${projectId}`, { financeParams });
+        const next = mergeFinanceParams(data.financeParams);
+        financePersistRef.current = JSON.stringify(next);
+        setProject((prev) => (prev ? { ...prev, financeParams: data.financeParams } : prev));
+      } catch (e) {
+        setErr(e.message);
+      }
+    }, 500);
+    return () => clearTimeout(t);
+  }, [financeParams, projectId, canWrite]);
 
   const syncDraftFromItems = useCallback((list) => {
     const dm = { ...draftsRef.current };
@@ -233,6 +268,66 @@ export function ProjectBudgetPage() {
     }
   }
 
+  async function startPdf(kind) {
+    if (!projectId || pdfBusy) return;
+    if (pdfPollRef.current) {
+      clearInterval(pdfPollRef.current);
+      pdfPollRef.current = null;
+    }
+    setPdfBusy(true);
+    setPdfMsg(null);
+    setErr(null);
+    try {
+      const data = await api.post('/api/export/pdf', { projectId, kind });
+      const jobId = data.jobId;
+      const poll = async () => {
+        try {
+          const st = await api.get(`/api/export/pdf/status/${jobId}`);
+          if (st.state === 'failed') {
+            if (pdfPollRef.current) clearInterval(pdfPollRef.current);
+            pdfPollRef.current = null;
+            setPdfBusy(false);
+            setPdfMsg(st.error || 'Error PDF');
+            return;
+          }
+          if (st.ready) {
+            if (pdfPollRef.current) clearInterval(pdfPollRef.current);
+            pdfPollRef.current = null;
+            setPdfBusy(false);
+            setPdfMsg('Descargando…');
+            const res = await fetch(`/api/export/pdf/download/${jobId}`, {
+              credentials: 'include',
+              headers: { Authorization: `Bearer ${getToken()}` },
+            });
+            if (!res.ok) {
+              const j = await res.json().catch(() => ({}));
+              throw new Error(j?.error?.message || res.statusText);
+            }
+            const blob = await res.blob();
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `zgroup-${kind}.pdf`;
+            a.click();
+            URL.revokeObjectURL(url);
+            setPdfMsg('PDF descargado.');
+            setTimeout(() => setPdfMsg(null), 4000);
+          }
+        } catch (e) {
+          if (pdfPollRef.current) clearInterval(pdfPollRef.current);
+          pdfPollRef.current = null;
+          setPdfBusy(false);
+          setPdfMsg(e.message);
+        }
+      };
+      await poll();
+      pdfPollRef.current = setInterval(poll, 2000);
+    } catch (e) {
+      setPdfBusy(false);
+      setErr(e.message);
+    }
+  }
+
   async function removeItem(id) {
     if (!canWrite) return;
     setErr(null);
@@ -253,6 +348,12 @@ export function ProjectBudgetPage() {
     () => [...categories].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
     [categories]
   );
+
+  const catById = useMemo(() => {
+    const m = new Map();
+    for (const c of categories) m.set(c.id, c);
+    return m;
+  }, [categories]);
 
   if (loading && !project) {
     return (
@@ -305,6 +406,8 @@ export function ProjectBudgetPage() {
           )}
         </div>
       </div>
+
+      <ProjectWorkNav />
 
       {err && (
         <div className="banner banner--err mono" style={{ marginBottom: 12 }}>
@@ -374,21 +477,32 @@ export function ProjectBudgetPage() {
                 Sin resultados
               </p>
             ) : (
-              filteredCatalog.map((it) => (
-                <button
-                  key={it.id}
-                  type="button"
-                  className="budget-cat-item"
-                  disabled={!canWrite}
-                  onClick={() => addFromCatalog(it)}
-                >
-                  <span className="budget-cat-code mono">{it.codigo}</span>
-                  <span className="budget-cat-desc">{it.descripcion}</span>
-                  <span className="budget-cat-meta mono">
-                    {it.tipo} · {formatUsd(it.unitPrice)} / {it.unidad}
-                  </span>
-                </button>
-              ))
+              filteredCatalog.map((it) => {
+                const catNombre = it.categoryNombre || catById.get(it.categoryId)?.nombre || '—';
+                const tipoClass =
+                  it.tipo === 'CONSUMIBLE' ? 'budget-badge--consumible' : 'budget-badge--activo';
+                return (
+                  <button
+                    key={it.id}
+                    type="button"
+                    className="budget-cat-item"
+                    disabled={!canWrite}
+                    onClick={() => addFromCatalog(it)}
+                  >
+                    <div className="budget-cat-tags">
+                      <span className={`budget-badge budget-badge--tipo ${tipoClass}`}>{it.tipo}</span>
+                      <span className="budget-badge budget-badge--cat mono" title={catNombre}>
+                        {catNombre}
+                      </span>
+                    </div>
+                    <span className="budget-cat-code mono">{it.codigo}</span>
+                    <span className="budget-cat-desc">{it.descripcion}</span>
+                    <span className="budget-cat-meta mono">
+                      {formatUsd(it.unitPrice)} / {it.unidad}
+                    </span>
+                  </button>
+                );
+              })
             )}
           </div>
         </aside>
@@ -477,6 +591,54 @@ export function ProjectBudgetPage() {
           </footer>
         </div>
       </div>
+
+      <FinanceModules
+        baseLista={totals.lista}
+        baseActivos={totals.activos}
+        baseConsumibles={totals.consumibles}
+        financeParams={financeParams}
+        onFinanceParamsChange={setFinanceParams}
+        viewerMode={viewerMode}
+      />
+
+      {canWrite && (
+        <div className="panel" style={{ marginTop: 20 }}>
+          <div className="panel-hdr">
+            <span className="panel-title">Exportar PDF</span>
+          </div>
+          <p className="muted mono" style={{ fontSize: 12, lineHeight: 1.5 }}>
+            <strong>Gerencia PDF</strong>: presupuesto, M1–M4 + panel M5 (CP vs LP).{' '}
+            <strong>Cliente PDF</strong>: portada y totales por modalidad sin datos internos (ROA, spreads).
+            <br />
+            El bloque <strong>M5 · Panel gerencial</strong> en la sección de arriba muestra los mismos datos
+            que irán al PDF Gerencia (ajusta el horizonte en meses antes de exportar).
+          </p>
+          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
+            <button
+              type="button"
+              className="btn btn-ghost mono"
+              disabled={pdfBusy}
+              onClick={() => startPdf('GERENCIA')}
+            >
+              PDF Gerencia
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost mono"
+              disabled={pdfBusy}
+              onClick={() => startPdf('CLIENTE')}
+            >
+              PDF Cliente
+            </button>
+          </div>
+          {pdfBusy && <p className="muted mono" style={{ marginTop: 8 }}>Generando… (polling cada 2s)</p>}
+          {pdfMsg && (
+            <div className="banner banner--warn mono" style={{ marginTop: 10 }}>
+              {pdfMsg}
+            </div>
+          )}
+        </div>
+      )}
 
       {modal === 'clear' && (
         <Modal

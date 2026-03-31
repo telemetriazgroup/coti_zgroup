@@ -1,8 +1,19 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { api } from '../lib/api';
+import { api, getBlob, postFormData } from '../lib/api';
 import { Modal } from '../components/Modal';
+
+const ISSUE_LABELS = {
+  FALTA_EMAIL: 'Falta email',
+  EMAIL_INVALIDO: 'Email inválido',
+  EMAIL_DUP_LOTE: 'Email repetido en el archivo',
+  EMAIL_EN_BD: 'Email ya registrado',
+  PASSWORD_INVALIDO: 'Contraseña obligatoria (mín. 8 caracteres)',
+  ROL_INVALIDO: 'Rol inválido (ADMIN, COMERCIAL, VIEWER)',
+  FALTA_NOMBRES: 'Nombres obligatorios para este rol',
+  FALTA_APELLIDOS: 'Apellidos obligatorios para este rol',
+};
 
 const ROLES = [
   { value: 'ADMIN', label: 'ADMIN' },
@@ -29,6 +40,13 @@ export function UsersPage() {
   const [modal, setModal] = useState(null);
   const [createForm, setCreateForm] = useState(emptyCreate);
   const [editForm, setEditForm] = useState(null);
+
+  const fileInputRef = useRef(null);
+  const pendingFileRef = useRef(null);
+  const [importModal, setImportModal] = useState(false);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importApplying, setImportApplying] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,6 +148,61 @@ export function UsersPage() {
     }
   }
 
+  async function downloadExcel() {
+    setErr(null);
+    try {
+      const blob = await getBlob('/api/users/export');
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'zgroup-usuarios.xlsx';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function onImportFile(e) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    pendingFileRef.current = f;
+    setErr(null);
+    setImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const data = await postFormData('/api/users/import/preview', fd);
+      setImportPreview(data);
+      setImportModal(true);
+    } catch (e2) {
+      pendingFileRef.current = null;
+      setErr(e2.message);
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function applyExcelImport() {
+    const f = pendingFileRef.current;
+    if (!f || !importPreview?.canApply) return;
+    setErr(null);
+    setImportApplying(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      await postFormData('/api/users/import/apply', fd);
+      setImportModal(false);
+      setImportPreview(null);
+      pendingFileRef.current = null;
+      load();
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setImportApplying(false);
+    }
+  }
+
   async function deactivate(row) {
     if (row.id === me?.id) {
       setErr('No puedes desactivar tu propio usuario');
@@ -152,9 +225,29 @@ export function UsersPage() {
           <h1 className="page-title">Usuarios</h1>
           <p className="page-sub muted">Alta, roles y desactivación (solo ADMIN)</p>
         </div>
-        <button type="button" className="btn btn-primary" onClick={openCreate}>
-          Nuevo usuario
-        </button>
+        <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-ghost mono" onClick={downloadExcel} disabled={loading}>
+            Descargar Excel
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost mono"
+            disabled={loading || importBusy}
+            onClick={() => fileInputRef.current?.click()}
+          >
+            {importBusy ? 'Leyendo…' : 'Importar Excel…'}
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+            style={{ display: 'none' }}
+            onChange={onImportFile}
+          />
+          <button type="button" className="btn btn-primary" onClick={openCreate}>
+            Nuevo usuario
+          </button>
+        </div>
       </div>
 
       {err && (
@@ -214,6 +307,89 @@ export function UsersPage() {
           </table>
         </div>
       </div>
+
+      {importModal && importPreview && (
+        <Modal
+          wide
+          title="Previsualización de importación"
+          onClose={() => {
+            setImportModal(false);
+            setImportPreview(null);
+            pendingFileRef.current = null;
+          }}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setImportModal(false);
+                  setImportPreview(null);
+                  pendingFileRef.current = null;
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!importPreview.canApply || importApplying}
+                onClick={applyExcelImport}
+              >
+                {importApplying ? 'Importando…' : 'Confirmar importación'}
+              </button>
+            </>
+          }
+        >
+          <p className="muted mono" style={{ fontSize: 12, marginBottom: 10 }}>
+            Filas: {importPreview.total}. Email y contraseña (mín. 8) obligatorios; rol ADMIN/COMERCIAL requiere nombres y
+            apellidos. La confirmación vuelve a enviar el mismo archivo (las contraseñas no viajan por JSON).{' '}
+            {importPreview.canApply ? (
+              <span style={{ color: 'var(--green)' }}>Listo para importar.</span>
+            ) : (
+              <span style={{ color: 'var(--red)' }}>Corrija el archivo y vuelva a subir.</span>
+            )}
+          </p>
+          <div className="table-wrap catalog-import-table-wrap">
+            <table className="data-table data-table--compact">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Email</th>
+                  <th>Rol</th>
+                  <th>Nombres</th>
+                  <th>Apellidos</th>
+                  <th>Contraseña</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importPreview.rows.map((r) => (
+                  <tr key={r.rowIndex} className={r.issues?.length ? 'catalog-import-row--err' : ''}>
+                    <td className="mono">{r.rowIndex}</td>
+                    <td className="mono">{r.email}</td>
+                    <td className="mono">{r.role}</td>
+                    <td>{r.nombres || '—'}</td>
+                    <td>{r.apellidos || '—'}</td>
+                    <td className="mono">{r.passwordOk ? '✓ OK (≥8)' : '✗'}</td>
+                    <td className="mono" style={{ fontSize: 10, lineHeight: 1.35 }}>
+                      {r.issues?.length ? (
+                        r.issues.map((code) => (
+                          <div key={code} className="catalog-issue-tag" title={code}>
+                            {ISSUE_LABELS[code] || code}
+                          </div>
+                        ))
+                      ) : (
+                        <span style={{ color: 'var(--green)' }}>OK</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Modal>
+      )}
 
       {modal === 'create' && (
         <Modal

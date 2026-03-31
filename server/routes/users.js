@@ -1,8 +1,30 @@
 const express = require('express');
-const bcrypt  = require('bcrypt');
+const multer = require('multer');
+const bcrypt = require('bcrypt');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const {
+  parseImportBuffer,
+  validateImportRows,
+  buildUsersXlsx,
+  fetchAllUsersForExport,
+  applyUserImport,
+} = require('../lib/usersExcel');
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 5 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const ok =
+      /\.(xlsx|xls)$/i.test(file.originalname) ||
+      [
+        'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+        'application/vnd.ms-excel',
+      ].includes(file.mimetype);
+    cb(null, ok);
+  },
+});
 
 const router = express.Router();
 // Todas las rutas requieren auth
@@ -35,6 +57,87 @@ router.get('/', requireRole('ADMIN'), async (req, res) => {
     return res.json({ success: true, data: rows });
   } catch (err) {
     console.error('[USERS] List error:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/users/export — Excel (ADMIN) ─────────────────────
+router.get('/export', requireRole('ADMIN'), async (req, res) => {
+  try {
+    const rows = await fetchAllUsersForExport();
+    const buf = buildUsersXlsx(rows);
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', 'attachment; filename="zgroup-usuarios.xlsx"');
+    return res.send(buf);
+  } catch (err) {
+    console.error('[USERS] export:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/users/import/preview — ADMIN ───────────────────
+router.post('/import/preview', requireRole('ADMIN'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'NO_FILE', message: 'Adjunte un archivo .xlsx' },
+      });
+    }
+    const { rows: parsed, parseError } = parseImportBuffer(req.file.buffer);
+    if (parseError) {
+      return res.status(400).json({ success: false, error: { code: 'PARSE_ERROR', message: parseError } });
+    }
+    if (parsed.length === 0) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'EMPTY', message: 'No hay filas de datos.' },
+      });
+    }
+    const { rowsForPreview, canApply } = await validateImportRows(parsed);
+    return res.json({
+      success: true,
+      data: { rows: rowsForPreview, canApply, total: rowsForPreview.length },
+    });
+  } catch (err) {
+    console.error('[USERS] import preview:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/users/import/apply — mismo archivo otra vez (ADMIN)
+router.post('/import/apply', requireRole('ADMIN'), upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'NO_FILE', message: 'Vuelva a adjuntar el mismo archivo .xlsx' },
+      });
+    }
+    const { rows: parsed, parseError } = parseImportBuffer(req.file.buffer);
+    if (parseError) {
+      return res.status(400).json({ success: false, error: { code: 'PARSE_ERROR', message: parseError } });
+    }
+    const { rowsForInsert, canApply } = await validateImportRows(parsed);
+    if (!canApply) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'IMPORT_INVALID',
+          message: 'La validación falló. Revise el archivo y la vista previa.',
+        },
+      });
+    }
+    const { inserted } = await applyUserImport(rowsForInsert);
+    return res.json({ success: true, data: { inserted } });
+  } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: { code: 'DUPLICATE_EMAIL', message: 'Email duplicado al insertar' },
+      });
+    }
+    console.error('[USERS] import apply:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });

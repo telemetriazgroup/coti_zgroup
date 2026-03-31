@@ -1,8 +1,21 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { api } from '../lib/api';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { api, getBlob, postFormData } from '../lib/api';
 import { fetchCatalog } from '../lib/catalogApi';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
+
+const ISSUE_LABELS = {
+  FALTA_CATEGORIA: 'Falta categoría',
+  FALTA_CODIGO: 'Falta código',
+  FALTA_DESCRIPCION: 'Falta descripción',
+  TIPO_INVALIDO: 'Tipo inválido (use ACTIVO o CONSUMIBLE)',
+  PRECIO_INVALIDO: 'Precio inválido',
+  DUP_CODIGO_LOTE: 'Código repetido en el archivo (misma categoría)',
+  DUP_DESC_LOTE: 'Descripción repetida en el archivo',
+  CODIGO_EN_BD: 'Código ya existe en esa categoría',
+  DESC_EN_BD: 'Descripción ya existe en el catálogo',
+  CATEGORIA_NO_EXISTE: 'Categoría no encontrada (créela antes o corrija el nombre)',
+};
 
 export function CatalogPage() {
   const { hasRole } = useAuth();
@@ -34,6 +47,12 @@ export function CatalogPage() {
   });
 
   const [dragId, setDragId] = useState(null);
+
+  const fileInputRef = useRef(null);
+  const [importModal, setImportModal] = useState(false);
+  const [importPreview, setImportPreview] = useState(null);
+  const [importBusy, setImportBusy] = useState(false);
+  const [importApplying, setImportApplying] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -203,6 +222,56 @@ export function CatalogPage() {
     }
   }
 
+  async function downloadExcel() {
+    setErr(null);
+    try {
+      const qs = isAdmin && showInactive ? '?includeInactive=true' : '';
+      const blob = await getBlob(`/api/catalog/export${qs}`);
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'zgroup-catalogo.xlsx';
+      a.click();
+      URL.revokeObjectURL(a.href);
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
+
+  async function onImportFile(e) {
+    const f = e.target.files?.[0];
+    e.target.value = '';
+    if (!f) return;
+    setErr(null);
+    setImportBusy(true);
+    try {
+      const fd = new FormData();
+      fd.append('file', f);
+      const data = await postFormData('/api/catalog/import/preview', fd);
+      setImportPreview(data);
+      setImportModal(true);
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setImportBusy(false);
+    }
+  }
+
+  async function applyExcelImport() {
+    if (!importPreview?.canApply || !importPreview.rows?.length) return;
+    setErr(null);
+    setImportApplying(true);
+    try {
+      await api.post('/api/catalog/import/apply', { rows: importPreview.rows });
+      setImportModal(false);
+      setImportPreview(null);
+      load();
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setImportApplying(false);
+    }
+  }
+
   async function deactivateItem(row) {
     if (!window.confirm(`¿Desactivar ítem "${row.codigo}"?`)) return;
     setErr(null);
@@ -249,6 +318,35 @@ export function CatalogPage() {
           {err}
         </div>
       )}
+
+      <div className="catalog-excel-actions" style={{ marginBottom: 14 }}>
+        <button type="button" className="btn btn-ghost mono" onClick={downloadExcel} disabled={loading}>
+          Descargar Excel
+        </button>
+        {isAdmin && (
+          <>
+            <button
+              type="button"
+              className="btn btn-primary"
+              disabled={loading || importBusy}
+              onClick={() => fileInputRef.current?.click()}
+            >
+              {importBusy ? 'Leyendo…' : 'Subir Excel…'}
+            </button>
+            <input
+              ref={fileInputRef}
+              type="file"
+              accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+              style={{ display: 'none' }}
+              onChange={onImportFile}
+            />
+            <span className="muted mono" style={{ fontSize: 11 }}>
+              Plantilla: misma estructura que la exportación. Se validan duplicados de código (por categoría) y de
+              descripción.
+            </span>
+          </>
+        )}
+      </div>
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-hdr">
@@ -358,7 +456,16 @@ export function CatalogPage() {
                       <td>{row.descripcion}</td>
                       <td>{cat?.nombre || '—'}</td>
                       <td className="mono">{row.unidad}</td>
-                      <td className="mono">{row.tipo}</td>
+                      <td>
+                        <span
+                          className={
+                            'tipo-pill ' +
+                            (row.tipo === 'CONSUMIBLE' ? 'tipo-pill--consumible' : 'tipo-pill--activo')
+                          }
+                        >
+                          {row.tipo}
+                        </span>
+                      </td>
                       <td className="num mono">
                         {Number(row.unitPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })}
                       </td>
@@ -426,6 +533,88 @@ export function CatalogPage() {
               <span>Activa</span>
             </label>
           </form>
+        </Modal>
+      )}
+
+      {importModal && importPreview && isAdmin && (
+        <Modal
+          wide
+          title="Previsualización de importación"
+          onClose={() => {
+            setImportModal(false);
+            setImportPreview(null);
+          }}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setImportModal(false);
+                  setImportPreview(null);
+                }}
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={!importPreview.canApply || importApplying}
+                onClick={applyExcelImport}
+              >
+                {importApplying ? 'Importando…' : 'Confirmar importación'}
+              </button>
+            </>
+          }
+        >
+          <p className="muted mono" style={{ fontSize: 12, marginBottom: 10 }}>
+            Filas: {importPreview.total}.{' '}
+            {importPreview.canApply ? (
+              <span style={{ color: 'var(--green)' }}>Listo para importar.</span>
+            ) : (
+              <span style={{ color: 'var(--red)' }}>Corrija el archivo o la categoría y vuelva a subir.</span>
+            )}
+          </p>
+          <div className="table-wrap catalog-import-table-wrap">
+            <table className="data-table data-table--compact">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Categoría</th>
+                  <th>Código</th>
+                  <th>Descripción</th>
+                  <th>Unidad</th>
+                  <th>Tipo</th>
+                  <th className="num">Precio</th>
+                  <th>Estado</th>
+                </tr>
+              </thead>
+              <tbody>
+                {importPreview.rows.map((r) => (
+                  <tr key={r.rowIndex} className={r.issues?.length ? 'catalog-import-row--err' : ''}>
+                    <td className="mono">{r.rowIndex}</td>
+                    <td>{r.categoria}</td>
+                    <td className="mono">{r.codigo}</td>
+                    <td>{r.descripcion}</td>
+                    <td className="mono">{r.unidad}</td>
+                    <td className="mono">{r.tipo}</td>
+                    <td className="num mono">{r.precio}</td>
+                    <td className="mono" style={{ fontSize: 10, lineHeight: 1.35 }}>
+                      {r.issues?.length ? (
+                        r.issues.map((code) => (
+                          <div key={code} className="catalog-issue-tag" title={code}>
+                            {ISSUE_LABELS[code] || code}
+                          </div>
+                        ))
+                      ) : (
+                        <span style={{ color: 'var(--green)' }}>OK</span>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
         </Modal>
       )}
 

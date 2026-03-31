@@ -2,8 +2,8 @@
  * Caché Redis del catálogo (TTL 24h). Sin REDIS_URL no hace nada.
  */
 const TTL_SEC = 24 * 60 * 60;
-const KEY_ACT = 'catalog:v1:snapshot:act';
-const KEY_ALL = 'catalog:v1:snapshot:all';
+const KEY_ACT = 'catalog:v2:snapshot:act';
+const KEY_ALL = 'catalog:v2:snapshot:all';
 
 let client = null;
 let connectFailed = false;
