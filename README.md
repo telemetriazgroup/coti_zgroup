@@ -91,7 +91,9 @@ Opcional: **`ALLOWED_ORIGINS`** (coma) si necesitas más de un origen; **`TRUST_
 
 Los errores **`ERR_SSL_PROTOCOL_ERROR`** en `/assets/...` suelen aparecer si el navegador intenta **`https://`** contra un servidor que solo habla **HTTP**. El build de Vite usa **`base: './'`** (rutas relativas) para que CSS/JS pidan el mismo esquema que la página (`http://` si entras por HTTP).
 
-**Si sigue fallando:** en Chrome, borra **datos del sitio** para esa IP (Configuración → Privacidad → Borrar datos de navegación → solo ese origen) para quitar caché/HSTS y el aviso **Origin-Agent-Cluster** (“previously been placed in a site-keyed agent cluster”). También prueba ventana de incógnito o desactiva **“Usar siempre conexiones seguras”** para sitios que no tengan HTTPS. Entra siempre con **`http://IP:3000`** escrito en la barra.
+**Si sigue fallando:** el servidor ahora envía **`Origin-Agent-Cluster: ?0`** y el `index.html` del SPA va **sin caché** (`no-store`) para que no quede un HTML viejo con rutas erróneas. Tras desplegar, haz **recarga forzada** (Ctrl+Shift+R) o borra **datos del sitio** para esa IP (Configuración → Privacidad → solo ese origen) para limpiar el aviso de cluster y cualquier intento previo de **HTTPS**. Prueba incógnito o desactiva **“Usar siempre conexiones seguras”** en Chrome. Entra con **`http://IP:3000`** explícito.
+
+Si los errores muestran aún **`https://.../assets/`**, el navegador sigue usando una **versión antigua** del `index.html` en caché o Chrome intenta HTTPS primero: borra caché del sitio y vuelve a construir la imagen (`docker compose build --no-cache app`).
 
 El aviso de **origen no fiable** con COOP es coherente con HTTP no cifrado; la solución estable es servir la app con **HTTPS** (proxy + certificado).
 

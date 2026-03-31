@@ -87,6 +87,8 @@ app.use(
         connectSrc: ["'self'"],
       },
     },
+    // Evita aviso Chrome "origin-keyed vs site-keyed" en HTTP por IP (Helmet envía ?1 por defecto).
+    originAgentCluster: false,
     ...(useRelaxedHelmet()
       ? {
           crossOriginOpenerPolicy: false,
@@ -95,6 +97,12 @@ app.use(
       : {}),
   })
 );
+
+/** Refuerzo: opt-out de origin-keying (coherente con HTTP sin TLS). */
+app.use((req, res, next) => {
+  res.setHeader('Origin-Agent-Cluster', '?0');
+  next();
+});
 
 app.use(cors({
   origin(origin, callback) {
@@ -115,7 +123,8 @@ app.use(express.urlencoded({ extended: true }));
 
 const clientDist = path.join(__dirname, '../client/dist');
 if (process.env.NODE_ENV === 'production') {
-  app.use(express.static(clientDist));
+  // index: false — no servir index.html aquí; lo envía el catch-all con Cache-Control (evita HTML viejo en caché).
+  app.use(express.static(clientDist, { index: false, maxAge: '1y' }));
 }
 
 app.use('/api/auth',  authRoutes);
@@ -149,7 +158,9 @@ app.get('*', (req, res) => {
     });
   }
   if (process.env.NODE_ENV === 'production') {
-    return res.sendFile(path.join(clientDist, 'index.html'));
+    res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate');
+    res.setHeader('Pragma', 'no-cache');
+    return res.sendFile(path.join(clientDist, 'index.html'), { etag: false });
   }
   res
     .status(503)
