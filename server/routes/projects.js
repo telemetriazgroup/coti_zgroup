@@ -265,8 +265,18 @@ router.patch(
 );
 
 const createValidation = [
-  body('nombre').notEmpty().withMessage('Nombre requerido'),
-  body('odooRef').optional().isString(),
+  body('nombre')
+    .trim()
+    .notEmpty()
+    .withMessage('Nombre requerido')
+    .isLength({ max: 200 })
+    .withMessage('Nombre máximo 200 caracteres'),
+  body('odooRef')
+    .optional({ values: 'falsy' })
+    .isString()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Referencia Odoo máximo 50 caracteres'),
   body('clientId').optional({ nullable: true }).isUUID(),
   body('status').optional().isIn([
     'BORRADOR',
@@ -289,6 +299,7 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL'), createValidation, async (req
   }
 
   const { nombre, odooRef, clientId, status } = req.body;
+  const odooRefNorm = odooRef != null && String(odooRef).trim() !== '' ? String(odooRef).trim() : null;
 
   try {
     if (clientId) {
@@ -303,9 +314,9 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL'), createValidation, async (req
 
     const { rows } = await pool.query(
       `INSERT INTO projects (nombre, odoo_ref, client_id, status, created_by)
-       VALUES ($1, $2, $3, COALESCE($4, 'BORRADOR'), $5)
+       VALUES ($1, $2, $3, COALESCE($4::project_status, 'BORRADOR'::project_status), $5)
        RETURNING *`,
-      [nombre.trim(), odooRef || null, clientId || null, status || null, req.user.id]
+      [nombre.trim(), odooRefNorm, clientId || null, status || null, req.user.id]
     );
 
     const ip = getClientIp(req);
@@ -323,9 +334,33 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL'), createValidation, async (req
        LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
       [rows[0].id]
     );
+    if (!full[0]) {
+      console.error('[PROJECTS] create: fila no encontrada tras INSERT', rows[0]?.id);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
     return res.status(201).json({ success: true, data: mapProject(full[0]) });
   } catch (err) {
-    console.error('[PROJECTS] create:', err);
+    const code = err && err.code;
+    console.error('[PROJECTS] create:', code || err.message, err.detail || '');
+    if (code === '22001') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'VALIDATION_ERROR',
+          message: 'Nombre u Odoo superan el tamaño permitido en base de datos',
+        },
+      });
+    }
+    if (code === '23503') {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'INVALID_REFERENCE',
+          message:
+            'No se pudo vincular el proyecto (usuario o cliente). Cierra sesión y vuelve a entrar, o revisa el cliente seleccionado.',
+        },
+      });
+    }
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
