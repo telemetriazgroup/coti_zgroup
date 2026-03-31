@@ -1,0 +1,86 @@
+# ZGROUP Cotizaciones Técnicas — .cursorrules
+# Contexto para el asistente de IA en Cursor IDE
+
+## PROYECTO
+Sistema de cotizaciones técnicas para refrigeración industrial (ZGROUP, Perú).
+Stack: Node.js 20 + Express 4 + PostgreSQL 15 + Vanilla HTML/JS + Tailwind-less CSS custom.
+
+## ARQUITECTURA
+- `server/` → Express API (JWT auth, REST routes, middleware)
+- `public/` → Frontend HTML/JS (app.html principal, login.html, /js/*.js)
+- `shared/` → finance-engine.js (motor puro, sin side effects)
+- `server/db/` → schema.sql, seed.js
+
+## ROLES
+- ADMIN: acceso total, gestión usuarios, catálogo, panel gerencial
+- COMERCIAL: sus proyectos, cotizaciones, clientes, exportar
+- VIEWER: solo ver cotización del proyecto asignado (read-only)
+
+## PATRONES CRÍTICOS
+
+### API responses (siempre este formato):
+```json
+{ "success": true, "data": { ... } }
+{ "success": false, "error": { "code": "ERROR_CODE", "message": "msg" } }
+```
+
+### Auth:
+- Access token: JWT en header Authorization: Bearer <token> (15min)
+- Refresh token: cookie httpOnly sameSite=strict (7d)
+- Middleware: requireAuth + requireRole('ADMIN','COMERCIAL')
+
+### Finance engine (shared/finance-engine.js):
+- PURO: sin I/O, sin DOM, sin side effects
+- Input: compute(items[], params{}) → FinanceOutput
+- Nunca modificar sin tests
+
+## PALETA DE COLORES (CSS vars — NO cambiar)
+```
+--bg:#121212  --surface:#1C1C1C  --card:#242424
+--border:#00E5FF  --border-dim:#2A3A40
+--cyan:#00E5FF  --amber:#FFD700  --green:#00E87A
+--red:#FF5252  --violet:#CE93D8
+--text:#FFFFFF  --muted:#B0BEC5
+```
+
+## TIPOGRAFÍAS (NO cambiar)
+- Display/headers: 'Rajdhani' 700, letter-spacing generoso
+- Monospace/datos: 'JetBrains Mono'
+- Cuerpo: 'Inter'
+
+## CONVENCIONES
+- Tablas BD: snake_case
+- Variables JS: camelCase
+- Rutas API: kebab-case (/api/catalog-items)
+- Todos los importes en USD; PEN solo para display
+- Soft delete en projects (deleted_at), no borrado físico
+- Audit log append-only (project_audit_log)
+
+## MÓDULOS FINANCIEROS (ver MODULES.md para detalle)
+- M1: Venta Directa (margen/descuento)
+- M2: Corto Plazo (ROA, depreciación, merma)
+- M3: Largo Plazo (sistema francés, fases F1/F2)
+- M4: Estacionalidad (tabla 5 años, Regla de Oro)
+- M5: Panel Gerencial (CP vs LP, KPIs admin)
+
+## ESTADO DEL PROYECTO (Sprint actual: 0)
+- ✅ Sprint 0: Auth, schema, login.html, app.html shell, seed
+- ⏳ Sprint 1: Employees, Clients, Projects routes
+- ⏳ Sprint 2: Catalog CRUD (admin)
+- ⏳ Sprint 3: Budget items
+- ⏳ Sprint 4: Financial modules M1-M4
+- ⏳ Sprint 5: Technical plans (S3)
+- ⏳ Sprint 6: PDF export + Panel Gerencial
+- ⏳ Sprint 7: Polish, tests, deploy
+
+## ARCHIVOS CLAVE
+- server/index.js → entry point
+- server/middleware/auth.js → JWT middleware
+- server/routes/auth.js → login/refresh/logout
+- server/db/schema.sql → DDL completo
+- public/login.html → pantalla de acceso
+- public/app.html → shell principal con todas las vistas
+- public/js/api.js → fetch wrapper con auto-refresh
+- public/js/auth.js → manejo de sesión
+- SPRINT_PLAN.md → plan de desarrollo
+- ZGROUP_ANALYSIS.md → análisis completo de implicancias
