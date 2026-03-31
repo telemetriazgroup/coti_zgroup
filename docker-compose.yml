@@ -70,6 +70,8 @@ services:
       - zgroup_net
 
   # ── PostgreSQL ───────────────────────────────────────────────
+  # POSTGRES_PASSWORD solo aplica en la 1ª creación del volumen. Si cambias DB_PASSWORD en .env
+  # y el volumen ya existía, la app falla con 28P01: borra el volumen (down -v) o alinea la clave.
   postgres:
     image: postgres:15-alpine
     container_name: zgroup_postgres

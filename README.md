@@ -110,6 +110,31 @@ Los errores **`ERR_SSL_PROTOCOL_ERROR`** en `/assets/...` suelen aparecer si el 
 | `docker compose down` | Parar y eliminar contenedores (los volúmenes de datos persisten) |
 | `docker compose down -v` | Parar y **borrar** volúmenes (BD vacía en el próximo `up`) |
 
+### Error: `password authentication failed for user "zgroup_user"` y `zgroup_app exited with code 1`
+
+**Qué significa:** Node intenta abrir sesión en PostgreSQL con `DB_PASSWORD`, pero el servidor Postgres rechaza esa clave (código `28P01`).
+
+**Causa habitual:** el volumen **`postgres_data` ya se creó antes** con otra contraseña. Postgres solo aplica `POSTGRES_PASSWORD` en la **primera** inicialización de la carpeta de datos; si luego cambias `DB_PASSWORD` en `.env`, la app usa la nueva clave pero la BD sigue con la antigua.
+
+**Cómo corregir (elige una):**
+
+1. **Misma contraseña que cuando creaste el volumen**  
+   Pon en `.env` el mismo `DB_PASSWORD` que usaste cuando levantaste Postgres por primera vez. Reinicia: `docker compose up -d`.
+
+2. **Empezar de cero con la contraseña nueva** (borra datos de Postgres)  
+   ```bash
+   docker compose down -v
+   docker compose up -d
+   ```  
+   Vuelve a aplicar el seed si hace falta. **`-v`** elimina el volumen `postgres_data` (y los demás volúmenes nombrados en compose).
+
+3. **Cambiar la clave en Postgres sin borrar el volumen** (si recuerdas la contraseña antigua)  
+   Conéctate con `psql` usando la contraseña que sí funciona y ejecuta:  
+   `ALTER USER zgroup_user WITH PASSWORD 'tu_nueva_clave';`  
+   Luego usa esa misma en `DB_PASSWORD` en `.env`.
+
+**Importante:** `app` y `postgres` deben compartir **exactamente** el mismo `DB_PASSWORD` (Compose ya usa `${DB_PASSWORD:-zgroup_dev_password}` en ambos servicios). Si no defines `.env`, ambos usan el valor por defecto; el fallo aparece cuando el volumen quedó con una clave distinta a la que tienes ahora en `.env`.
+
 ### 5. Desarrollo con código montado desde el host
 
 En `docker-compose.yml` hay un bloque comentado bajo el servicio `app`. Si descomentas:
