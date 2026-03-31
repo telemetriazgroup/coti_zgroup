@@ -207,16 +207,17 @@ express-rate-limit, dotenv, nodemon (dev)
 ### Entregables
 - [ ] Tests de integración de seguridad por rol (ADMIN/COMERCIAL/VIEWER)
 - [ ] Tests E2E flujo completo: login → proyecto → presupuesto → PDF
-- [ ] Docker Compose: Node, PostgreSQL, Redis, MinIO
-- [ ] Variables de entorno documentadas en `.env.example`
-- [ ] SSL/TLS configurado
-- [ ] Rate limiting revisado y ajustado
+- [x] Docker Compose: Node, PostgreSQL, Redis, MinIO
+- [x] Variables de entorno documentadas en `.env.example` (+ `PUBLIC_BASE_PATH` / `VITE_BASE_PATH` subruta)
+- [x] SSL/TLS detrás de Apache: ejemplo `deploy/apache-coti-zgroup.example.conf` + `TRUST_PROXY` / `FRONTEND_URL`
+- [x] Rate limiting revisado y ajustado (`LOGIN_RATE_LIMIT_*`, IP vía `req.ip` + `TRUST_PROXY`)
 - [ ] Seed de datos de demo para training de comerciales
 - [ ] Manual de usuario (PDF) para COMERCIAL y ADMIN
 - [ ] Backup policy PostgreSQL configurado
-- [ ] Monitoring básico: logs de error, health endpoint
+- [x] Monitoring básico: health endpoint (`/api/health` + `publicBasePath`); logs vía Docker/morgan
 - [ ] Performance audit: queries lentas, índices PostgreSQL
 - [ ] UX polish: estados de carga, mensajes de error, empty states
+- [x] Deploy subruta: app bajo prefijo (`PUBLIC_BASE_PATH`) + Vite `VITE_BASE_PATH`; cliente `resolveAppUrl()` para API
 
 ### Criterios de aceptación
 - Todos los criterios de aceptación de sprints 0-6 verificados
@@ -239,7 +240,7 @@ express-rate-limit, dotenv, nodemon (dev)
 | 4 | Módulos Financieros M1-M4 | 2 | Alto | ⏳ Pendiente |
 | 5 | Planos Técnicos | 1.5 | Medio | ✅ Hecho |
 | 6 | PDF + Panel Gerencial | 2 | Alto | ✅ Hecho |
-| 7 | Pulimiento + Deploy | 2 | Medio | ⏳ Pendiente |
+| 7 | Pulimiento + Deploy | 2 | Medio | 🟡 En curso |
 | **Total** | | **15.5 semanas** | | |
 
 ---

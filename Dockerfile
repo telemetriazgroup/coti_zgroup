@@ -9,6 +9,9 @@ COPY package*.json ./
 RUN npm install
 
 COPY . .
+# Debe coincidir con PUBLIC_BASE_PATH en runtime: ./ = raíz; /coti_zgroup/ = subruta Apache
+ARG VITE_BASE_PATH=./
+ENV VITE_BASE_PATH=$VITE_BASE_PATH
 RUN npm run build
 RUN npm prune --omit=dev
 

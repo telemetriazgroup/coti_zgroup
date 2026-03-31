@@ -75,18 +75,23 @@ const REFRESH_ERR_MSG = {
   SESSION_EXPIRED: 'Sesión expirada. Por favor inicia sesión.',
 };
 
-// Rate limit: 5 intentos por 15 minutos por IP (desactivado en NODE_ENV=test para integración)
+// Rate limit login: por IP (req.ip respeta trust proxy si TRUST_PROXY=1). Ajustar con LOGIN_RATE_LIMIT_*.
+const LOGIN_RATE_LIMIT_MAX = Math.max(1, parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '5', 10) || 5);
+const LOGIN_RATE_LIMIT_WINDOW_MS = Math.max(
+  60_000,
+  parseInt(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000), 10) || 15 * 60 * 1000
+);
 const loginLimiter =
   process.env.NODE_ENV === 'test'
     ? (req, res, next) => next()
     : rateLimit({
-        windowMs: 15 * 60 * 1000,
-        max: 5,
+        windowMs: LOGIN_RATE_LIMIT_WINDOW_MS,
+        max: LOGIN_RATE_LIMIT_MAX,
         standardHeaders: true,
         legacyHeaders: false,
         message: {
           success: false,
-          error: { code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Intenta en 15 minutos.' }
+          error: { code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Intenta en unos minutos.' }
         }
       });
 

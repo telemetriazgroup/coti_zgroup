@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, getToken } from '../lib/api';
+import { api, getToken, resolveAppUrl } from '../lib/api';
 import { fetchCatalog } from '../lib/catalogApi';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
@@ -288,7 +288,7 @@ export function ProjectBudgetPage() {
             pdfPollRef.current = null;
             setPdfBusy(false);
             setPdfMsg('Descargando…');
-            const res = await fetch(`/api/export/pdf/download/${jobId}`, {
+            const res = await fetch(resolveAppUrl(`/api/export/pdf/download/${jobId}`), {
               credentials: 'include',
               headers: { Authorization: `Bearer ${getToken()}` },
             });

@@ -1,6 +1,15 @@
 /**
  * Cliente API — fetch con refresh; emite zgroup:session-expired si el refresh falla.
  */
+/** Resuelve URL de API/assets para raíz o subruta (p. ej. Apache en /coti_zgroup). Vite define import.meta.env.BASE_URL. */
+export function resolveAppUrl(url) {
+  if (!url || /^https?:\/\//i.test(url)) return url;
+  const base = import.meta.env.BASE_URL || '/';
+  const normalized = base.endsWith('/') ? base : `${base}/`;
+  const path = url.startsWith('/') ? url.slice(1) : url;
+  return normalized + path;
+}
+
 let accessToken = null;
 let refreshPromise = null;
 
@@ -21,7 +30,7 @@ function emitSessionExpired() {
 async function refresh() {
   if (refreshPromise) return refreshPromise;
 
-  refreshPromise = fetch('/api/auth/refresh', {
+  refreshPromise = fetch(resolveAppUrl('/api/auth/refresh'), {
     method: 'POST',
     credentials: 'include',
   })
@@ -51,8 +60,9 @@ async function refresh() {
 }
 
 export async function request(url, options = {}) {
+  const resolved = resolveAppUrl(url);
   const makeReq = (token) =>
-    fetch(url, {
+    fetch(resolved, {
       ...options,
       credentials: 'include',
       headers: {
@@ -89,8 +99,9 @@ export async function request(url, options = {}) {
 }
 
 export async function getBlob(url) {
+  const resolved = resolveAppUrl(url);
   const makeReq = (token) =>
-    fetch(url, {
+    fetch(resolved, {
       credentials: 'include',
       headers: {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
@@ -119,8 +130,9 @@ export async function getBlob(url) {
 }
 
 export async function postFormData(url, formData) {
+  const resolved = resolveAppUrl(url);
   const makeReq = (token) =>
-    fetch(url, {
+    fetch(resolved, {
       method: 'POST',
       credentials: 'include',
       headers: {
@@ -157,9 +169,10 @@ export async function postFormData(url, formData) {
  * Subida multipart con progreso (0–1). No hace refresh de token en 401 (flujo simple).
  */
 export function postFormDataWithProgress(url, formData, onProgress) {
+  const resolved = resolveAppUrl(url);
   return new Promise((resolve, reject) => {
     const xhr = new XMLHttpRequest();
-    xhr.open('POST', url);
+    xhr.open('POST', resolved);
     xhr.withCredentials = true;
     if (accessToken) xhr.setRequestHeader('Authorization', `Bearer ${accessToken}`);
     xhr.upload.onprogress = (e) => {

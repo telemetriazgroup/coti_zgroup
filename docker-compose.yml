@@ -1,6 +1,6 @@
 # ZGROUP — API Express + SPA React (imagen multi-stage: npm run build en Docker)
 # Uso: docker compose build && docker compose up -d
-# App: http://localhost:3000  ·  API: /api/*  ·  Hash routes: #/login, #/dashboard
+# App: http://localhost:3000  ·  API: {PUBLIC_BASE_PATH}/api/*  ·  Hash: #/login (subruta: ver README)
 # MinIO host: API :9010 · consola :9011 (MINIO_*_HOST_PORT) — interno sigue minio:9000
 
 services:
@@ -10,6 +10,9 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      args:
+        # Debe coincidir con PUBLIC_BASE_PATH (Vite: barra final, p. ej. /coti_zgroup/)
+        VITE_BASE_PATH: ${VITE_BASE_PATH:-./}
     image: zgroup-cotizaciones:latest
     container_name: zgroup_app
     restart: unless-stopped
@@ -36,6 +39,8 @@ services:
       RELAX_HELMET_HTTP: ${RELAX_HELMET_HTTP:-0}
       # 1 si hay nginx/traefik delante (X-Forwarded-*)
       TRUST_PROXY: ${TRUST_PROXY:-0}
+      # Subruta detrás de Apache (sin barra final): /coti_zgroup → app en https://dominio/coti_zgroup/
+      PUBLIC_BASE_PATH: ${PUBLIC_BASE_PATH:-}
       ADMIN_EMAIL:    ${ADMIN_EMAIL:-admin@zgroup.pe}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ZGroup2025!}
       S3_ENDPOINT:   http://minio:9000
@@ -56,7 +61,7 @@ services:
       test:
         [
           "CMD-SHELL",
-          "node -e \"require('http').get('http://127.0.0.1:3000/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
+          "node -e \"const p=process.env.PUBLIC_BASE_PATH||'';require('http').get('http://127.0.0.1:3000'+p+'/api/health',r=>process.exit(r.statusCode===200?0:1)).on('error',()=>process.exit(1))\"",
         ]
       interval: 20s
       timeout: 5s

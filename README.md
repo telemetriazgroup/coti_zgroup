@@ -97,6 +97,38 @@ Si los errores muestran aún **`https://.../assets/`**, el navegador sigue usand
 
 El aviso de **origen no fiable** con COOP es coherente con HTTP no cifrado; la solución estable es servir la app con **HTTPS** (proxy + certificado).
 
+### Apache + subruta SSL (p. ej. `https://ztrack.app/coti_zgroup/`)
+
+La app puede servirse en **raíz** (`http://IP:3000/`) o bajo un **prefijo** (misma instancia Node detrás de proxy inverso).
+
+| Variable | Uso |
+|----------|-----|
+| **`PUBLIC_BASE_PATH`** | En Node: sin barra final, p. ej. `/coti_zgroup`. Vacío = raíz. |
+| **`VITE_BASE_PATH`** | En el **build** de Vite: con barra final, p. ej. `/coti_zgroup/`. Debe coincidir con el prefijo público. |
+| **`FRONTEND_URL`** | Origen real del navegador, p. ej. `https://ztrack.app/coti_zgroup` |
+| **`TRUST_PROXY`** | `1` si Apache envía `X-Forwarded-*` |
+| **`COOKIE_SECURE`** | `true` en producción HTTPS detrás del proxy |
+
+**Build** (obligatorio al cambiar el prefijo):
+
+```bash
+VITE_BASE_PATH=/coti_zgroup/ docker compose build --no-cache app
+```
+
+En `.env` para ese despliegue:
+
+```env
+PUBLIC_BASE_PATH=/coti_zgroup
+VITE_BASE_PATH=/coti_zgroup/
+FRONTEND_URL=https://ztrack.app/coti_zgroup
+TRUST_PROXY=1
+COOKIE_SECURE=true
+```
+
+Ejemplo de virtual host Apache: `deploy/apache-coti-zgroup.example.conf` (`ProxyPass` / `ProxyPassReverse` hacia `http://127.0.0.1:3000/coti_zgroup/`). El backend escucha el mismo prefijo; no hace falta reescribir solo el HTML: API y estáticos van bajo `/coti_zgroup/...`.
+
+Health con prefijo: `https://ztrack.app/coti_zgroup/api/health` (el JSON incluye `publicBasePath`).
+
 ### 3. Comprobar
 
 - Aplicación (SPA React): [http://localhost:3000](http://localhost:3000)  

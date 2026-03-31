@@ -3,6 +3,7 @@ const fs = require('fs');
 const path = require('path');
 const { initSchema, pool } = require('./config/db');
 const app = require('./app');
+const PUBLIC_BASE_PATH = app.PUBLIC_BASE_PATH ?? '';
 const storage = require('./services/storage.service');
 
 const PORT = process.env.PORT || 3000;
@@ -40,9 +41,11 @@ async function start() {
       console.warn('[EXPORT] Worker PDF:', e.message);
     }
     app.listen(PORT, () => {
+      const baseLbl = PUBLIC_BASE_PATH ? `${PUBLIC_BASE_PATH}/` : '(raíz)';
       console.log(`\n╔══════════════════════════════════════════╗`);
       console.log(`║  ZGROUP Cotizaciones — Server v1.0.0     ║`);
-      console.log(`║  http://localhost:${PORT}                  ║`);
+      console.log(`║  http://localhost:${String(PORT).padEnd(26)}║`);
+      console.log(`║  PUBLIC_BASE_PATH: ${baseLbl.padEnd(27)}║`);
       console.log(`║  ENV: ${(process.env.NODE_ENV || 'development').padEnd(35)}║`);
       console.log(`╚══════════════════════════════════════════╝\n`);
     });
