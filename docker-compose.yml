@@ -1,6 +1,7 @@
 # ZGROUP — API Express + SPA React (imagen multi-stage: npm run build en Docker)
 # Uso: docker compose build && docker compose up -d
 # App: http://localhost:3000  ·  API: /api/*  ·  Hash routes: #/login, #/dashboard
+# MinIO host: API :9010 · consola :9011 (MINIO_*_HOST_PORT) — interno sigue minio:9000
 
 services:
 
@@ -32,8 +33,8 @@ services:
       ADMIN_EMAIL:    ${ADMIN_EMAIL:-admin@zgroup.pe}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ZGroup2025!}
       S3_ENDPOINT:   http://minio:9000
-      # URL que usa el navegador para previsualizar (firma GET). En el host: localhost:9000
-      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9000}
+      # URL que usa el navegador para previsualizar (firma GET). Debe coincidir con MINIO_API_HOST_PORT
+      S3_PUBLIC_ENDPOINT: ${S3_PUBLIC_ENDPOINT:-http://localhost:9010}
       S3_BUCKET:     zgroup-plans
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
@@ -115,8 +116,9 @@ services:
     volumes:
       - minio_data:/data
     ports:
-      - "9000:9000"   # S3 API
-      - "9001:9001"   # Console web
+      # Por defecto 9010/9011 para no chocar con otro servicio en :9000 (p. ej. otro MinIO)
+      - "${MINIO_API_HOST_PORT:-9010}:9000"   # S3 API (host)
+      - "${MINIO_CONSOLE_HOST_PORT:-9011}:9001"   # Console web (host)
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
       interval: 10s

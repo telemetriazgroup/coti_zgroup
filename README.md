@@ -88,7 +88,7 @@ La primera vez, el contenedor `app` ejecuta el **seed** (usuarios demo + catálo
 - API health: [http://localhost:3000/api/health](http://localhost:3000/api/health)  
 - PostgreSQL expuesto en el host: `localhost:5433` por defecto (usuario `zgroup_user`, base `zgroup_cotizaciones`) — variable `POSTGRES_HOST_PORT` en compose si necesitas otro puerto  
 - Redis expuesto en el host: `localhost:6382` por defecto — variable `REDIS_HOST_PORT` en compose  
-- MinIO consola (cuando lo uses): [http://localhost:9001](http://localhost:9001) (usuario/clave por defecto `minioadmin` / `minioadmin` si no defines `MINIO_*`)
+- MinIO API S3 en el host: `localhost:9010` y consola web: [http://localhost:9011](http://localhost:9011) por defecto — variables `MINIO_API_HOST_PORT` / `MINIO_CONSOLE_HOST_PORT` en compose si necesitas otros puertos (evita choque con otro servicio en `:9000`) (usuario/clave por defecto `minioadmin` / `minioadmin` si no defines `MINIO_*`)
 
 ### 4. Comandos útiles (Docker)
 
