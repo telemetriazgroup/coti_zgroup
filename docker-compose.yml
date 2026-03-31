@@ -28,8 +28,14 @@ services:
       JWT_ACCESS_EXPIRES:  15m
       JWT_REFRESH_EXPIRES: 7d
       COOKIE_SECURE: "false"
-      # Mismo origen que el navegador (SPA servida en el mismo puerto que la API)
+      # Mismo origen que el navegador (SPA + API mismo puerto). En servidor por IP: http://IP:3000
       FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      # Orígenes extra CORS (coma). Opcional si ya cubre FRONTEND_URL
+      ALLOWED_ORIGINS: ${ALLOWED_ORIGINS:-}
+      # 1 = sin COOP/COEP (recomendado en HTTP por IP pública; con HTTPS puede dejar 0)
+      RELAX_HELMET_HTTP: ${RELAX_HELMET_HTTP:-0}
+      # 1 si hay nginx/traefik delante (X-Forwarded-*)
+      TRUST_PROXY: ${TRUST_PROXY:-0}
       ADMIN_EMAIL:    ${ADMIN_EMAIL:-admin@zgroup.pe}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:-ZGroup2025!}
       S3_ENDPOINT:   http://minio:9000

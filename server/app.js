@@ -29,15 +29,30 @@ function buildAllowedOrigins() {
     'http://localhost:5173',
     'http://127.0.0.1:5173',
   ]);
-  const fromEnv = (process.env.FRONTEND_URL || '')
-    .split(',')
-    .map((s) => s.trim())
-    .filter(Boolean);
-  fromEnv.forEach((o) => set.add(o));
+  const mergeList = (raw) =>
+    (raw || '')
+      .split(',')
+      .map((s) => s.trim())
+      .filter(Boolean);
+  mergeList(process.env.FRONTEND_URL).forEach((o) => set.add(o));
+  mergeList(process.env.ALLOWED_ORIGINS).forEach((o) => set.add(o));
   return set;
 }
 
+/**
+ * En HTTP sobre IP pública, Helmet (COOP/COEP) genera avisos y el navegador las ignora.
+ * Activa RELAX_HELMET_HTTP=1 en despliegues sin HTTPS (o detrás de proxy que termina TLS).
+ */
+function useRelaxedHelmet() {
+  const v = String(process.env.RELAX_HELMET_HTTP || '').toLowerCase();
+  return v === '1' || v === 'true' || v === 'yes';
+}
+
 const allowedOrigins = buildAllowedOrigins();
+
+if (String(process.env.TRUST_PROXY || '').toLowerCase() === '1' || process.env.TRUST_PROXY === 'true') {
+  app.set('trust proxy', 1);
+}
 
 function s3OriginsForCsp() {
   const extra = [];
@@ -52,20 +67,34 @@ function s3OriginsForCsp() {
   return extra;
 }
 
-app.use(helmet({
-  contentSecurityPolicy: {
-    directives: {
-      defaultSrc: ["'self'"],
-      // unsafe-eval: algunas herramientas de desarrollo / Tailwind CDN (HTML de referencia) usan eval
-      scriptSrc:  ["'self'", "'unsafe-inline'", "'unsafe-eval'", "https://cdn.tailwindcss.com", "https://fonts.googleapis.com"],
-      styleSrc:   ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com", "https://fonts.gstatic.com"],
-      fontSrc:    ["'self'", "https://fonts.gstatic.com"],
-      imgSrc:     ["'self'", "data:", "blob:", ...s3OriginsForCsp()],
-      frameSrc:   ["'self'", "blob:", ...s3OriginsForCsp()],
-      connectSrc: ["'self'"],
+app.use(
+  helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        // unsafe-eval: algunas herramientas de desarrollo / Tailwind CDN (HTML de referencia) usan eval
+        scriptSrc: [
+          "'self'",
+          "'unsafe-inline'",
+          "'unsafe-eval'",
+          'https://cdn.tailwindcss.com',
+          'https://fonts.googleapis.com',
+        ],
+        styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com', 'https://fonts.gstatic.com'],
+        fontSrc: ["'self'", 'https://fonts.gstatic.com'],
+        imgSrc: ["'self'", 'data:', 'blob:', ...s3OriginsForCsp()],
+        frameSrc: ["'self'", 'blob:', ...s3OriginsForCsp()],
+        connectSrc: ["'self'"],
+      },
     },
-  },
-}));
+    ...(useRelaxedHelmet()
+      ? {
+          crossOriginOpenerPolicy: false,
+          crossOriginEmbedderPolicy: false,
+        }
+      : {}),
+  })
+);
 
 app.use(cors({
   origin(origin, callback) {

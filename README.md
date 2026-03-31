@@ -80,6 +80,17 @@ docker compose up -d
 
 La primera vez, el contenedor `app` ejecuta el **seed** (usuarios demo + catálogo) y arranca el servidor. El esquema SQL se aplica al iniciar (`initSchema()`).
 
+### Acceso por IP (HTTP) o sin dominio
+
+Si entras con **`http://<tu-ip>:3000`** (sin dominio), configura en `.env` / Docker:
+
+- **`FRONTEND_URL=http://<tu-ip>:3000`** (exactamente la URL del navegador; CORS y cookies).
+- **`RELAX_HELMET_HTTP=1`**: desactiva cabeceras COOP/COEP de Helmet que en HTTP sobre IP suelen mostrar avisos o ignorarse (no sustituyen HTTPS; en producción conviene **TLS** detrás de nginx/Caddy).
+
+Opcional: **`ALLOWED_ORIGINS`** (coma) si necesitas más de un origen; **`TRUST_PROXY=1`** si hay proxy inverso.
+
+Los errores **`ERR_SSL_PROTOCOL_ERROR`** en `/assets/...` suelen aparecer si el navegador intenta **`https://`** contra un servidor que solo habla **HTTP**. Usa la barra de direcciones con **`http://`** explícito, o desactiva “HTTPS-First” / prueba otro navegador. El aviso de **origen no fiable** con COOP es coherente con HTTP no cifrado; la solución estable es servir la app con **HTTPS**.
+
 ### 3. Comprobar
 
 - Aplicación (SPA React): [http://localhost:3000](http://localhost:3000)  
