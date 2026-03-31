@@ -3,7 +3,7 @@
 > **Metodología:** Scrum adaptado (sprints de 2 semanas)  
 > **Equipo mínimo:** 1 desarrollador fullstack + 1 QA  
 > **Duración total estimada:** 14-16 semanas (7-8 sprints)  
-> **Stack:** Node.js + Express + PostgreSQL + Vanilla JS (HTML preservando diseño v6.0)
+> **Stack:** Node.js + Express + PostgreSQL + React (Vite), diseño alineado al HTML de referencia v6.0/v10
 
 ---
 
@@ -12,7 +12,7 @@
 **Objetivo:** Sistema base funcionando con login, roles y estructura de proyecto.
 
 ### Entregables
-- [x] Estructura de directorios del proyecto (`/server`, `/public`, `/shared`)
+- [x] Estructura de directorios del proyecto (`/server`, `/client` React+Vite, `/shared`)
 - [x] `package.json` con dependencias core (express, pg, jsonwebtoken, bcrypt, dotenv)
 - [x] `db/schema.sql` — DDL completo: users, employees, refresh_tokens
 - [x] `db/seed.js` — Usuario admin inicial + catálogo completo (55 ítems)
@@ -21,11 +21,9 @@
 - [x] `server/middleware/roles.js` — Guard `requireRole('ADMIN', 'COMERCIAL')`
 - [x] `server/routes/auth.js` — POST /login, POST /refresh, POST /logout
 - [x] `server/routes/users.js` — CRUD usuarios (solo ADMIN)
-- [x] `public/login.html` — Pantalla de login (branding ZGROUP, dark theme)
-- [x] `public/app.html` — Shell principal con nav lateral por rol
-- [x] `public/js/auth.js` — Manejo de tokens, interceptors, logout
-- [x] `public/js/api.js` — Fetch wrapper con auto-refresh de token
-- [x] `public/js/router.js` — Hash router (#/dashboard, #/projects, etc.)
+- [x] `client/` — App React: login, shell con nav lateral por rol, `react-router-dom` (hash `#/…`)
+- [x] `client/src/context/AuthContext.jsx` — Sesión, tokens, logout
+- [x] `client/src/lib/api.js` — Fetch con auto-refresh de access token
 
 ### Criterios de aceptación
 - Login exitoso redirige al workspace según rol

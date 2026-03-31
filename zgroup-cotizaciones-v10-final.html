@@ -1,0 +1,1858 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ZGROUP — Cotizaciones Técnicas v6.0</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://fonts.googleapis.com/css2?family=Rajdhani:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;700&family=Inter:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+*,*::before,*::after{box-sizing:border-box}
+:root{
+  --bg:#121212;
+  --surface:#1C1C1C;
+  --card:#242424;
+  --border:#00E5FF;
+  --border-dim:#2A3A40;
+  --cyan:#00E5FF;
+  --amber:#FFD700;
+  --green:#00E87A;
+  --red:#FF5252;
+  --violet:#CE93D8;
+  --text:#FFFFFF;
+  --muted:#B0BEC5;
+  --zebra-a:#1C1C1C;
+  --zebra-b:#252525;
+}
+body{background-color:var(--bg);color:var(--text);font-family:'Inter',sans-serif;margin:0}
+::-webkit-scrollbar{width:5px;height:5px}
+::-webkit-scrollbar-track{background:var(--bg)}
+::-webkit-scrollbar-thumb{background:var(--border-dim);border-radius:3px}
+::-webkit-scrollbar-thumb:hover{background:var(--cyan)}
+input[type=number]::-webkit-inner-spin-button{opacity:.3}
+input,select,textarea{font-family:inherit}
+select{background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath d='M0 0l5 6 5-6z' fill='%23B0BEC5'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:right 10px center;-webkit-appearance:none;appearance:none}
+@keyframes fadeIn{from{opacity:0;transform:translateY(4px)}to{opacity:1;transform:translateY(0)}}
+@keyframes pulseDot{0%,100%{opacity:1}50%{opacity:.3}}
+.fade-in{animation:fadeIn .18s ease-out}
+.pulse-dot{animation:pulseDot 2s ease-in-out infinite}
+/* Input styles */
+.vi{background:var(--card);border:1.5px solid var(--border-dim);color:var(--text);padding:5px 9px;border-radius:5px;outline:none;width:100%;font-family:'JetBrains Mono',monospace;font-size:12px;text-align:right;transition:border-color .15s}
+.vi:focus{border-color:var(--cyan);box-shadow:0 0 0 2px rgba(0,229,255,.25)}
+.vi.a:focus{border-color:var(--amber);box-shadow:0 0 0 2px rgba(255,215,0,.25)}
+.vi.g:focus{border-color:var(--green);box-shadow:0 0 0 2px rgba(0,232,122,.25)}
+.vi.v:focus{border-color:var(--violet);box-shadow:0 0 0 2px rgba(206,147,216,.25)}
+/* Typography */
+.shr{font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:2.5px;font-size:12px;text-transform:uppercase}
+.lm{font-family:'JetBrains Mono',monospace;font-size:10px;letter-spacing:1px;color:var(--muted);display:block;margin-bottom:4px}
+.rr{display:flex;justify-content:space-between;font-size:12px;font-family:'JetBrains Mono',monospace;margin-bottom:4px}
+.mono{font-family:'JetBrains Mono',monospace}
+.rb{font-family:'JetBrains Mono',monospace;font-weight:700;font-size:16px}
+/* Buttons */
+.b1{background:rgba(0,229,255,.15);border:1.5px solid var(--cyan);color:var(--cyan);font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:1.5px;border-radius:6px;cursor:pointer;transition:opacity .15s}
+.b1:hover{opacity:.82}
+.bg1{background:transparent;border:1.5px solid var(--border-dim);color:var(--muted);font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:1px;border-radius:6px;cursor:pointer;transition:all .15s}
+.bg1:hover{border-color:var(--cyan);color:var(--cyan)}
+.bgreen{background:rgba(0,232,122,.15);border:1.5px solid var(--green);color:var(--green);font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:1.5px;border-radius:6px;cursor:pointer;transition:opacity .15s}
+.bgreen:hover{opacity:.82}
+.bred{background:rgba(255,82,82,.12);border:1.5px solid var(--red);color:var(--red);border-radius:6px;cursor:pointer;transition:opacity .15s}
+.bred:hover{opacity:.8}
+/* Item table */
+.ci:hover{border-color:var(--cyan)!important;background:#1A2A30!important}
+.dz.drag-over{border-color:var(--cyan)!important;background:rgba(0,229,255,.06)}
+/* Toast */
+#toast{transition:opacity .35s ease,transform .35s ease;position:fixed;bottom:28px;left:50%;transform:translateX(-50%) translateY(12px);z-index:999;padding:9px 20px;border-radius:8px;font-size:13px;font-family:'Rajdhani',sans-serif;font-weight:700;letter-spacing:1.5px;opacity:0;pointer-events:none;white-space:nowrap}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#modal-overlay{backdrop-filter:blur(6px)}
+/* Accordion */
+.mod-hdr{display:flex;align-items:center;gap:8px;padding:11px 12px;cursor:pointer;user-select:none;border-bottom:1px solid var(--border-dim);transition:background .15s}
+.mod-hdr:hover{background:rgba(0,229,255,.05)}
+.mod-body{overflow:hidden;transition:max-height .3s ease,opacity .25s ease}
+.mod-badge{width:22px;height:22px;border-radius:5px;display:flex;align-items:center;justify-content:center;font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;flex-shrink:0}
+/* KPI */
+.kpi{padding:8px 10px;border-radius:6px;text-align:center}
+.kpi .kv{font-family:'JetBrains Mono',monospace;font-size:15px;font-weight:700;margin-top:2px}
+.kpi .kl{font-family:'JetBrains Mono',monospace;font-size:9px;letter-spacing:1.2px;color:var(--muted)}
+/* Item table rows */
+.item-row:hover{background:rgba(0,229,255,.06)}
+/* LP Timeline */
+.tl-track{position:relative;height:30px;border-radius:6px;overflow:hidden;background:rgba(0,229,255,.08);margin:8px 0;border:1px solid var(--border-dim)}
+.tl-phase1{position:absolute;left:0;top:0;height:100%;background:linear-gradient(90deg,rgba(255,82,82,.7),rgba(255,82,82,.4));display:flex;align-items:center;justify-content:center;transition:width .4s ease}
+.tl-phase2{position:absolute;top:0;height:100%;background:linear-gradient(90deg,rgba(0,232,122,.4),rgba(0,232,122,.7));display:flex;align-items:center;justify-content:center;transition:width .4s ease,left .4s ease}
+.tl-label{font-family:'JetBrains Mono',monospace;font-size:9px;font-weight:700;color:#fff;white-space:nowrap;text-shadow:0 1px 3px rgba(0,0,0,.8);padding:0 5px}
+.tl-marker{position:absolute;top:0;width:2px;height:100%;background:var(--amber);z-index:2;box-shadow:0 0 6px var(--amber)}
+.tl-marker::after{content:attr(data-label);position:absolute;top:-17px;left:50%;transform:translateX(-50%);font-family:'JetBrains Mono',monospace;font-size:8px;color:var(--amber);white-space:nowrap;font-weight:700}
+/* Phase cards */
+.phase-card{border-radius:7px;padding:9px 11px;margin-bottom:7px}
+/* ── ZEBRA STRIPING for 5-year table ── */
+.est-row-odd {background:var(--zebra-a)!important}
+.est-row-even{background:var(--zebra-b)!important}
+/* ── ANALYTICAL TABLE ── */
+.anal-table{width:100%;min-width:700px;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:11px}
+.anal-table th{padding:7px 10px;background:#0D2030;color:var(--muted);font-size:10px;letter-spacing:1.5px;font-weight:700;white-space:nowrap;position:sticky;top:0;z-index:1;border-bottom:2px solid var(--cyan)}
+.anal-table td{padding:8px 10px;border-bottom:1px solid var(--border-dim);vertical-align:middle;white-space:nowrap}
+.anal-table .col-desc{min-width:120px;white-space:normal;max-width:160px;line-height:1.3}
+.anal-table .col-num{min-width:110px;text-align:right}
+.anal-table .col-year{min-width:80px}
+/* Totals row highlight */
+.anal-totals td{background:#0D2030!important;font-size:13px!important;font-weight:700!important;border-top:2px solid var(--cyan)!important;color:var(--amber)!important;padding:10px!important}
+</style>
+</head>
+<body>
+
+<!-- ═══ HEADER ═══ -->
+<header style="background:var(--surface);border-bottom:1px solid rgba(0,212,255,.18);position:sticky;top:0;z-index:40">
+<div style="padding:9px 16px;display:flex;align-items:center;gap:12px">
+  <!-- Logo -->
+  <div style="display:flex;align-items:center;gap:10px;flex-shrink:0">
+    <div style="position:relative">
+      <div style="width:36px;height:36px;border:1px solid rgba(0,212,255,.4);border-radius:7px;background:rgba(0,212,255,.07);display:flex;align-items:center;justify-content:center">
+        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="var(--cyan)" stroke-width="1.8"><polygon points="12 2 22 8.5 22 15.5 12 22 2 15.5 2 8.5"/><line x1="12" y1="2" x2="12" y2="22"/><line x1="2" y1="8.5" x2="22" y2="8.5"/><line x1="2" y1="15.5" x2="22" y2="15.5"/></svg>
+      </div>
+      <div class="pulse-dot" style="position:absolute;top:-1px;right:-1px;width:7px;height:7px;border-radius:50%;background:var(--cyan)"></div>
+    </div>
+    <div>
+      <div style="font-family:'Rajdhani',sans-serif;font-weight:700;font-size:18px;letter-spacing:4px;color:var(--cyan);line-height:1">ZGROUP</div>
+      <div class="mono" style="font-size:8px;letter-spacing:2px;color:var(--muted);line-height:1;margin-top:2px">COT.TÉCNICAS v6.0</div>
+    </div>
+  </div>
+
+  <!-- Project selector -->
+  <div style="display:flex;align-items:center;gap:8px;flex:1;max-width:500px">
+    <span class="mono" style="font-size:10px;color:var(--muted);flex-shrink:0">PRY:</span>
+    <select id="project-select" class="vi" style="flex:1;text-align:left;padding-right:28px;cursor:pointer" onchange="selectProject(this.value)">
+      <option value="">— Seleccionar Proyecto —</option>
+    </select>
+    <button class="b1" style="padding:5px 12px;font-size:12px;flex-shrink:0" onclick="openNewProjectModal()">+ NUEVO</button>
+    <button class="bred" style="padding:5px 8px;flex-shrink:0" onclick="deleteCurrentProject()" title="Eliminar">
+      <svg width="13" height="13" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polyline points="3 6 5 6 21 6"/><path d="M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6m3 0V4a1 1 0 011-1h4a1 1 0 011 1v2"/></svg>
+    </button>
+  </div>
+
+  <div style="flex:1"></div>
+
+  <!-- Currency -->
+  <div style="display:flex;align-items:center;gap:4px;padding:4px 8px;border:1px solid var(--border);border-radius:7px;background:rgba(15,22,36,.8)">
+    <button id="btn-usd" onclick="setCurrency('USD')" style="padding:2px 7px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(0,212,255,.4);background:rgba(0,212,255,.14);color:var(--cyan);transition:all .15s">USD $</button>
+    <span style="color:var(--border);font-size:13px">|</span>
+    <button id="btn-pen" onclick="setCurrency('PEN')" style="padding:2px 7px;border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--muted);transition:all .15s">PEN S/</button>
+    <div id="tc-row" style="display:none;align-items:center;gap:4px;border-left:1px solid var(--border);padding-left:6px;margin-left:2px">
+      <span class="mono" style="font-size:10px;color:var(--muted)">T.C.</span>
+      <input type="number" id="tc-input" value="3.75" min="1" step="0.01" oninput="setExchangeRate(this.value)" style="width:52px;padding:2px 4px;background:var(--card);border:1px solid var(--border);color:var(--cyan);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;text-align:right">
+    </div>
+  </div>
+
+  <span class="mono" style="font-size:11px;color:var(--muted)" id="hdr-date"></span>
+
+  <!-- Export -->
+  <button class="bgreen" style="padding:6px 16px;font-size:13px;display:flex;align-items:center;gap:6px" onclick="openExportModal()">
+    <svg width="12" height="12" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+    EXPORTAR
+  </button>
+</div>
+</header>
+
+<!-- ═══ INFO BAR ═══ -->
+<div id="info-bar" style="display:none;background:rgba(0,212,255,.03);border-bottom:1px solid var(--border);padding:4px 16px;gap:16px;align-items:center;font-size:11px">
+  <div class="mono" style="gap:6px;display:flex;align-items:center"><span style="color:var(--muted)">PROYECTO:</span><span id="ib-name" style="font-weight:600"></span></div>
+  <div style="width:1px;height:12px;background:var(--border)"></div>
+  <div class="mono" style="gap:6px;display:flex;align-items:center"><span style="color:var(--muted)">ODOO:</span><span id="ib-odoo" style="color:var(--cyan)"></span></div>
+  <div style="width:1px;height:12px;background:var(--border)"></div>
+  <div class="mono" style="gap:6px;display:flex;align-items:center"><span style="color:var(--muted)">BASE:</span><span id="ib-total" style="color:var(--green);font-weight:600">$ 0.00</span></div>
+  <div style="width:1px;height:12px;background:var(--border)"></div>
+  <div class="mono" style="gap:6px;display:flex;align-items:center"><span style="color:var(--amber)">CP:</span><span id="ib-cp" style="color:var(--amber)">$ 0.00</span></div>
+  <div style="width:1px;height:12px;background:var(--border)"></div>
+  <div class="mono" style="gap:6px;display:flex;align-items:center"><span style="color:var(--green)">LP:</span><span id="ib-lp" style="color:var(--green)">$ 0.00</span></div>
+</div>
+
+<!-- ═══ EMPTY STATE ═══ -->
+<div id="empty-state" style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:calc(100vh - 96px)">
+  <div style="text-align:center">
+    <div style="width:88px;height:88px;margin:0 auto 20px;border:1px solid rgba(0,212,255,.2);border-radius:14px;background:rgba(0,212,255,.04);display:flex;align-items:center;justify-content:center">
+      <svg width="42" height="42" fill="none" stroke="rgba(0,212,255,.4)" stroke-width="1.2" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
+    </div>
+    <div style="font-family:'Rajdhani',sans-serif;font-size:20px;font-weight:600;letter-spacing:3px;color:var(--muted)">SIN PROYECTO ACTIVO</div>
+    <p style="font-size:13px;color:#3A5070;margin:8px 0 20px">Crea un nuevo proyecto para comenzar</p>
+    <button class="b1" style="padding:10px 28px;font-size:14px" onclick="openNewProjectModal()">+ CREAR PROYECTO</button>
+  </div>
+</div>
+
+<!-- ═══ WORKSPACE ═══ -->
+<div id="workspace" style="display:none;height:calc(100vh - 96px)">
+<div style="display:flex;height:100%">
+
+<!-- ═══ LEFT: CATALOG ═══ -->
+<div style="width:270px;flex-shrink:0;display:flex;flex-direction:column;border-right:1px solid var(--border);background:var(--surface);overflow:hidden">
+  <div style="padding:7px 12px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);flex-shrink:0">
+    <span class="shr" style="color:var(--cyan)">CATÁLOGO</span>
+    <span class="mono" style="font-size:10px;color:var(--muted)" id="cat-count">0</span>
+  </div>
+  <!-- Search -->
+  <div style="padding:6px 8px;border-bottom:1px solid var(--border);flex-shrink:0">
+    <div style="position:relative">
+      <svg style="position:absolute;left:8px;top:50%;transform:translateY(-50%)" width="11" height="11" fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input type="text" id="cat-search" placeholder="Buscar…" oninput="renderCatalog()" class="vi" style="padding-left:26px;font-size:11px;text-align:left">
+    </div>
+  </div>
+  <!-- Filters -->
+  <div id="cat-filters" style="padding:5px 6px;display:flex;gap:3px;overflow-x:auto;flex-shrink:0;border-bottom:1px solid var(--border)"></div>
+  <!-- List -->
+  <div id="cat-list" style="flex:1;overflow-y:auto;padding:5px;display:flex;flex-direction:column;gap:3px"></div>
+  <!-- Add controls -->
+  <div style="padding:7px;border-top:1px solid var(--border);background:rgba(22,32,48,.6);flex-shrink:0">
+    <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px;margin-bottom:5px">
+      <div><label class="lm">CANTIDAD</label><input type="number" id="add-qty" value="1" min="0.01" step="0.01" class="vi" style="text-align:center;font-size:11px"></div>
+      <div><label class="lm">P.UNIT CUSTOM</label><input type="number" id="add-price" placeholder="auto" min="0" step="0.01" class="vi" style="font-size:11px"></div>
+    </div>
+    <button class="bg1" style="width:100%;padding:4px;font-size:11px" onclick="openCustomItemModal()">+ PIEZA PERSONALIZADA</button>
+  </div>
+  <!-- Plans -->
+  <div style="border-top:2px solid var(--border);flex-shrink:0">
+    <div style="padding:6px 12px;display:flex;justify-content:space-between;align-items:center">
+      <span class="shr" style="color:var(--amber)">PLANOS TÉCNICOS</span>
+      <span class="mono" style="font-size:10px;color:var(--muted)" id="plans-badge">0</span>
+    </div>
+    <div class="dz" id="drop-zone" style="margin:0 8px 6px;border:1px dashed #2A3850;border-radius:8px;padding:10px 8px;text-align:center;cursor:pointer;transition:border-color .2s,background .2s"
+      onclick="document.getElementById('file-input').click()"
+      ondragover="handleDragOver(event)" ondragleave="handleDragLeave(event)" ondrop="handleDrop(event)">
+      <input type="file" id="file-input" multiple accept=".pdf,.dwg,.dxf,.png,.jpg,.jpeg,.svg" style="display:none" onchange="handleFiles(event)">
+      <svg style="margin:0 auto 3px;display:block" width="18" height="18" fill="none" stroke="#2A3850" stroke-width="1.5" viewBox="0 0 24 24"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+      <p style="font-size:10px;color:#3A5070;line-height:1.4;margin:0">Clic o arrastra planos<br><span style="color:#2A3850;font-size:9px">PDF·DWG·DXF·IMG</span></p>
+    </div>
+    <div id="plans-list" style="padding:0 8px 8px;display:flex;flex-direction:column;gap:3px;max-height:100px;overflow-y:auto"></div>
+  </div>
+</div>
+
+<!-- ═══ CENTER: ITEMS ═══ -->
+<div style="flex:1;display:flex;flex-direction:column;overflow:hidden;background:var(--bg);min-width:0">
+  <div style="padding:7px 14px;display:flex;justify-content:space-between;align-items:center;border-bottom:1px solid var(--border);background:var(--surface);flex-shrink:0">
+    <span class="shr" style="color:var(--text);letter-spacing:2px">PRESUPUESTO DETALLADO</span>
+    <div style="display:flex;gap:8px;align-items:center">
+      <button class="bg1" style="padding:3px 10px;font-size:11px" onclick="clearAllItems()">LIMPIAR</button>
+      <span class="mono" style="font-size:11px;color:var(--muted)"><span id="items-count">0</span> partidas</span>
+    </div>
+  </div>
+  <!-- Table header -->
+  <div class="mono" style="display:grid;grid-template-columns:55px 1.6fr 48px 110px 70px 110px 28px;gap:5px;padding:5px 14px;border-bottom:1px solid var(--border-dim);font-size:10px;color:var(--muted);letter-spacing:1.5px;background:var(--surface);flex-shrink:0">
+    <span>CÓD.</span><span>DESCRIPCIÓN</span><span style="text-align:center">UND</span>
+    <span style="text-align:right">P.UNIT.</span><span style="text-align:center">CANT.</span>
+    <span style="text-align:right">SUBTOTAL</span><span></span>
+  </div>
+  <!-- Items -->
+  <div id="items-list" style="flex:1;overflow-y:auto"></div>
+  <!-- Footer -->
+  <div style="padding:7px 14px;border-top:1px solid var(--border);background:var(--surface);flex-shrink:0">
+    <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+      <div style="display:flex;gap:14px">
+        <span class="mono" style="font-size:10px"><span style="color:var(--cyan)">ACTIVOS:</span> <span id="footer-activos">$ 0.00</span></span>
+        <span class="mono" style="font-size:10px"><span style="color:var(--amber)">CONSUMIBLES:</span> <span id="footer-consumibles">$ 0.00</span></span>
+      </div>
+      <span class="mono" id="footer-qty" style="font-size:10px;color:var(--muted)"></span>
+    </div>
+    <div style="display:flex;justify-content:space-between;align-items:center">
+      <span style="font-family:'Rajdhani',sans-serif;font-weight:600;font-size:13px;letter-spacing:1.5px;color:var(--text)">TOTAL LISTA</span>
+      <span class="mono" id="footer-total" style="font-size:15px;font-weight:700;color:var(--green)">$ 0.00</span>
+    </div>
+  </div>
+</div>
+
+<!-- ═══ RIGHT: FINANCIALS ═══ -->
+<div style="width:400px;flex-shrink:0;border-left:2px solid var(--border-dim);background:var(--surface);overflow-y:auto;display:flex;flex-direction:column">
+
+  <!-- ── M1: VENTA DIRECTA ── -->
+  <div style="border-bottom:1px solid var(--border)">
+    <div class="mod-hdr" onclick="toggleMod('mod-venta')">
+      <div class="mod-badge" style="border:1px solid rgba(0,212,255,.35);background:rgba(0,212,255,.12)"><span style="color:var(--cyan)">1</span></div>
+      <span class="shr" style="color:var(--cyan)">VENTA DIRECTA</span>
+      <span class="mono" style="font-size:10px;color:var(--muted);margin-left:auto" id="v-total-hdr">$ 0.00</span>
+      <svg id="arrow-mod-venta" width="12" height="12" fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24" style="margin-left:6px;transition:transform .3s"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div id="mod-venta" class="mod-body" style="max-height:300px;opacity:1">
+    <div style="padding:10px 12px">
+      <div style="margin-bottom:8px">
+        <label class="lm">TIPO DE AJUSTE</label>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+          <button id="btn-margin" class="bg1" style="padding:4px;font-size:11px;letter-spacing:1px" onclick="setAdjType('margin')">▲ MARGEN SEG.</button>
+          <button id="btn-discount" class="bg1" style="padding:4px;font-size:11px;letter-spacing:1px" onclick="setAdjType('discount')">▼ DESC. COMERCIAL</button>
+        </div>
+      </div>
+      <div style="margin-bottom:8px">
+        <label class="lm" id="adj-label">MARGEN (%)</label>
+        <div style="display:flex;align-items:center;gap:6px">
+          <input type="number" id="adj-pct" value="10" min="0" max="100" step="0.5" oninput="saveAndCompute()" class="vi" style="max-width:90px">
+          <span style="color:var(--muted);font-size:13px">%</span>
+        </div>
+      </div>
+      <div style="border:1px solid rgba(0,212,255,.2);border-radius:7px;padding:9px;background:rgba(0,212,255,.02)">
+        <div class="rr"><span style="color:var(--muted)">Base lista:</span><span id="v-base">$ 0.00</span></div>
+        <div class="rr" style="margin-bottom:7px"><span id="v-adj-label" style="color:var(--muted)">+ Seguridad:</span><span id="v-adj-val" style="color:var(--amber)">+ $ 0.00</span></div>
+        <div style="border-top:1px solid rgba(0,212,255,.2);padding-top:6px;display:flex;justify-content:space-between;align-items:center">
+          <span class="shr" style="color:var(--cyan)">TOTAL VENTA</span>
+          <span class="rb" id="v-total" style="color:var(--cyan)">$ 0.00</span>
+        </div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <!-- ── M2: CORTO PLAZO ── -->
+  <div style="border-bottom:1px solid var(--border)">
+    <div class="mod-hdr" onclick="toggleMod('mod-cp')">
+      <div class="mod-badge" style="border:1px solid rgba(255,176,64,.35);background:rgba(255,176,64,.12)"><span style="color:var(--amber)">2</span></div>
+      <div>
+        <span class="shr" style="color:var(--amber)">CORTO PLAZO</span>
+        <span class="mono" style="font-size:8px;color:var(--muted);margin-left:6px;letter-spacing:1px">CAPITAL PROPIO</span>
+      </div>
+      <span class="mono" style="font-size:10px;color:var(--amber);margin-left:auto" id="cp-renta-hdr">$ 0.00</span>
+      <svg id="arrow-mod-cp" width="12" height="12" fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24" style="margin-left:6px;transition:transform .3s"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div id="mod-cp" class="mod-body" style="max-height:9999px;opacity:1">
+    <div style="padding:10px 12px">
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+        <div><label class="lm">PLAZO CONTRATO (meses)</label>
+          <select id="cp-plazo" oninput="saveAndCompute()" class="vi a" style="text-align:left;cursor:pointer;padding-right:20px">
+            <option value="1">1 mes</option><option value="2">2 meses</option><option value="3">3 meses</option>
+            <option value="6" selected>6 meses</option><option value="9">9 meses</option><option value="12">12 meses</option>
+            <option value="18">18 meses</option><option value="24">24 meses</option>
+          </select>
+        </div>
+        <div><label class="lm" style="color:var(--amber)">VIDA ÚTIL CP (meses)</label>
+          <input type="number" id="cp-vida" value="60" min="1" step="1" oninput="saveAndCompute()" class="vi a" style="border-color:rgba(255,176,64,.4)">
+        </div>
+        <div><label class="lm">GTOS. OPERATIVOS (% anual)</label>
+          <input type="number" id="cp-op" value="5" min="0" step="0.5" oninput="saveAndCompute()" class="vi a">
+        </div>
+        <div><label class="lm" style="color:var(--amber)">ROA ANUAL (%)</label>
+          <input type="number" id="cp-roa" value="35" min="0" max="200" step="0.5" oninput="saveAndCompute()" class="vi a" style="border-color:rgba(255,176,64,.5)">
+        </div>
+        <div style="grid-column:1/3"><label class="lm">FACTOR MERMA MONTAJE (% del activo)</label>
+          <div style="display:flex;align-items:center;gap:5px">
+            <input type="number" id="cp-merma" value="2" min="0" max="20" step="0.1" oninput="saveAndCompute()" class="vi a" style="max-width:80px">
+            <span class="mono" style="font-size:10px;color:var(--muted)">% → se amortiza en el plazo</span>
+          </div>
+        </div>
+      </div>
+      <!-- Result box CP -->
+      <div style="border:1px solid rgba(255,176,64,.25);border-radius:8px;padding:10px;background:rgba(255,176,64,.03)">
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 7px;background:rgba(255,176,64,.07);border-radius:4px;border:1px solid rgba(255,176,64,.2);margin-bottom:8px">
+          <span class="mono" style="font-size:10px;color:var(--amber)">BASE = TOTAL VENTA</span>
+          <span class="mono" style="font-size:11px;font-weight:700;color:var(--amber)" id="cp-base">$ 0.00</span>
+        </div>
+        <div class="shr" style="color:var(--muted);font-size:10px;margin-bottom:5px">DESGLOSE RENTA MENSUAL</div>
+        <div class="rr"><span style="color:var(--muted)">Dep. (venta÷<span id="cp-vida-lbl">60</span>m):</span><span id="cp-dep">$ 0.00</span></div>
+        <div class="rr"><span style="color:var(--muted)">Merma montaje (<span id="cp-merma-lbl">2</span>%÷<span id="cp-plazo-lbl">6</span>m):</span><span id="cp-merma-val" style="color:var(--amber)">$ 0.00</span></div>
+        <div class="rr"><span style="color:var(--muted)">Gtos.Op. (<span id="cp-op-lbl">5</span>%/año):</span><span id="cp-gop">$ 0.00</span></div>
+        <div id="row-cons-cp" class="rr" style="display:none"><span style="color:#FFB040;opacity:.8">Consumibles÷<span id="cp-cons-plazo">6</span>m:</span><span id="cp-cons" style="color:#FFB040">$ 0.00</span></div>
+        <div class="rr" style="border-top:1px solid rgba(255,176,64,.2);padding-top:5px;margin-top:3px">
+          <span style="color:var(--amber);font-weight:600">ROA <span id="cp-roa-lbl">35</span>% anual:</span>
+          <span id="cp-roa-val" style="color:var(--amber);font-weight:600">$ 0.00</span>
+        </div>
+        <div style="border-top:1px solid rgba(255,176,64,.3);padding-top:7px;margin-top:5px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:7px">
+            <span class="shr" style="color:var(--amber)">RENTA AL CLIENTE</span>
+            <span class="rb" id="cp-renta" style="color:var(--amber)">$ 0.00</span>
+          </div>
+          <div style="display:grid;grid-template-columns:1fr 1fr;gap:5px">
+            <div class="kpi" style="border:1px solid rgba(0,232,122,.3);background:rgba(0,232,122,.06)">
+              <div class="kl">GANANCIA MENSUAL</div>
+              <div class="kv" id="cp-ganancia" style="color:var(--green)">$ 0.00</div>
+            </div>
+            <div class="kpi" style="border:1px solid rgba(0,212,255,.25);background:rgba(0,212,255,.05)">
+              <div class="kl">PUNTO EQUILIBRIO</div>
+              <div class="kv" id="cp-pe" style="color:var(--cyan)">— m</div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <!-- ── M3: LARGO PLAZO ── -->
+  <div style="border-bottom:1px solid var(--border)">
+    <div class="mod-hdr" onclick="toggleMod('mod-lp')">
+      <div class="mod-badge" style="border:1px solid rgba(0,232,122,.35);background:rgba(0,232,122,.12)"><span style="color:var(--green)">3</span></div>
+      <div>
+        <span class="shr" style="color:var(--green)">LARGO PLAZO</span>
+        <span class="mono" style="font-size:8px;color:var(--muted);margin-left:6px;letter-spacing:1px">BANCO FINANCIA</span>
+      </div>
+      <span class="mono" style="font-size:10px;color:var(--green);margin-left:auto" id="lp-renta-hdr">$ 0.00</span>
+      <svg id="arrow-mod-lp" width="12" height="12" fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24" style="margin-left:6px;transition:transform .3s"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div id="mod-lp" class="mod-body" style="max-height:9999px;opacity:1">
+    <div style="padding:10px 12px">
+      <!-- INPUTS GRID -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+        <div><label class="lm" style="color:var(--green)">VIDA ÚTIL LP (meses)</label>
+          <input type="number" id="lp-vida" value="120" min="1" step="1" oninput="saveAndCompute()" class="vi g" style="border-color:rgba(0,232,122,.4)">
+        </div>
+        <div><label class="lm" style="color:var(--red)">PLAZO PRÉSTAMO BANCO (m)</label>
+          <input type="number" id="lp-n" value="24" min="1" step="1" oninput="saveAndCompute()" class="vi g" style="border-color:rgba(255,61,87,.45)">
+        </div>
+        <div><label class="lm" style="color:var(--cyan)">PLAZO CONTRATO CLIENTE (m)</label>
+          <input type="number" id="lp-n-contrato" value="36" min="1" step="1" oninput="saveAndCompute()" class="vi g" style="border-color:rgba(0,212,255,.45)">
+        </div>
+        <div><label class="lm" style="color:var(--red)">TEA BANCO (%)</label>
+          <input type="number" id="lp-tea-banco" value="7" min="0" step="0.5" oninput="saveAndCompute()" class="vi g" style="border-color:rgba(255,61,87,.4)">
+        </div>
+        <div><label class="lm" style="color:var(--green)">TASA COTIZACIÓN CLIENTE (%)</label>
+          <input type="number" id="lp-tea-cot" value="15" min="0" step="0.5" oninput="saveAndCompute()" class="vi g" style="border-color:rgba(0,232,122,.5)">
+        </div>
+        <div><label class="lm">GTOS. OPERATIVOS (% anual)</label>
+          <input type="number" id="lp-op" value="5" min="0" step="0.5" oninput="saveAndCompute()" class="vi g">
+        </div>
+        <div><label class="lm">GASTOS FORMALIZACIÓN ($)</label>
+          <input type="number" id="lp-form" value="350" min="0" step="50" oninput="saveAndCompute()" class="vi g">
+        </div>
+        <div><label class="lm" style="color:var(--green)">RENTA POST-PRÉSTAMO (%)</label>
+          <div style="display:flex;align-items:center;gap:4px">
+            <input type="number" id="lp-post-pct" value="80" min="10" max="100" step="5" oninput="saveAndCompute()" class="vi g" style="border-color:rgba(0,232,122,.45)">
+            <span class="mono" style="font-size:10px;color:var(--muted)">%</span>
+          </div>
+        </div>
+        <div style="grid-column:1/3"><label class="lm">FONDO DE REPOSICIÓN (% anual sobre activo)</label>
+          <div style="display:flex;align-items:center;gap:5px">
+            <input type="number" id="lp-fondo-rep" value="5" min="0" max="20" step="0.5" oninput="saveAndCompute()" class="vi g" style="max-width:75px">
+            <span class="mono" style="font-size:10px;color:var(--muted)">% si contrato > <span id="lp-umbral-lbl">80</span>% vida útil</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- TIMELINE VISUAL -->
+      <div style="margin-bottom:10px">
+        <div style="display:flex;justify-content:space-between;margin-bottom:14px">
+          <span class="mono" style="font-size:9px;color:var(--muted)">MES 0</span>
+          <span class="mono" style="font-size:9px;color:var(--cyan)" id="tl-end-label">MES 36</span>
+        </div>
+        <div class="tl-track" id="lp-timeline">
+          <div class="tl-phase1" id="tl-phase1" style="width:67%">
+            <span class="tl-label" id="tl-phase1-label">FASE 1: 24m — CON DEUDA</span>
+          </div>
+          <div class="tl-phase2" id="tl-phase2" style="left:67%;width:33%">
+            <span class="tl-label" id="tl-phase2-label">FASE 2: 12m — ACTIVO LIBRE</span>
+          </div>
+          <div class="tl-marker" id="tl-marker" style="left:67%" data-label="LIBRE"></div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr;gap:4px;margin-top:4px">
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:10px;height:8px;border-radius:2px;background:rgba(255,61,87,.5);flex-shrink:0"></div><span class="mono" style="font-size:9px;color:var(--muted)">FASE 1: banco financia</span></div>
+          <div style="display:flex;align-items:center;gap:4px"><div style="width:10px;height:8px;border-radius:2px;background:rgba(0,232,122,.5);flex-shrink:0"></div><span class="mono" style="font-size:9px;color:var(--muted)">FASE 2: utilidad pura</span></div>
+        </div>
+      </div>
+
+      <!-- RESULTADO BOX -->
+      <div style="border:1px solid rgba(0,232,122,.25);border-radius:8px;padding:10px;background:rgba(0,232,122,.03);margin-bottom:6px">
+        <!-- Base ref -->
+        <div style="display:flex;justify-content:space-between;align-items:center;padding:4px 7px;background:rgba(0,232,122,.06);border-radius:4px;border:1px solid rgba(0,232,122,.18);margin-bottom:8px">
+          <span class="mono" style="font-size:10px;color:var(--green)">BASE = TOTAL VENTA</span>
+          <span class="mono" style="font-size:11px;font-weight:700;color:var(--green)" id="lp-base">$ 0.00</span>
+        </div>
+        <!-- Financing structure -->
+        <div class="shr" style="color:var(--muted);font-size:10px;margin-bottom:5px">ESTRUCTURA FINANCIAMIENTO</div>
+        <div class="rr"><span style="color:var(--muted)">Capital:</span><span id="lp-capital">$ 0.00</span></div>
+        <div class="rr"><span style="color:var(--muted)">+ Formalización:</span><span id="lp-form-disp" style="color:var(--muted)">$ 0.00</span></div>
+        <div class="rr" style="margin-bottom:2px"><span style="color:var(--muted)">Total financiado banco:</span><span id="lp-total-fin" style="font-weight:600">$ 0.00</span></div>
+        <!-- Life utility warning -->
+        <div id="lp-vida-alerta" style="display:none;padding:4px 7px;background:rgba(255,176,64,.1);border:1px solid rgba(255,176,64,.3);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--amber);margin:5px 0;line-height:1.4"></div>
+
+        <!-- PHASE 1 -->
+        <div class="phase-card" style="background:rgba(255,61,87,.06);border:1px solid rgba(255,61,87,.25);margin-top:6px">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--red);flex-shrink:0"></div>
+            <span class="shr" style="color:var(--red);font-size:10px">FASE 1 — CON DEUDA BANCARIA</span>
+            <span class="mono" style="font-size:9px;color:var(--muted);margin-left:auto">meses 1–<span id="lp-f1-end">24</span></span>
+          </div>
+          <div class="rr"><span style="color:var(--muted)">Cuota banco (<span id="lp-tea-lbl">7</span>% TEA):</span><span id="lp-cuota-banco" style="color:var(--red)">$ 0.00</span></div>
+          <div class="rr"><span style="color:var(--muted)">Gtos.Op. (<span id="lp-op-lbl">5</span>%):</span><span id="lp-gop">$ 0.00</span></div>
+          <div class="rr" style="border-top:1px solid rgba(255,61,87,.2);padding-top:4px;margin-top:3px">
+            <span style="color:var(--green);font-weight:600">Spread (<span id="lp-cot-lbl">15</span>%−<span id="lp-banco-lbl2">7</span>%):</span>
+            <span id="lp-spread" style="color:var(--green);font-weight:600">$ 0.00</span>
+          </div>
+          <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(255,61,87,.25);padding-top:6px;margin-top:5px">
+            <span class="shr" style="color:var(--red);font-size:11px">RENTA F1</span>
+            <span class="mono" style="font-weight:700;font-size:14px;color:var(--red)" id="lp-renta">$ 0.00</span>
+          </div>
+        </div>
+
+        <!-- PHASE 2 -->
+        <div class="phase-card" style="background:rgba(0,232,122,.07);border:1px solid rgba(0,232,122,.3)">
+          <div style="display:flex;align-items:center;gap:6px;margin-bottom:6px">
+            <div style="width:8px;height:8px;border-radius:50%;background:var(--green);flex-shrink:0"></div>
+            <span class="shr" style="color:var(--green);font-size:10px">FASE 2 — ACTIVO 100% ZGROUP</span>
+            <span class="mono" style="font-size:9px;color:var(--muted);margin-left:auto">meses <span id="lp-f2-start">25</span>–<span id="lp-f2-end">36</span></span>
+          </div>
+          <div class="rr"><span style="color:var(--muted)">Renta F1 × <span id="lp-post-pct-lbl">80</span>%:</span><span id="lp-renta-f2" style="color:var(--green)">$ 0.00</span></div>
+          <div class="rr"><span style="color:var(--muted)">Gtos.Op. (sin cuota banco):</span><span id="lp-gop-f2" style="color:var(--muted)">$ 0.00</span></div>
+          <div id="row-fondo-rep" class="rr" style="display:none"><span style="color:var(--cyan)">Fondo reposición (<span id="lp-fondo-lbl">5</span>%):</span><span id="lp-fondo-val" style="color:var(--cyan)">$ 0.00</span></div>
+          <div style="display:flex;justify-content:space-between;align-items:center;border-top:1px solid rgba(0,232,122,.3);padding-top:6px;margin-top:5px">
+            <span class="shr" style="color:var(--green);font-size:11px">UTILIDAD F2</span>
+            <span class="mono" style="font-weight:700;font-size:14px;color:var(--green)" id="lp-ganancia-f2">$ 0.00</span>
+          </div>
+        </div>
+
+        <!-- KPI row -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px;margin-top:6px">
+          <div class="kpi" style="border:1px solid rgba(255,61,87,.25);background:rgba(255,61,87,.05)">
+            <div class="kl">UTILIDAD F1</div>
+            <div class="kv" id="lp-ganancia" style="color:var(--green);font-size:11px">$ 0.00</div>
+            <div style="font-size:8px;color:var(--muted);font-family:'JetBrains Mono',monospace" id="lp-f1-dur-lbl">24m</div>
+          </div>
+          <div class="kpi" style="border:1px solid rgba(0,232,122,.3);background:rgba(0,232,122,.06)">
+            <div class="kl">UTILIDAD F2</div>
+            <div class="kv" id="lp-kpi-f2" style="color:var(--green);font-size:11px">$ 0.00</div>
+            <div style="font-size:8px;color:var(--muted);font-family:'JetBrains Mono',monospace" id="lp-f2-dur-lbl">12m</div>
+          </div>
+          <div class="kpi" style="border:1px solid rgba(0,212,255,.25);background:rgba(0,212,255,.05)">
+            <div class="kl">TOTAL CICLO</div>
+            <div class="kv" id="lp-total-ciclo" style="color:var(--cyan);font-size:11px">$ 0.00</div>
+            <div style="font-size:8px;color:var(--muted);font-family:'JetBrains Mono',monospace" id="lp-ciclo-dur-lbl">36m</div>
+          </div>
+        </div>
+        <!-- lp-pe needed for comparativa -->
+        <span id="lp-pe" style="display:none">— m</span>
+        <span id="lp-kpi-banco" style="display:none">$ 0.00</span>
+      </div>
+      <!-- Amortization -->
+      <button id="amort-btn" class="bg1" style="width:100%;padding:4px;font-size:11px;letter-spacing:1px" onclick="toggleAmort()">VER TABLA AMORTIZACIÓN BANCO ▼</button>
+      <div id="amort-table" style="display:none;margin-top:6px;overflow-x:auto;max-height:220px;overflow-y:auto;border:1px solid var(--border);border-radius:5px"></div>
+    </div>
+    </div>
+  </div>
+
+  <!-- ── M4: ESTACIONALIDAD ── -->
+  <div style="border-bottom:1px solid var(--border)">
+    <div class="mod-hdr" onclick="toggleMod('mod-est')">
+      <div class="mod-badge" style="border:1px solid rgba(168,85,247,.35);background:rgba(168,85,247,.12)"><span style="color:var(--violet)">4</span></div>
+      <div>
+        <span class="shr" style="color:var(--violet)">ESTACIONALIDAD</span>
+        <span class="mono" style="font-size:8px;color:var(--muted);margin-left:6px;letter-spacing:1px">AGRO / STANDBY</span>
+      </div>
+      <span class="mono" style="font-size:10px;color:var(--violet);margin-left:auto" id="est-renta-hdr">$ 0.00/año</span>
+      <svg id="arrow-mod-est" width="12" height="12" fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24" style="margin-left:6px;transform:rotate(-90deg);transition:transform .3s"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div id="mod-est" class="mod-body" style="max-height:0;opacity:0">
+    <div style="padding:10px 12px">
+      <p class="mono" style="font-size:10px;color:var(--muted);line-height:1.5;margin-bottom:8px">Para clientes agro que operan solo 6-8 meses/año. La tarifa Standby protege el contrato anual sin desmontaje del equipo.</p>
+
+      <!-- INPUTS -->
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:8px">
+        <div><label class="lm" style="color:var(--violet)">MESES OPERATIVOS (full)</label>
+          <input type="number" id="est-op" value="8" min="1" max="11" step="1" oninput="saveAndCompute()" class="vi v">
+        </div>
+        <div><label class="lm">MESES STANDBY (reducida)</label>
+          <input type="number" id="est-sb" value="4" min="1" max="11" step="1" oninput="saveAndCompute()" class="vi v">
+        </div>
+        <div><label class="lm">SEGURO (% anual del activo)</label>
+          <div style="display:flex;align-items:center;gap:5px">
+            <input type="number" id="est-seguro" value="1" min="0" step="0.1" oninput="saveAndCompute()" class="vi v" style="max-width:75px">
+            <span class="mono" style="font-size:9px;color:var(--muted)">% anual</span>
+          </div>
+        </div>
+        <div><label class="lm" style="color:var(--violet)">% AJUSTE STANDBY</label>
+          <div style="display:flex;align-items:center;gap:5px">
+            <input type="number" id="est-sb-pct" value="35" min="5" max="100" step="5" oninput="saveAndCompute()" class="vi v" style="max-width:75px;border-color:rgba(168,85,247,.5)">
+            <span class="mono" style="font-size:9px;color:var(--violet)">% de Renta Full</span>
+          </div>
+        </div>
+        <div style="grid-column:1/3">
+          <div style="padding:5px 8px;background:rgba(168,85,247,.06);border:1px solid rgba(168,85,247,.2);border-radius:5px;display:flex;align-items:center;gap:6px">
+            <svg width="10" height="10" fill="none" stroke="var(--violet)" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+            <span class="mono" style="font-size:10px;color:var(--violet)">Cuadro analítico: <strong>5 AÑOS FIJOS</strong> (60 meses) — La Regla de Oro garantiza que la suma de utilidades = TOTAL CICLO LP</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- ALERTA STANDBY BAJO COSTO FINANCIERO -->
+      <div id="est-alerta-sb" style="display:none;padding:6px 8px;background:rgba(255,61,87,.1);border:1px solid rgba(255,61,87,.35);border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--red);margin-bottom:8px;line-height:1.5"></div>
+
+      <!-- TARIFA RESULTADO -->
+      <div style="border:1px solid rgba(168,85,247,.25);border-radius:8px;padding:10px;background:rgba(168,85,247,.03);margin-bottom:8px">
+        <div class="shr" style="color:var(--muted);font-size:10px;margin-bottom:6px">ESTRUCTURA TARIFARIA MENSUAL</div>
+
+        <!-- FULL -->
+        <div style="padding:6px 8px;background:rgba(0,232,122,.05);border:1px solid rgba(0,232,122,.2);border-radius:5px;margin-bottom:5px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:3px">
+            <span class="mono" style="font-size:9px;color:var(--green);letter-spacing:1px">🟢 RENTA FULL (meses operativos)</span>
+            <span class="mono" style="font-size:11px;font-weight:700;color:var(--green)" id="est-renta-full-val">$ 0.00</span>
+          </div>
+          <div class="rr" style="margin-bottom:0"><span style="color:var(--muted)">× <span id="est-op-lbl">8</span> meses:</span><span id="est-ingreso-full" style="color:var(--green)">$ 0.00</span></div>
+        </div>
+
+        <!-- STANDBY -->
+        <div style="padding:6px 8px;background:rgba(168,85,247,.05);border:1px solid rgba(168,85,247,.2);border-radius:5px;margin-bottom:5px">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px">
+            <span class="mono" style="font-size:9px;color:var(--violet);letter-spacing:1px">🟣 TARIFA STANDBY (<span id="est-sb-pct-lbl">35</span>% de Full)</span>
+            <span class="mono" style="font-size:11px;font-weight:700;color:var(--violet)" id="est-renta-sb">$ 0.00</span>
+          </div>
+          <div class="rr"><span style="color:var(--muted)">Cuota banco:</span><span id="est-cuota-banco" style="color:var(--red)">$ 0.00</span></div>
+          <div class="rr"><span style="color:var(--muted)">Seguro (<span id="est-seg-lbl">1</span>%):</span><span id="est-seguro-val">$ 0.00</span></div>
+          <div class="rr"><span style="color:var(--muted)">Gestión 5%:</span><span id="est-gestion">$ 0.00</span></div>
+          <div class="rr" style="margin-top:3px;border-top:1px solid rgba(168,85,247,.2);padding-top:3px">
+            <span style="color:var(--muted)">Costo financiero mínimo:</span>
+            <span id="est-costo-min" style="color:var(--muted)">$ 0.00</span>
+          </div>
+          <div class="rr" style="margin-bottom:0"><span style="color:var(--muted)">× <span id="est-sb-lbl">4</span> meses:</span><span id="est-ingreso-sb" style="color:var(--violet)">$ 0.00</span></div>
+        </div>
+
+        <!-- KPIs anuales -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:4px">
+          <div class="kpi" style="border:1px solid rgba(168,85,247,.3);background:rgba(168,85,247,.06)">
+            <div class="kl">INGRESO/AÑO</div>
+            <div class="kv" id="est-ingreso-total" style="color:var(--violet);font-size:12px">$ 0.00</div>
+          </div>
+          <div class="kpi" style="border:1px solid rgba(0,232,122,.3);background:rgba(0,232,122,.06)">
+            <div class="kl">GANANCIA/AÑO</div>
+            <div class="kv" id="est-ganancia-total" style="color:var(--green);font-size:12px">$ 0.00</div>
+          </div>
+          <div class="kpi" style="border:1px solid rgba(0,212,255,.25);background:rgba(0,212,255,.05)">
+            <div class="kl">MARGEN %</div>
+            <div class="kv" id="est-margen-pct" style="color:var(--cyan);font-size:12px">0.0%</div>
+          </div>
+        </div>
+      </div>
+
+      <!-- CUADRO ANALÍTICO MULTI-AÑO -->
+      <div style="border:2px solid var(--cyan);border-radius:8px;overflow:hidden;margin-top:4px">
+        <div style="padding:7px 10px;background:rgba(0,229,255,.12);display:flex;align-items:center;gap:7px">
+          <svg width="11" height="11" fill="none" stroke="var(--cyan)" stroke-width="2.5" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="3" x2="9" y2="21"/></svg>
+          <span class="shr" style="color:var(--cyan);font-size:11px">CUADRO ANALÍTICO — PROYECCIÓN 5 AÑOS (60 meses) · REGLA DE ORO ✓</span>
+        </div>
+        <div style="overflow-x:auto;width:100%">
+          <table class="anal-table">
+            <thead>
+              <tr>
+                <th class="col-year" style="text-align:left;color:var(--text)">AÑO / FASE</th>
+                <th class="col-num" style="color:var(--cyan)">ING. BRUTO</th>
+                <th class="col-num" style="color:var(--red)">PAGO BANCO</th>
+                <th class="col-num" style="color:var(--muted)">GTOS.OP.</th>
+                <th class="col-num" style="color:var(--green)">UT. NETA</th>
+                <th class="col-num" style="color:var(--amber)">ACUMULADO</th>
+              </tr>
+            </thead>
+            <tbody id="est-tabla-body"></tbody>
+            <tfoot id="est-tabla-total" style="display:none">
+              <tr class="anal-totals">
+                <td>TOTAL 5 AÑOS</td>
+                <td class="col-num" id="est-tot-ing">—</td>
+                <td class="col-num" id="est-tot-banco">—</td>
+                <td class="col-num" id="est-tot-gst">—</td>
+                <td class="col-num" id="est-tot-util">—</td>
+                <td class="col-num" id="est-tot-acum">—</td>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+
+      <!-- Leyenda fases -->
+      <div style="display:flex;gap:10px;margin-top:6px;flex-wrap:wrap">
+        <div style="display:flex;align-items:center;gap:4px"><div style="width:10px;height:8px;border-radius:2px;background:rgba(255,61,87,.5)"></div><span class="mono" style="font-size:9px;color:var(--muted)">Fase 1 — con deuda banco</span></div>
+        <div style="display:flex;align-items:center;gap:4px"><div style="width:10px;height:8px;border-radius:2px;background:rgba(0,232,122,.5)"></div><span class="mono" style="font-size:9px;color:var(--muted)">Fase 2 — activo libre (utilidad pura)</span></div>
+      </div>
+    </div>
+    </div>
+  </div>
+
+  <!-- ── M5: COMPARATIVA GERENCIAL ── -->
+  <div>
+    <div class="mod-hdr" onclick="toggleMod('mod-cmp')">
+      <div class="mod-badge" style="border:1px solid rgba(0,212,255,.35);background:rgba(0,212,255,.12)">
+        <svg width="10" height="10" fill="none" stroke="var(--cyan)" stroke-width="2" viewBox="0 0 24 24"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+      </div>
+      <span class="shr" style="color:var(--cyan)">PANEL GERENCIAL</span>
+      <svg id="arrow-mod-cmp" width="12" height="12" fill="none" stroke="var(--muted)" stroke-width="2" viewBox="0 0 24 24" style="margin-left:auto;transition:transform .3s"><polyline points="6 9 12 15 18 9"/></svg>
+    </div>
+    <div id="mod-cmp" class="mod-body" style="max-height:9999px;opacity:1">
+    <div style="padding:10px 12px">
+      <!-- Period selector -->
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+        <span class="mono" style="font-size:10px;color:var(--muted)">HORIZONTE ANÁLISIS:</span>
+        <div style="display:flex;align-items:center;gap:5px">
+          <input type="number" id="cmp-period" value="24" min="1" max="120" step="1" oninput="saveAndCompute()" style="width:44px;padding:2px 5px;background:var(--card);border:1px solid var(--border);color:var(--cyan);border-radius:4px;font-family:'JetBrains Mono',monospace;font-size:11px;outline:none;text-align:center">
+          <span class="mono" style="font-size:10px;color:var(--muted)">meses</span>
+        </div>
+      </div>
+
+      <!-- Comparison table -->
+      <div style="border:1px solid var(--border);border-radius:7px;overflow:hidden;margin-bottom:10px">
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;background:var(--card)">
+          <div style="padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)">INDICADOR</div>
+          <div style="padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--amber);text-align:center;border-left:1px solid var(--border)">CORTO PLAZO</div>
+          <div style="padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--green);text-align:center;border-left:1px solid var(--border)">LARGO PLAZO</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid var(--border)">
+          <div style="padding:7px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)">Renta cliente/mes</div>
+          <div style="padding:7px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--amber)" id="cmp-renta-cp">—</div>
+          <div style="padding:7px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--green)" id="cmp-renta-lp">—</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid var(--border)">
+          <div style="padding:7px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)">Capital en riesgo</div>
+          <div style="padding:7px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--red)" id="cmp-cap-cp">—</div>
+          <div style="padding:7px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--green)">$ 0</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid var(--border)">
+          <div style="padding:7px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)">Punto de equilibrio</div>
+          <div style="padding:7px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--cyan)" id="cmp-pe-cp">—</div>
+          <div style="padding:7px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--cyan)" id="cmp-pe-lp">—</div>
+        </div>
+        <!-- LP phase breakdown -->
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-top:2px solid rgba(255,61,87,.3);background:rgba(255,61,87,.04)">
+          <div style="padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--red)">Utilidad F1 (c/deuda)</div>
+          <div style="padding:6px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)" id="cmp-gan-cp">—</div>
+          <div style="padding:6px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:var(--green)" id="cmp-gan-lp-f1">—</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid rgba(0,232,122,.2);background:rgba(0,232,122,.04)">
+          <div style="padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--green)">Utilidad F2 (100% ZG)</div>
+          <div style="padding:6px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:11px;color:var(--muted)">—</div>
+          <div style="padding:6px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:11px;font-weight:700;color:var(--green)" id="cmp-gan-lp-f2">—</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-top:1px solid var(--border)">
+          <div style="padding:7px 8px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)">Ganancia <span id="cmp-p-lbl">24</span>m</div>
+          <div style="padding:7px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--amber)" id="cmp-total-cp">—</div>
+          <div style="padding:7px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--green)" id="cmp-total-lp">—</div>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 1fr 1fr;border-top:2px solid rgba(0,212,255,.2);background:rgba(0,212,255,.04)">
+          <div style="padding:6px 8px;font-family:'JetBrains Mono',monospace;font-size:9px;color:var(--cyan)">TOTAL CICLO VIDA LP</div>
+          <div style="padding:6px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--muted)">—</div>
+          <div style="padding:6px 8px;text-align:center;border-left:1px solid var(--border);font-family:'JetBrains Mono',monospace;font-size:12px;font-weight:700;color:var(--cyan)" id="cmp-ciclo-lp">—</div>
+        </div>
+      </div>
+
+      <!-- Alert: LP should be cheaper -->
+      <div id="cmp-alerta" style="display:none;padding:7px 10px;background:rgba(255,176,64,.1);border:1px solid rgba(255,176,64,.35);border-radius:5px;font-family:'JetBrains Mono',monospace;font-size:10px;color:var(--amber);margin-bottom:7px;line-height:1.5"></div>
+
+      <!-- Veredicto -->
+      <div id="cmp-veredicto" style="padding:9px 11px;border-radius:6px;font-family:'JetBrains Mono',monospace;font-size:11px;line-height:1.6;background:rgba(0,212,255,.05);border:1px solid rgba(0,212,255,.2);color:var(--cyan)">—</div>
+    </div>
+    </div>
+  </div>
+
+</div><!-- end right panel -->
+</div><!-- end 3-col -->
+</div><!-- end workspace -->
+
+<!-- MODAL -->
+<div id="modal-overlay" style="display:none;position:fixed;inset:0;z-index:50;background:rgba(8,13,24,.9);align-items:center;justify-content:center;backdrop-filter:blur(5px)">
+  <div id="modal-box" class="fade-in" style="width:100%;max-width:460px;margin:16px;border-radius:12px;background:var(--surface);border:1px solid rgba(0,212,255,.3);box-shadow:0 30px 80px rgba(0,0,0,.7)">
+    <div style="padding:13px 18px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center">
+      <span class="shr" id="modal-title" style="color:var(--cyan)">NUEVO PROYECTO</span>
+      <button onclick="closeModal()" style="background:none;border:none;cursor:pointer;color:var(--muted);font-size:16px" onmouseover="this.style.color='var(--red)'" onmouseout="this.style.color='var(--muted)'">✕</button>
+    </div>
+    <div id="modal-body" style="padding:18px"></div>
+  </div>
+</div>
+
+<div id="toast">—</div>
+
+<script>
+// ═══════════════════════════════════════════════
+// CATALOG (55 items from ZGROUP database)
+// ═══════════════════════════════════════════════
+const CATALOG=[
+  {id:'EST-001',code:'EST-001',name:'ZGROUP STORE XL - IZQUIERDA',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:5900,detalle:'CAJA ISOTERMICA DE 40 PIES CON LUMINARIAS Y PISO PLANO'},
+  {id:'EST-002',code:'EST-002',name:'ZGROUP STORE XL - DERECHA',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:5900,detalle:'CAJA ISOTERMICA DE 40 PIES CON LUMINARIAS Y PISO PLANO'},
+  {id:'EST-003',code:'EST-003',name:'ZGROUP STORE XL - MEDIA',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:6900,detalle:'CAJA ISOTERMICA DE 40 PIES CON LUMINARIAS Y PISO PLANO'},
+  {id:'EST-004',code:'EST-004',name:'CAJA ISOTERMICA 40 RH',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:4500,detalle:'CAJA ISOTERMICA DE 40 PIES'},
+  {id:'EST-005',code:'EST-005',name:'REDUCCION CAJA ISOTERMICA A MEDIDA',cat:'Trab. Estructura',tipo:'CONSUMIBLE',unit:'und',price:1100,detalle:''},
+  {id:'EST-006',code:'EST-006',name:'EXTENSION CAJA ISOTERMICA A MEDIDA',cat:'Trab. Estructura',tipo:'CONSUMIBLE',unit:'und',price:1100,detalle:''},
+  {id:'EST-007',code:'EST-007',name:'ABRIR BOCA',cat:'Trab. Estructura',tipo:'CONSUMIBLE',unit:'und',price:1100,detalle:'ABRIR DEL LADO DE LA MAQUINA'},
+  {id:'EST-008',code:'EST-008',name:'PANEL DIVISION',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:1100,detalle:'2300MM X 2590MM'},
+  {id:'EST-009',code:'EST-009',name:'PANEL DIVISION PARA PB 1,50*2,45',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:375,detalle:'TOTAL DE PANEL 0,80 M x 2,59 M'},
+  {id:'EST-010',code:'EST-010',name:'PISO PLANO 40 RH',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:1000,detalle:''},
+  {id:'EST-011',code:'EST-011',name:'PISO PLANO 20 RH',cat:'Trab. Estructura',tipo:'CONSUMIBLE',unit:'und',price:900,detalle:''},
+  {id:'EST-012',code:'EST-012',name:'CORTE PANEL POR METRO',cat:'Trab. Estructura',tipo:'CONSUMIBLE',unit:'ml',price:290,detalle:''},
+  {id:'EST-013',code:'EST-013',name:'APERTURA LATERAL PUERTAS',cat:'Trab. Estructura',tipo:'CONSUMIBLE',unit:'und',price:500,detalle:'EN CASO DE XL'},
+  {id:'EST-014',code:'EST-014',name:'MARCO MAQUINA',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:750,detalle:''},
+  {id:'EST-015',code:'EST-015',name:'TAPA PANEL',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:1000,detalle:''},
+  {id:'EST-016',code:'EST-016',name:'CORTE TECHO CONTENEDORES 1er NIVEL',cat:'Trab. Estructura',tipo:'CONSUMIBLE',unit:'und',price:750,detalle:'POR CADA CONTENEDOR'},
+  {id:'EST-017',code:'EST-017',name:'CORTE PISO CONTENEDORES 2do NIVEL',cat:'Trab. Estructura',tipo:'CONSUMIBLE',unit:'und',price:750,detalle:'POR CADA CONTENEDOR'},
+  {id:'EST-018',code:'EST-018',name:'COLUMNA SOPORTE PARA SEGUNDO PISO',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:1490,detalle:'POR CADA COLUMNA'},
+  {id:'EST-019',code:'EST-019',name:'SELLADO UNION 1er Y 2do NIVEL',cat:'Trab. Estructura',tipo:'CONSUMIBLE',unit:'und',price:1000,detalle:'POR CADA CONTENEDOR'},
+  {id:'EST-020',code:'EST-020',name:'REFUERZO DE PISO PARA MONTACARGAS',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:890,detalle:'POR CONTENEDOR'},
+  {id:'EST-021',code:'EST-021',name:'SKID PARA CONTENEDORES',cat:'Trab. Estructura',tipo:'ACTIVO',unit:'und',price:6900,detalle:'POR CADA 2XL'},
+  {id:'FRI-001',code:'FRI-001',name:'MAQUINA REEFER SEGUNDO USO',cat:'Sistema de Frio',tipo:'ACTIVO',unit:'und',price:4900,detalle:''},
+  {id:'FRI-002',code:'FRI-002',name:'MAQUINA REEFER MAGNUM PLUS MP4000',cat:'Sistema de Frio',tipo:'ACTIVO',unit:'und',price:11900,detalle:'6 AÑOS DE GARANTIA'},
+  {id:'FRI-003',code:'FRI-003',name:'MAQUINA REEFER MAGNUM PLUS MP5000',cat:'Sistema de Frio',tipo:'ACTIVO',unit:'und',price:13090,detalle:'10 AÑOS DE GARANTIA'},
+  {id:'FRI-004',code:'FRI-004',name:'DOOR AFAM - SEGUNDO USO',cat:'Sistema de Frio',tipo:'ACTIVO',unit:'und',price:280,detalle:''},
+  {id:'FRI-005',code:'FRI-005',name:'ACTUATOR - SEGUNDO USO',cat:'Sistema de Frio',tipo:'ACTIVO',unit:'und',price:1101,detalle:''},
+  {id:'FRI-006',code:'FRI-006',name:'SISTEMA DE MADURACIÓN',cat:'Sistema de Frio',tipo:'ACTIVO',unit:'glb',price:8600,detalle:''},
+  {id:'FRI-007',code:'FRI-007',name:'SISTEMA DE HUMIDIFICACIÓN',cat:'Sistema de Frio',tipo:'ACTIVO',unit:'glb',price:2500,detalle:'HUMIDIFICADOR ULTRASONIDO + TANQUE + TARJETA CONTROL'},
+  {id:'FRI-008',code:'FRI-008',name:'SISTEMA BICAMARA',cat:'Sistema de Frio',tipo:'ACTIVO',unit:'glb',price:2900,detalle:''},
+  {id:'ACC-001',code:'ACC-001',name:'LUMINARIA',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:390,detalle:''},
+  {id:'ACC-002',code:'ACC-002',name:'ALARMA',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:180,detalle:''},
+  {id:'ACC-003',code:'ACC-003',name:'SOPORTE REGULABLE',cat:'Accesorios',tipo:'CONSUMIBLE',unit:'und',price:450,detalle:''},
+  {id:'ACC-004',code:'ACC-004',name:'CORTINA 1500MM X 2200MM',cat:'Accesorios',tipo:'CONSUMIBLE',unit:'und',price:200,detalle:''},
+  {id:'ACC-005',code:'ACC-005',name:'CORTINA 1500MM X 2450MM',cat:'Accesorios',tipo:'CONSUMIBLE',unit:'und',price:250,detalle:''},
+  {id:'ACC-006',code:'ACC-006',name:'CORTINA 2300MM X 2500MM',cat:'Accesorios',tipo:'CONSUMIBLE',unit:'und',price:300,detalle:''},
+  {id:'ACC-007',code:'ACC-007',name:'MODULO DE CARGA',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:13990,detalle:'INCL. ENCUESTO + RAMPA + LUMINARIA + INTERRUPTOR + 2 TOPES'},
+  {id:'ACC-008',code:'ACC-008',name:'ENCUESTO INFLABLE',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:4000,detalle:''},
+  {id:'ACC-009',code:'ACC-009',name:'RAMPAS HIDRAULICAS',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:3600,detalle:''},
+  {id:'ACC-010',code:'ACC-010',name:'ABRIGO RETRACTIL (FLEX)',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:1500,detalle:''},
+  {id:'ACC-011',code:'ACC-011',name:'RAMPA ACERO AL CARBONO 1.50 X 2.00 M',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:590,detalle:''},
+  {id:'ACC-012',code:'ACC-012',name:'PROTECCION MUELLE',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:2000,detalle:''},
+  {id:'ACC-013',code:'ACC-013',name:'CORTINAS DE AIRE 1500MM',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:1100,detalle:'1500MM DE ANCHO'},
+  {id:'ACC-014',code:'ACC-014',name:'EXTENSION CHASIS + EJES SISTEMA COMPLETO',cat:'Accesorios',tipo:'ACTIVO',unit:'und',price:3706,detalle:'NO INCLUYE LLANTAS Y AROS'},
+  {id:'ACC-015',code:'ACC-015',name:'UNION PLEGABLE PARA XL',cat:'Accesorios',tipo:'CONSUMIBLE',unit:'ml',price:1500,detalle:'POR LINEA'},
+  {id:'ACC-016',code:'ACC-016',name:'COLCHONETAS PARA PUERTA SECCIONAL',cat:'Accesorios',tipo:'CONSUMIBLE',unit:'und',price:900,detalle:''},
+  {id:'ACC-017',code:'ACC-017',name:'CORTINA ENROLLABLE 1.70m X 2.50m',cat:'Accesorios',tipo:'CONSUMIBLE',unit:'und',price:505,detalle:''},
+  {id:'ACC-018',code:'ACC-018',name:'KIT COLCHONETAS + CORTINA ENROLLABLE',cat:'Accesorios',tipo:'CONSUMIBLE',unit:'kit',price:850,detalle:'PARA BOCAS DE BLAST FREEZER'},
+  {id:'PTA-001',code:'PTA-001',name:'PUERTA BATIENTE 1000MM X 2200MM',cat:'Puertas',tipo:'ACTIVO',unit:'und',price:1590,detalle:'ESPESOR PANEL 100MM'},
+  {id:'PTA-002',code:'PTA-002',name:'PUERTA BATIENTE 1500MM X 2200MM',cat:'Puertas',tipo:'ACTIVO',unit:'und',price:2200,detalle:'ESPESOR PANEL 100MM'},
+  {id:'PTA-003',code:'PTA-003',name:'PUERTA BATIENTE 1500MM X 2450MM',cat:'Puertas',tipo:'ACTIVO',unit:'und',price:2300,detalle:'ESPESOR PANEL 100MM'},
+  {id:'PTA-004',code:'PTA-004',name:'PUERTA CORREDERA 1000MM X 2200MM',cat:'Puertas',tipo:'ACTIVO',unit:'und',price:2300,detalle:'ESPESOR PANEL 100MM'},
+  {id:'PTA-005',code:'PTA-005',name:'PUERTA CORREDERA 1500MM X 2200MM',cat:'Puertas',tipo:'ACTIVO',unit:'und',price:2300,detalle:'ESPESOR PANEL 100MM'},
+  {id:'PTA-006',code:'PTA-006',name:'PUERTA CORREDERA 2700MM X 2450MM',cat:'Puertas',tipo:'ACTIVO',unit:'und',price:3000,detalle:'ESPESOR PANEL 100MM'},
+  {id:'PTA-007',code:'PTA-007',name:'PUERTA SECCIONAL 2300MM X 2500MM',cat:'Puertas',tipo:'ACTIVO',unit:'und',price:2600,detalle:'ESPESOR PANEL 40MM'},
+  {id:'PTA-008',code:'PTA-008',name:'HIGH SPEED ROLL UP DOOR 2300MM X 2500MM',cat:'Puertas',tipo:'ACTIVO',unit:'und',price:3900,detalle:'DE MANTA ELECT'},
+];
+const CATEGORIES=['Todos','Trab. Estructura','Sistema de Frio','Accesorios','Puertas'];
+
+// ═══════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════
+let state={projects:[],currentId:null,catFilter:'Todos',adjType:'margin',currency:'USD',exchangeRate:3.75};
+function curP(){return state.projects.find(p=>p.id===state.currentId);}
+function save(){localStorage.setItem('zgroup_v6',JSON.stringify(state.projects));}
+function load(){const d=localStorage.getItem('zgroup_v6');if(d)state.projects=JSON.parse(d);}
+function uid(){return 'z'+Math.random().toString(36).substr(2,8)+Date.now().toString(36);}
+
+// ═══════════════════════════════════════════════
+// CURRENCY
+// ═══════════════════════════════════════════════
+function sym(){return state.currency==='USD'?'$':'S/';}
+function disp(v){return state.currency==='USD'?(v||0):(v||0)*state.exchangeRate;}
+function mf(v){return sym()+' '+Number(disp(v)).toLocaleString('es-PE',{minimumFractionDigits:2,maximumFractionDigits:2});}
+function setCurrency(c){
+  state.currency=c;
+  const uBtn=document.getElementById('btn-usd'),pBtn=document.getElementById('btn-pen');
+  if(c==='USD'){
+    uBtn.style.cssText='padding:2px 7px;border-radius:4px;font-family:JetBrains Mono,monospace;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(0,212,255,.4);background:rgba(0,212,255,.14);color:var(--cyan);transition:all .15s';
+    pBtn.style.cssText='padding:2px 7px;border-radius:4px;font-family:JetBrains Mono,monospace;font-size:11px;font-weight:700;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--muted);transition:all .15s';
+    document.getElementById('tc-row').style.display='none';
+  } else {
+    pBtn.style.cssText='padding:2px 7px;border-radius:4px;font-family:JetBrains Mono,monospace;font-size:11px;font-weight:700;cursor:pointer;border:1px solid rgba(0,232,122,.35);background:rgba(0,232,122,.12);color:var(--green);transition:all .15s';
+    uBtn.style.cssText='padding:2px 7px;border-radius:4px;font-family:JetBrains Mono,monospace;font-size:11px;font-weight:700;cursor:pointer;border:1px solid transparent;background:transparent;color:var(--muted);transition:all .15s';
+    document.getElementById('tc-row').style.display='flex';
+  }
+  renderItems();compute();
+}
+function setExchangeRate(v){state.exchangeRate=parseFloat(v)||3.75;renderItems();compute();}
+
+// ═══════════════════════════════════════════════
+// TOAST
+// ═══════════════════════════════════════════════
+function toast(msg,type='green'){
+  const el=document.getElementById('toast');
+  const s={green:['rgba(0,232,122,.45)','rgba(0,232,122,.15)','#00E87A'],cyan:['rgba(0,212,255,.45)','rgba(0,212,255,.13)','#00D4FF'],red:['rgba(255,61,87,.45)','rgba(255,61,87,.13)','#FF3D57'],amber:['rgba(255,176,64,.45)','rgba(255,176,64,.13)','#FFB040']}[type]||[,'',''];
+  el.style.borderColor=s[0];el.style.background=s[1];el.style.color=s[2];
+  el.style.border='1px solid '+s[0];
+  el.textContent=msg;el.classList.add('show');
+  clearTimeout(el._t);el._t=setTimeout(()=>el.classList.remove('show'),2800);
+}
+
+// ═══════════════════════════════════════════════
+// MODULE ACCORDION
+// ═══════════════════════════════════════════════
+function toggleMod(id){
+  const body=document.getElementById(id);
+  const arrow=document.getElementById('arrow-'+id);
+  if(!body)return;
+  if(body.style.maxHeight==='0px'||body.style.maxHeight==='0'){
+    body.style.maxHeight='9999px';body.style.opacity='1';
+    if(arrow)arrow.style.transform='rotate(0deg)';
+  } else {
+    body.style.maxHeight='0px';body.style.opacity='0';
+    if(arrow)arrow.style.transform='rotate(-90deg)';
+  }
+}
+
+// ═══════════════════════════════════════════════
+// PROJECT CRUD
+// ═══════════════════════════════════════════════
+function createProject(name,odoo){
+  const p={
+    id:uid(),name:name||'Sin nombre',odooNumber:odoo||'',createdAt:new Date().toISOString(),
+    items:[],plans:[],
+    // Venta
+    adjType:'margin',adjPct:10,
+    // CP
+    cpPlazo:6,cpVida:60,cpOp:5,cpRoa:35,cpMerma:2,
+    // LP
+    lpVida:120,lpN:24,lpNContrato:36,lpTeaBanco:7,lpTeaCot:15,lpOp:5,lpForm:350,lpPostPct:80,lpFondoRep:5,
+    // Estacionalidad
+    estOp:8,estSb:4,estSeguro:1,estSbPct:35,estYears:3,
+    // Comparativa
+    cmpPeriod:24,
+  };
+  state.projects.push(p);save();return p;
+}
+
+function getNum(id,def=0){return parseFloat(document.getElementById(id)?.value)||def;}
+function setVal(id,v){const el=document.getElementById(id);if(!el)return;el.value=v;if(el.tagName==='SELECT'){el.value=v;if(el.value!=String(v)){let best=null,bd=1e9;[...el.options].forEach(o=>{const d=Math.abs(parseFloat(o.value)-v);if(d<bd){bd=d;best=o.value;}});if(best)el.value=best;}}}
+
+function selectProject(id){
+  if(!id){state.currentId=null;render();return;}
+  state.currentId=id;
+  const p=curP();if(!p)return;
+  state.adjType=p.adjType||'margin';
+  setVal('adj-pct',p.adjPct??10);
+  setVal('cp-plazo',p.cpPlazo??6);setVal('cp-vida',p.cpVida??60);
+  setVal('cp-op',p.cpOp??5);setVal('cp-roa',p.cpRoa??35);setVal('cp-merma',p.cpMerma??2);
+  setVal('lp-vida',p.lpVida??120);setVal('lp-n',p.lpN??24);setVal('lp-n-contrato',p.lpNContrato??36);
+  setVal('lp-tea-banco',p.lpTeaBanco??7);setVal('lp-tea-cot',p.lpTeaCot??15);
+  setVal('lp-op',p.lpOp??5);setVal('lp-form',p.lpForm??350);
+  setVal('lp-post-pct',p.lpPostPct??80);setVal('lp-fondo-rep',p.lpFondoRep??5);
+  setVal('est-op',p.estOp??8);setVal('est-sb',p.estSb??4);setVal('est-seguro',p.estSeguro??1);
+  setVal('est-sb-pct',p.estSbPct??35);setVal('est-years',p.estYears??3);
+  setVal('cmp-period',p.cmpPeriod??24);
+  setAdjType(state.adjType,false);
+  render();
+}
+
+function deleteCurrentProject(){
+  const p=curP();if(!p)return;
+  if(!confirm(`¿Eliminar "${p.name}"? Esta acción no se puede deshacer.`))return;
+  state.projects=state.projects.filter(x=>x.id!==p.id);
+  state.currentId=null;save();renderProjectSelect();render();
+  toast('⚠ PROYECTO ELIMINADO','red');
+}
+
+function saveAndCompute(){
+  const p=curP();if(!p)return;
+  p.adjPct=getNum('adj-pct',10);
+  p.cpPlazo=getNum('cp-plazo',6);p.cpVida=getNum('cp-vida',60);
+  p.cpOp=getNum('cp-op',5);p.cpRoa=getNum('cp-roa',35);p.cpMerma=getNum('cp-merma',2);
+  p.lpVida=getNum('lp-vida',120);p.lpN=getNum('lp-n',24);p.lpNContrato=getNum('lp-n-contrato',36);
+  p.lpTeaBanco=getNum('lp-tea-banco',7);p.lpTeaCot=getNum('lp-tea-cot',15);
+  p.lpOp=getNum('lp-op',5);p.lpForm=getNum('lp-form',350);
+  p.lpPostPct=getNum('lp-post-pct',80);p.lpFondoRep=getNum('lp-fondo-rep',5);
+  p.estOp=getNum('est-op',8);p.estSb=getNum('est-sb',4);p.estSeguro=getNum('est-seguro',1);
+  p.estSbPct=getNum('est-sb-pct',35);p.estYears=getNum('est-years',3);
+  p.cmpPeriod=getNum('cmp-period',24);
+  save();compute();
+}
+
+// ═══════════════════════════════════════════════
+// RENDER
+// ═══════════════════════════════════════════════
+function render(){
+  const p=curP();
+  document.getElementById('empty-state').style.display=p?'none':'flex';
+  document.getElementById('workspace').style.display=p?'block':'none';
+  document.getElementById('info-bar').style.display=p?'flex':'none';
+  if(!p)return;
+  document.getElementById('ib-name').textContent=p.name;
+  document.getElementById('ib-odoo').textContent=p.odooNumber||'—';
+  renderItems();renderPlans();compute();
+}
+
+function renderProjectSelect(){
+  const sel=document.getElementById('project-select');
+  sel.innerHTML='<option value="">— Seleccionar Proyecto —</option>';
+  state.projects.forEach(p=>{
+    const o=document.createElement('option');
+    o.value=p.id;o.selected=(p.id===state.currentId);
+    o.textContent=p.name+(p.odooNumber?' | '+p.odooNumber:'');
+    sel.appendChild(o);
+  });
+}
+
+// ═══════════════════════════════════════════════
+// CATALOG RENDER
+// ═══════════════════════════════════════════════
+function renderCatFilters(){
+  const c=document.getElementById('cat-filters');c.innerHTML='';
+  CATEGORIES.forEach(cat=>{
+    const btn=document.createElement('button');
+    const short=cat==='Todos'?'TODOS':cat.split(' ')[0].toUpperCase().slice(0,5);
+    btn.textContent=short;btn.title=cat;
+    const active=state.catFilter===cat;
+    btn.style.cssText=`flex-shrink:0;padding:2px 7px;border-radius:4px;font-size:10px;font-family:'Rajdhani',sans-serif;font-weight:600;letter-spacing:1px;cursor:pointer;white-space:nowrap;background:${active?'rgba(0,212,255,.14)':'transparent'};border:1px solid ${active?'rgba(0,212,255,.4)':'var(--border)'};color:${active?'var(--cyan)':'var(--muted)'}`;
+    btn.onclick=()=>{state.catFilter=cat;renderCatFilters();renderCatalog();};
+    c.appendChild(btn);
+  });
+}
+
+function renderCatalog(){
+  const q=document.getElementById('cat-search').value.toLowerCase();
+  const list=document.getElementById('cat-list');
+  const items=CATALOG.filter(i=>{
+    const mc=state.catFilter==='Todos'||i.cat===state.catFilter;
+    const ms=!q||i.name.toLowerCase().includes(q)||i.code.toLowerCase().includes(q);
+    return mc&&ms;
+  });
+  document.getElementById('cat-count').textContent=items.length+' items';
+  list.innerHTML='';
+  items.forEach(item=>{
+    const d=document.createElement('div');
+    d.className='ci fade-in';
+    d.style.cssText='background:var(--card);border:1px solid var(--border);border-radius:6px;padding:6px 8px;cursor:pointer;transition:all .15s';
+    const tC=item.tipo==='ACTIVO'?'rgba(0,212,255,.18)':'rgba(255,176,64,.18)';
+    const tT=item.tipo==='ACTIVO'?'var(--cyan)':'var(--amber)';
+    d.innerHTML=`<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:4px">
+      <div style="flex:1;min-width:0">
+        <div style="display:flex;align-items:center;gap:4px;margin-bottom:2px">
+          <span style="font-size:9px;padding:1px 4px;border-radius:3px;font-family:'JetBrains Mono',monospace;font-weight:700;background:${tC};color:${tT}">${item.tipo}</span>
+        </div>
+        <div style="font-size:11px;font-weight:500;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${item.name}">${item.name}</div>
+        ${item.detalle?`<div style="font-size:9px;color:#3A5870;margin-top:1px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.detalle}</div>`:''}
+        <div class="mono" style="font-size:9px;color:var(--muted);margin-top:2px">${item.code}·${item.unit}</div>
+      </div>
+      <div style="text-align:right;flex-shrink:0">
+        <div class="mono" style="font-size:12px;font-weight:700;color:var(--cyan)">${mf(item.price)}</div>
+        <div class="mono" style="font-size:9px;color:var(--muted)">/${item.unit}</div>
+      </div>
+    </div>`;
+    d.onclick=()=>addItem(item);
+    list.appendChild(d);
+  });
+}
+
+// ═══════════════════════════════════════════════
+// ITEMS
+// ═══════════════════════════════════════════════
+function addItem(catItem){
+  const p=curP();if(!p){toast('⚠ Selecciona un proyecto','red');return;}
+  const qty=parseFloat(document.getElementById('add-qty').value)||1;
+  const cp=parseFloat(document.getElementById('add-price').value)||0;
+  const price=cp>0?cp:catItem.price;
+  const existing=p.items.find(i=>i.catalogId===catItem.id&&i.unitPrice===price);
+  if(existing){existing.qty=parseFloat((existing.qty+qty).toFixed(4));existing.subtotal=existing.qty*existing.unitPrice;}
+  else p.items.push({id:uid(),catalogId:catItem.id,code:catItem.code,name:catItem.name,cat:catItem.cat,tipo:catItem.tipo,unit:catItem.unit,unitPrice:price,qty,subtotal:qty*price});
+  document.getElementById('add-price').value='';
+  save();renderItems();compute();toast('+ PARTIDA AÑADIDA','cyan');
+}
+
+function updateItem(id,field,val){
+  const p=curP();const it=p?.items.find(i=>i.id===id);if(!it)return;
+  it[field]=parseFloat(val)||0;it.subtotal=it.qty*it.unitPrice;
+  save();computeTotals();compute();
+}
+
+function removeItem(id){
+  const p=curP();if(!p)return;
+  p.items=p.items.filter(i=>i.id!==id);save();renderItems();compute();
+}
+
+function clearAllItems(){
+  const p=curP();if(!p||!p.items.length)return;
+  if(!confirm('¿Limpiar todas las partidas?'))return;
+  p.items=[];save();renderItems();compute();
+}
+
+function renderItems(){
+  const p=curP();const list=document.getElementById('items-list');
+  if(!p||!p.items.length){
+    list.innerHTML=`<div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100%;opacity:.3;gap:8px">
+      <svg width="44" height="44" fill="none" stroke="var(--muted)" stroke-width="1" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="3" y1="15" x2="21" y2="15"/><line x1="9" y1="3" x2="9" y2="21"/><line x1="15" y1="3" x2="15" y2="21"/></svg>
+      <span style="font-family:'Rajdhani',sans-serif;font-size:13px;letter-spacing:2px;color:var(--muted)">SIN PARTIDAS — AÑADE DESDE EL CATÁLOGO</span></div>`;
+    computeTotals();return;
+  }
+  list.innerHTML='';
+  p.items.forEach(item=>{
+    const row=document.createElement('div');
+    row.className='item-row fade-in';
+    row.style.cssText='display:grid;grid-template-columns:55px 1.6fr 48px 110px 70px 110px 28px;gap:5px;padding:5px 14px;border-bottom:1px solid var(--border-dim);align-items:center;transition:background .12s';
+    row.innerHTML=`
+      <span class="mono" style="font-size:10px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${item.code}</span>
+      <div><div style="font-size:11px;font-weight:500;color:var(--text)">${item.name}</div>
+        <div style="font-size:9px;color:${item.tipo==='CONSUMIBLE'?'var(--amber)':'#3A5070'};margin-top:1px">${item.tipo}</div></div>
+      <span class="mono" style="font-size:10px;color:var(--muted);text-align:center">${item.unit}</span>
+      <input type="number" value="${item.unitPrice}" min="0" step="0.01" onchange="updateItem('${item.id}','unitPrice',this.value)" class="vi" style="font-size:11px">
+      <input type="number" value="${item.qty}" min="0.01" step="0.01" onchange="updateItem('${item.id}','qty',this.value)" class="vi" style="font-size:11px;text-align:center">
+      <span class="mono" style="font-size:11px;font-weight:600;color:var(--cyan);text-align:right" id="sub-${item.id}">${mf(item.subtotal)}</span>
+      <button onclick="removeItem('${item.id}')" style="background:none;border:none;cursor:pointer;color:var(--red);opacity:.4;font-size:13px;transition:opacity .15s" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.4">✕</button>`;
+    list.appendChild(row);
+  });
+  computeTotals();
+}
+
+function computeTotals(){
+  const p=curP();const items=p?.items||[];
+  const tot=items.reduce((s,i)=>s+(i.subtotal||0),0);
+  const act=items.filter(i=>i.tipo!=='CONSUMIBLE').reduce((s,i)=>s+(i.subtotal||0),0);
+  const con=items.filter(i=>i.tipo==='CONSUMIBLE').reduce((s,i)=>s+(i.subtotal||0),0);
+  document.getElementById('footer-total').textContent=mf(tot);
+  document.getElementById('footer-activos').textContent=mf(act);
+  document.getElementById('footer-consumibles').textContent=mf(con);
+  document.getElementById('footer-qty').textContent=items.length+' partidas';
+  document.getElementById('items-count').textContent=items.length;
+  document.getElementById('ib-total').textContent=mf(tot);
+  items.forEach(i=>{const el=document.getElementById('sub-'+i.id);if(el)el.textContent=mf(i.subtotal);});
+}
+
+// ═══════════════════════════════════════════════
+// VENTA adj type
+// ═══════════════════════════════════════════════
+function setAdjType(t,doCompute=true){
+  state.adjType=t;const p=curP();if(p)p.adjType=t;
+  const bM=document.getElementById('btn-margin'),bD=document.getElementById('btn-discount');
+  const lbl=document.getElementById('adj-label');
+  if(t==='margin'){
+    bM.style.cssText='padding:4px;font-size:11px;letter-spacing:1px;border:1px solid rgba(0,212,255,.4);background:rgba(0,212,255,.08);color:var(--cyan);font-family:Rajdhani,sans-serif;font-weight:600;border-radius:6px;cursor:pointer';
+    bD.style.cssText='padding:4px;font-size:11px;letter-spacing:1px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:Rajdhani,sans-serif;font-weight:600;border-radius:6px;cursor:pointer';
+    lbl.textContent='MARGEN DE SEGURIDAD (%)';
+  } else {
+    bD.style.cssText='padding:4px;font-size:11px;letter-spacing:1px;border:1px solid rgba(0,212,255,.4);background:rgba(0,212,255,.08);color:var(--cyan);font-family:Rajdhani,sans-serif;font-weight:600;border-radius:6px;cursor:pointer';
+    bM.style.cssText='padding:4px;font-size:11px;letter-spacing:1px;border:1px solid var(--border);background:transparent;color:var(--muted);font-family:Rajdhani,sans-serif;font-weight:600;border-radius:6px;cursor:pointer';
+    lbl.textContent='DESCUENTO COMERCIAL (%)';
+  }
+  if(doCompute)saveAndCompute();
+}
+
+// ═══════════════════════════════════════════════
+// CORE FINANCIAL COMPUTE
+// ═══════════════════════════════════════════════
+function compute(){
+  const p=curP();if(!p)return;
+
+  const baseActivos=p.items.filter(i=>i.tipo!=='CONSUMIBLE').reduce((s,i)=>s+(i.subtotal||0),0);
+  const baseCons=p.items.filter(i=>i.tipo==='CONSUMIBLE').reduce((s,i)=>s+(i.subtotal||0),0);
+  const base=baseActivos+baseCons;
+
+  // ── M1 VENTA ─────────────────────────────────
+  const adj=p.adjPct||0;
+  let ventaAdj,ventaTotal;
+  if(state.adjType==='margin'){ventaAdj=base*(adj/100);ventaTotal=base+ventaAdj;}
+  else{ventaAdj=base*(adj/100);ventaTotal=base-ventaAdj;}
+
+  set('v-base',mf(base));
+  set('v-adj-label',(state.adjType==='margin'?`+ Seg. (${adj}%)`:`− Dto. (${adj}%)`)+':');
+  const adjEl=document.getElementById('v-adj-val');
+  adjEl.textContent=(state.adjType==='margin'?'+ ':'− ')+mf(ventaAdj);
+  adjEl.style.color=state.adjType==='margin'?'var(--amber)':'var(--red)';
+  set('v-total',mf(ventaTotal));
+  set('v-total-hdr',mf(ventaTotal));
+
+  // ── M2 CORTO PLAZO (Capital Propio) ──────────
+  // BASE = ventaTotal
+  const cpPlazo = Math.max(1,p.cpPlazo||6);
+  const cpVida  = Math.max(1,p.cpVida||60);
+  const cpOp    = p.cpOp||5;
+  const cpRoa   = p.cpRoa||35;
+  const cpMerma = p.cpMerma||2;
+
+  const cpDep       = ventaTotal / cpVida;                              // dep mensual
+  const cpMermaVal  = (ventaTotal * cpMerma/100) / cpPlazo;            // merma amortizada en el contrato
+  const cpGop       = ventaTotal * (cpOp/100) / 12;                    // gtos op mensual
+  const cpConsRec   = baseCons > 0 ? baseCons / cpPlazo : 0;           // consumibles en el plazo
+  const cpRoaVal    = ventaTotal * (cpRoa/100) / 12;                   // ROA puro = ganancia ZGROUP
+  const cpRentaVal  = cpDep + cpMermaVal + cpGop + cpConsRec + cpRoaVal;
+  const cpGanancia  = cpRoaVal;                                         // la utilidad real
+  const cpPE        = cpGanancia > 0 ? Math.ceil(ventaTotal / cpGanancia) : 0; // meses para recuperar
+
+  set('cp-base',mf(ventaTotal));
+  set('cp-dep',mf(cpDep));
+  set('cp-merma-val',mf(cpMermaVal));
+  set('cp-gop',mf(cpGop));
+  set('cp-roa-val',mf(cpRoaVal));
+  set('cp-renta',mf(cpRentaVal));
+  set('cp-ganancia',mf(cpGanancia));
+  set('cp-pe',cpPE>0?cpPE+' m':'— m');
+  set('cp-renta-hdr',mf(cpRentaVal)+'/m');
+  set('cp-vida-lbl',cpVida);set('cp-merma-lbl',cpMerma);set('cp-plazo-lbl',cpPlazo);
+  set('cp-op-lbl',cpOp);set('cp-roa-lbl',cpRoa);set('cp-cons-plazo',cpPlazo);
+  const rowCons=document.getElementById('row-cons-cp');
+  if(rowCons)rowCons.style.display=baseCons>0?'flex':'none';
+  set('cp-cons',mf(cpConsRec));
+  // Info bar
+  set('ib-cp',mf(cpRentaVal)+'/mes');
+
+  // ── M3 LARGO PLAZO — RENTA EVOLUTIVA (2 FASES) ──────────────
+  // BASE = ventaTotal; banco financia, ZGROUP gestiona spread
+  const lpNPrestamo  = Math.max(1, p.lpN          || 24);   // plazo del préstamo bancario
+  const lpNContrato  = Math.max(lpNPrestamo, p.lpNContrato || 36); // plazo total del contrato cliente
+  const lpVida       = Math.max(1, p.lpVida        || 120);
+  const lpTeaBanco   = (p.lpTeaBanco || 7)  / 100;
+  const lpTeaCot     = (p.lpTeaCot   || 15) / 100;
+  const lpOp         = p.lpOp   || 5;
+  const lpForm       = p.lpForm  || 350;
+  const lpPostPct    = (p.lpPostPct  || 80) / 100;         // % de la renta F1 que se mantiene en F2
+  const lpFondoRep   = (p.lpFondoRep || 5)  / 100;         // fondo de reposición anual
+
+  const totalFin     = ventaTotal + lpForm;
+  const temBanco     = lpTeaBanco > 0 ? Math.pow(1 + lpTeaBanco, 1/12) - 1 : 0;
+  const temCot       = lpTeaCot   > 0 ? Math.pow(1 + lpTeaCot,   1/12) - 1 : 0;
+
+  // Cuotas mensuales
+  let cuotaBanco = 0, cuotaCliente = 0;
+  if(totalFin > 0 && lpNPrestamo > 0){
+    cuotaBanco   = temBanco > 0 ? totalFin * temBanco / (1 - Math.pow(1 + temBanco, -lpNPrestamo)) : totalFin / lpNPrestamo;
+    cuotaCliente = temCot   > 0 ? totalFin * temCot   / (1 - Math.pow(1 + temCot,   -lpNPrestamo)) : totalFin / lpNPrestamo;
+  }
+  const lpSpreadVal = cuotaCliente - cuotaBanco;       // ganancia pura ZGROUP fase 1
+  const lpGop       = ventaTotal * (lpOp / 100) / 12;
+
+  // ── FASE 1: meses 1 a lpNPrestamo (con deuda bancaria)
+  const lpRentaF1   = cuotaCliente + lpGop;            // renta total al cliente F1
+  const lpGanF1     = lpSpreadVal;                     // utilidad neta ZGROUP F1
+  const lpTotalGanF1= lpGanF1 * lpNPrestamo;
+
+  // ── FASE 2: meses lpNPrestamo+1 a lpNContrato (activo libre)
+  const lpNF2       = Math.max(0, lpNContrato - lpNPrestamo);  // meses en fase 2
+  // Validación vida útil: si el contrato supera el 80% de la vida útil → activar fondo de reposición
+  const contrUmbral = lpVida * 0.8;
+  const activarFondo = lpNContrato > contrUmbral;
+  const lpFondoMensual = activarFondo ? ventaTotal * (lpFondoRep / 12) : 0;
+
+  const lpRentaF2   = lpRentaF1 * lpPostPct;          // cliente paga % de la renta original
+  const lpGanF2     = lpRentaF2 - lpGop - lpFondoMensual; // ZGROUP: sin cuota banco = utilidad pura
+  const lpTotalGanF2= lpGanF2 * lpNF2;
+  const lpTotalCiclo= lpTotalGanF1 + lpTotalGanF2;
+
+  // Punto de equilibrio: meses para recuperar gastos de formalización
+  const lpPE        = lpGanF1 > 0 ? Math.ceil(lpForm / lpGanF1) : 0;
+
+  // ── DOM LP ────────────────────────────────────────────────────
+  set('lp-base', mf(ventaTotal));
+  set('lp-capital', mf(ventaTotal));
+  set('lp-form-disp', mf(lpForm));
+  set('lp-total-fin', mf(totalFin));
+  set('lp-cuota-banco', mf(cuotaBanco));
+  set('lp-gop', mf(lpGop));
+  set('lp-spread', mf(lpSpreadVal));
+  set('lp-renta', mf(lpRentaF1));            // Fase 1 renta al cliente
+  set('lp-renta-f2', mf(lpRentaF2));
+  set('lp-gop-f2', mf(lpGop));
+  set('lp-ganancia-f2', mf(lpGanF2));
+  set('lp-ganancia', mf(lpGanF1));           // utilidad F1 (usada en KPI)
+  set('lp-kpi-f2', mf(lpGanF2));
+  set('lp-total-ciclo', mf(lpTotalCiclo));
+  set('lp-pe', lpPE > 0 ? lpPE + ' m' : '< 1 m');
+  set('lp-kpi-banco', mf(cuotaBanco));
+  set('lp-renta-hdr', mf(lpRentaF1) + '/m F1');
+  // Labels
+  set('lp-tea-lbl', p.lpTeaBanco || 7);
+  set('lp-op-lbl', lpOp);
+  set('lp-cot-lbl', p.lpTeaCot || 15);
+  set('lp-banco-lbl2', p.lpTeaBanco || 7);
+  set('lp-post-pct-lbl', p.lpPostPct || 80);
+  set('lp-f1-end', lpNPrestamo);
+  set('lp-f2-start', lpNPrestamo + 1);
+  set('lp-f2-end', lpNContrato);
+  set('lp-f1-dur-lbl', lpNPrestamo + 'm');
+  set('lp-f2-dur-lbl', lpNF2 + 'm');
+  set('lp-ciclo-dur-lbl', lpNContrato + 'm total');
+  set('lp-umbral-lbl', Math.round(contrUmbral));
+  set('lp-fondo-lbl', p.lpFondoRep || 5);
+  set('lp-fondo-val', mf(lpFondoMensual));
+  // Fondo de reposición row
+  const rowFondo = document.getElementById('row-fondo-rep');
+  if(rowFondo) rowFondo.style.display = activarFondo ? 'flex' : 'none';
+  // Vida útil warning
+  const alertaVida = document.getElementById('lp-vida-alerta');
+  if(alertaVida){
+    if(activarFondo){
+      alertaVida.style.display = 'block';
+      alertaVida.textContent = `⚠ Contrato (${lpNContrato}m) supera el 80% de vida útil (${Math.round(contrUmbral)}m). Se activa fondo de reposición ${p.lpFondoRep||5}% anual = ${mf(lpFondoMensual)}/mes para capital de reemplazo.`;
+    } else {
+      alertaVida.style.display = 'none';
+    }
+  }
+  // ── TIMELINE ──────────────────────────────────────────────────
+  const f1Pct = (lpNPrestamo / lpNContrato) * 100;
+  const f2Pct = 100 - f1Pct;
+  const el1 = document.getElementById('tl-phase1');
+  const el2 = document.getElementById('tl-phase2');
+  const marker = document.getElementById('tl-marker');
+  const tlEnd = document.getElementById('tl-end-label');
+  if(el1) el1.style.width = f1Pct + '%';
+  if(el2){ el2.style.left = f1Pct + '%'; el2.style.width = f2Pct + '%'; }
+  if(marker){ marker.style.left = 'calc(' + f1Pct + '% - 1px)'; marker.setAttribute('data-label', 'LIBRE'); }
+  if(tlEnd) tlEnd.textContent = 'MES ' + lpNContrato;
+  set('tl-phase1-label', `FASE 1: ${lpNPrestamo}m — CON DEUDA`);
+  set('tl-phase2-label', lpNF2 > 0 ? `FASE 2: ${lpNF2}m — ACTIVO LIBRE` : '');
+  set('tl-end-label', 'MES ' + lpNContrato);
+  // Info bar
+  set('ib-lp', mf(lpRentaF1) + '/mes');
+
+  // Amortización (si está visible)
+  if(document.getElementById('amort-table').style.display!=='none'){
+    renderAmort(totalFin,temBanco,lpN,0,cuotaBanco);
+  }
+
+  // ── M4 ESTACIONALIDAD — v9 Fixed 5-Year Table + Regla de Oro ──
+  const estOp    = Math.max(1, p.estOp    || 8);
+  const estSb    = Math.max(1, p.estSb    || 4);
+  const estSeg   = p.estSeguro || 1;
+  const estSbPct = (p.estSbPct || 35) / 100;   // % of full rent for standby months
+
+  // Seasonal ratio: weighted average revenue per month vs full rent
+  // = (estOp full months + estSb months at estSbPct) / 12
+  const seasonalRatio = (estOp + estSb * estSbPct) / 12;
+
+  // Costs that MUST be covered even in standby
+  const estSeguroVal = ventaTotal * (estSeg / 100) / 12;
+  const estGestion   = ventaTotal * 0.05 / 12;
+  const estCostoMin  = cuotaBanco + estSeguroVal + estGestion; // piso financiero
+
+  // Standby rate = % of F1 rent
+  const estRentaSb  = lpRentaF1 * estSbPct;
+
+  // Standby validation alert
+  const estAlertaEl = document.getElementById('est-alerta-sb');
+  if(ventaTotal > 0 && estRentaSb < estCostoMin) {
+    estAlertaEl.style.display = 'block';
+    estAlertaEl.textContent = `⚠ TARIFA POR DEBAJO DEL COSTO FINANCIERO: Standby ${mf(estRentaSb)}/mes < Costo mínimo ${mf(estCostoMin)}/mes. Aumenta el % Standby a mínimo ${Math.ceil(estCostoMin / lpRentaF1 * 100)}%.`;
+  } else { estAlertaEl.style.display = 'none'; }
+
+  // Annual seasonal KPIs (for the summary boxes above the table)
+  const estIngFullYear  = lpRentaF1 * estOp;
+  const estIngSbYear    = estRentaSb * estSb;
+  const estIngTotalYear = estIngFullYear + estIngSbYear;
+  const estGastoF1Year  = (cuotaBanco + lpGop) * estOp + cuotaBanco * estSb;
+  const estGanTotalYear = estIngTotalYear - estGastoF1Year;
+  const estMargenPct    = estIngTotalYear > 0 ? (estGanTotalYear / estIngTotalYear * 100) : 0;
+
+  set('est-renta-full-val', mf(lpRentaF1));
+  set('est-renta-sb',       mf(estRentaSb));
+  set('est-cuota-banco',    mf(cuotaBanco));
+  set('est-seguro-val',     mf(estSeguroVal));
+  set('est-gestion',        mf(estGestion));
+  set('est-costo-min',      mf(estCostoMin));
+  set('est-ingreso-full',   mf(estIngFullYear));
+  set('est-ingreso-sb',     mf(estIngSbYear));
+  set('est-ingreso-total',  mf(estIngTotalYear));
+  set('est-ganancia-total', mf(estGanTotalYear));
+  set('est-margen-pct',     estMargenPct.toFixed(1) + '%');
+  set('est-renta-hdr',      mf(estIngTotalYear) + '/año');
+  set('est-op-lbl',  estOp);
+  set('est-sb-lbl',  estSb);
+  set('est-seg-lbl', estSeg);
+  set('est-sb-pct-lbl', Math.round(p.estSbPct || 35));
+
+  // ── FIXED 5-YEAR TABLE — REGLA DE ORO ───────────────────────────
+  // Each year = 12 months with seasonal income applied to the correct phase.
+  //
+  // REGLA DE ORO: Sum(UtilNeta años 1-5) = lpTotalCiclo
+  //
+  // How: utility per month = (phase gain) × seasonalRatio
+  //   F1 month utility = lpGanF1 × seasonalRatio
+  //   F2 month utility = lpGanF2 × seasonalRatio
+  // Therefore sum over lpNContrato months = (lpGanF1×lpNPrestamo + lpGanF2×lpNF2) × seasonalRatio
+  //                                        = lpTotalCiclo × seasonalRatio
+  //
+  // → We define lpTotalCicloSeasonal = lpTotalCiclo × seasonalRatio
+  // → cmp-ciclo-lp will show this value.
+  // → The 5-year table sum = lpTotalCicloSeasonal  ✓ (Regla de Oro satisfied)
+
+  const lpTotalCicloSeasonal = lpTotalCiclo * seasonalRatio;
+
+  const tbodyEl = document.getElementById('est-tabla-body');
+  const totalEl = document.getElementById('est-tabla-total');
+  if(tbodyEl) {
+    tbodyEl.innerHTML = '';
+    let cumAcum = 0, totIng = 0, totBanco = 0, totGop = 0, totUtil = 0;
+    const FIXED_YEARS = 5;
+
+    for(let yr = 1; yr <= FIXED_YEARS; yr++) {
+      const mStart = (yr - 1) * 12 + 1;
+      const mEnd   = yr * 12;
+
+      // Phase months
+      const f1Months    = Math.max(0, Math.min(mEnd, lpNPrestamo) - Math.max(mStart - 1, 0));
+      const f2Months    = Math.max(0, Math.min(mEnd, lpNContrato)  - Math.max(mStart - 1, lpNPrestamo));
+      const activeMonths = f1Months + f2Months;
+
+      // INCOME — estSbPct editable, applied to phase-correct rent (Regla de Oro built-in)
+      const f1FullM = f1Months * (estOp / 12);
+      const f1SbM   = f1Months * (estSb / 12);
+      const f2FullM = f2Months * (estOp / 12);
+      const f2SbM   = f2Months * (estSb / 12);
+      const ingBruto = f1FullM * lpRentaF1 + f1SbM * (lpRentaF1 * estSbPct)
+                     + f2FullM * lpRentaF2  + f2SbM * (lpRentaF2  * estSbPct);
+
+      // BANK PAYMENT — cuotaBanco × every F1 month (standby doesn't pause bank)
+      const pagoBanco = cuotaBanco * f1Months;
+
+      // GASTOS OPERATIVOS
+      const gopYear = lpGop * activeMonths + (activarFondo ? lpFondoMensual * f2Months : 0);
+
+      // UTILIDAD NETA
+      const utilNeta = ingBruto - pagoBanco - gopYear;
+      cumAcum += utilNeta;
+      totIng   += ingBruto;
+      totBanco += pagoBanco;
+      totGop   += gopYear;
+      totUtil  += utilNeta;
+
+      // Phase flags
+      const isAllF1      = f1Months >= 12;
+      const isAllF2      = f2Months >= 12;
+      const isTransition = f1Months > 0 && f2Months > 0;
+
+      // Zebra striping
+      const zebraClass = yr % 2 === 0 ? 'est-row-even' : 'est-row-odd';
+
+      // Phase label
+      let phaseIcon  = '⚙️';
+      let phaseLabel = 'F1 — con deuda';
+      let yrColor    = 'var(--amber)';
+      let rowBorder  = '';
+      if(isTransition){ phaseIcon='🔄'; phaseLabel='F1→F2 transición'; yrColor='var(--cyan)'; rowBorder='border-top:3px solid var(--cyan)'; }
+      if(isAllF2)     { phaseIcon='✅'; phaseLabel='F2 — activo libre'; yrColor='var(--green)'; rowBorder='border-top:2px solid var(--green)'; }
+
+      // Pre-compute all display values
+      const bancoIcon   = pagoBanco > 0 ? '🏦' : '✅';
+      const bancoText   = pagoBanco > 0 ? mf(pagoBanco) : '$0.00';
+      const bancoColor  = pagoBanco > 0 ? 'var(--red)' : 'var(--green)';
+      const bancoWeight = pagoBanco === 0 ? '700' : '400';
+      const utilIcon    = utilNeta >= 0 ? '✅' : '❌';
+      const utilColor   = utilNeta >= 0 ? (isAllF2 ? 'var(--green)' : 'var(--text)') : 'var(--red)';
+      const utilWeight  = isAllF2 ? '700' : '500';
+      const acumColor   = cumAcum >= 0 ? 'var(--amber)' : 'var(--red)';
+
+      // Main data row
+      const tr = document.createElement('tr');
+      tr.className = zebraClass;
+      if(rowBorder) tr.style.cssText = rowBorder;
+      tr.innerHTML =
+        '<td class="col-year" style="color:' + yrColor + '">' +
+          '<div style="font-weight:700;font-size:13px">AÑO ' + yr + ' ' + phaseIcon + '</div>' +
+          '<div style="font-size:9px;color:var(--muted)">m' + mStart + '\u2013' + mEnd + '</div>' +
+          '<div style="font-size:9px;color:' + yrColor + ';margin-top:2px">' + phaseLabel + '</div>' +
+        '</td>' +
+        '<td class="col-num" style="color:var(--text)">' + mf(ingBruto) + '</td>' +
+        '<td class="col-num" style="color:' + bancoColor + ';font-weight:' + bancoWeight + '">' + bancoIcon + ' ' + bancoText + '</td>' +
+        '<td class="col-num" style="color:var(--muted)">' + mf(gopYear) + '</td>' +
+        '<td class="col-num" style="color:' + utilColor + ';font-weight:' + utilWeight + '">' + utilIcon + ' ' + mf(utilNeta) + '</td>' +
+        '<td class="col-num" style="color:' + acumColor + ';font-weight:700">' + mf(cumAcum) + '</td>';
+      tbodyEl.appendChild(tr);
+
+      // Transition banner
+      if(isTransition) {
+        const pct = lpGanF1 > 0 ? ((lpGanF2 / lpGanF1 - 1) * 100).toFixed(0) : '\u221e';
+        const trB = document.createElement('tr');
+        trB.style.cssText = 'background:rgba(0,229,255,.08)';
+        trB.innerHTML = '<td colspan="6" style="padding:5px 12px;font-family:\'JetBrains Mono\',monospace;font-size:9px;color:var(--cyan);border-top:1px dashed var(--cyan)">' +
+          '\uD83C\uDFE6 MES ' + lpNPrestamo + ': BANCO LIQUIDADO \u2014 cuota desaparece. ' +
+          'Utilidad: ' + mf(lpGanF1) + '\u2192' + mf(lpGanF2) + '/mes (+' + pct + '%)</td>';
+        tbodyEl.appendChild(trB);
+      }
+
+      // F2 first full year callout
+      if(isAllF2 && pagoBanco === 0) {
+        const prevWasF2 = yr > 1 && (((yr - 2) * 12 + 1) > lpNPrestamo);
+        if(!prevWasF2) {
+          const trF2 = document.createElement('tr');
+          trF2.style.cssText = 'background:rgba(0,232,122,.07)';
+          trF2.innerHTML = '<td colspan="6" style="padding:5px 12px;font-family:\'JetBrains Mono\',monospace;font-size:9px;color:var(--green)">' +
+            '\u2605 PAGO AL BANCO = $0.00 \u00b7 Activo 100% ZGROUP \u00b7 Utilidad Neta m\u00e1xima.</td>';
+          tbodyEl.appendChild(trF2);
+        }
+      }
+    } // end for yr
+
+    // Totals row (tfoot) — Regla de Oro: cumAcum ≈ lpTotalCicloSeasonal
+    if(totalEl) {
+      totalEl.style.display = '';
+      set('est-tot-ing',   mf(totIng));
+      set('est-tot-banco', mf(totBanco));
+      set('est-tot-gst',   mf(totGop));
+      set('est-tot-util',  mf(totUtil));
+      set('est-tot-acum',  mf(cumAcum));
+    }
+  } // end tbodyEl
+
+  // ── M5 COMPARATIVA GERENCIAL ─────────────────
+  const period=Math.max(1,p.cmpPeriod||24);
+  const cpTot=cpGanancia*period;
+  // LP total for period = F1 portion + F2 portion within period
+  const f1InPeriod = Math.min(period, lpNPrestamo);
+  const f2InPeriod = Math.max(0, period - lpNPrestamo);
+  const lpTotInPeriod = lpGanF1 * f1InPeriod + lpGanF2 * f2InPeriod;
+  const lpMasBarato = lpRentaF1 <= cpRentaVal;
+
+  set('cmp-renta-cp', mf(cpRentaVal));
+  set('cmp-renta-lp', mf(lpRentaF1) + ' F1');
+  set('cmp-gan-cp', mf(cpGanancia));
+  set('cmp-gan-lp-f1', mf(lpGanF1) + '/m × ' + lpNPrestamo + 'm');
+  set('cmp-gan-lp-f2', mf(lpGanF2) + '/m × ' + lpNF2 + 'm');
+  set('cmp-cap-cp', mf(ventaTotal));
+  set('cmp-pe-cp', cpPE > 0 ? cpPE + ' m' : '—');
+  set('cmp-pe-lp', lpPE > 0 ? lpPE + ' m' : '< 1 m');
+  set('cmp-total-cp', mf(cpTot));
+  set('cmp-total-lp', mf(lpTotInPeriod));
+  set('cmp-ciclo-lp', mf(lpTotalCicloSeasonal) + ' (' + lpNContrato + 'm, est.)');
+  set('cmp-p-lbl', period);
+
+  // Alerta si LP > CP
+  const alertaEl=document.getElementById('cmp-alerta');
+  if(ventaTotal>0&&!lpMasBarato){
+    const diff=lpRentaF1-cpRentaVal;
+    alertaEl.style.display='block';
+    alertaEl.textContent=`⚠ Renta F1 LP (${mf(lpRentaF1)}) es ${mf(diff)}/mes más cara que CP (${mf(cpRentaVal)}). Reduce la Tasa de Cotización LP para que F1 sea más barata.`;
+  } else alertaEl.style.display='none';
+
+  // Veredicto estratégico
+  let v='';
+  if(ventaTotal===0){
+    v='⚡ Añade partidas al presupuesto para ver el análisis comparativo.';
+  } else if(lpMasBarato){
+    const roiAnual=cpGanancia>0?((cpGanancia*12/ventaTotal)*100).toFixed(1):'—';
+    v=`✅ ESTRATEGIA ÓPTIMA: LP Fase 1 es ${mf(cpRentaVal-lpRentaF1)}/mes más barata → cliente preferirá LP.\n\n`
+     +`📊 CICLO DE VIDA COMPLETO (${lpNContrato} meses):\n`
+     +`• Fase 1 (${lpNPrestamo}m c/deuda): ${mf(lpGanF1)}/mes → ${mf(lpTotalGanF1)} acumulados\n`
+     +(lpNF2>0?`• Fase 2 (${lpNF2}m activo libre): ${mf(lpGanF2)}/mes → ${mf(lpTotalGanF2)} acumulados\n`:'')
+     +`• TOTAL CICLO: ${mf(lpTotalCiclo)} con $0 capital en riesgo\n\n`
+     +`💡 CP inmoviliza ${mf(ventaTotal)} con ROI ${roiAnual}%/año. LP opera con $0 capital propio. `
+     +(activarFondo?`Fondo reposición activado: ${mf(lpFondoMensual)}/mes para reemplazar equipo al vencimiento.`:'');
+  } else {
+    v=`⚠ LP Fase 1 es ${mf(lpRentaF1-cpRentaVal)}/mes más cara que CP. Reduce la Tasa de Cotización LP para hacerla competitiva.`;
+  }
+  document.getElementById('cmp-veredicto').textContent=v;
+
+  save();
+}
+
+function set(id,val){const el=document.getElementById(id);if(el)el.textContent=val;}
+
+// ═══════════════════════════════════════════════
+// AMORTIZATION
+// ═══════════════════════════════════════════════
+function toggleAmort(){
+  const t=document.getElementById('amort-table'),btn=document.getElementById('amort-btn');
+  if(t.style.display==='none'){
+    t.style.display='block';btn.innerHTML=btn.innerHTML.replace('▼','▲');
+    const p=curP();if(!p)return;
+    const totalFin2=curVentaTotal(p)+(p.lpForm||350);
+    const tem2=(p.lpTeaBanco||7)/100;
+    const temM2=tem2>0?Math.pow(1+tem2,1/12)-1:0;
+    const nPrestamo=Math.max(1,p.lpN||24);
+    let c2=0;if(totalFin2>0&&nPrestamo>0)c2=temM2>0?totalFin2*temM2/(1-Math.pow(1+temM2,-nPrestamo)):totalFin2/nPrestamo;
+    renderAmort(totalFin2,temM2,nPrestamo,0,c2);
+  } else {
+    t.style.display='none';btn.innerHTML=btn.innerHTML.replace('▲','▼');
+  }
+}
+function curVentaTotal(p){
+  const base=p.items.reduce((s,i)=>s+(i.subtotal||0),0);
+  const adj=p.adjPct||0;
+  return p.adjType==='margin'?base*(1+adj/100):base*(1-adj/100);
+}
+function renderAmort(pv,tem,n,resid,cuota){
+  let html=`<table style="width:100%;border-collapse:collapse;font-family:'JetBrains Mono',monospace;font-size:10px">
+  <thead><tr style="background:var(--card);color:var(--muted);position:sticky;top:0">
+    <th style="padding:4px;text-align:center;border:1px solid var(--border)">N°</th>
+    <th style="padding:4px;text-align:right;border:1px solid var(--border)">SALDO INI.</th>
+    <th style="padding:4px;text-align:right;border:1px solid var(--border)">INTERÉS</th>
+    <th style="padding:4px;text-align:right;border:1px solid var(--border)">AMORT.</th>
+    <th style="padding:4px;text-align:right;border:1px solid var(--border)">CUOTA</th>
+  </tr></thead><tbody>`;
+  let saldo=pv;
+  for(let i=1;i<=n;i++){
+    const int=saldo*tem,amort=cuota-int,sAntes=saldo,isL=i===n;
+    saldo=Math.max(0,saldo-amort);
+    html+=`<tr style="background:${i%2===0?'var(--card)':'var(--surface)'};color:${isL?'var(--green)':'var(--text)'}">
+      <td style="padding:3px 5px;text-align:center;border:1px solid #1E3050;color:var(--muted)">${i}</td>
+      <td style="padding:3px 5px;text-align:right;border:1px solid #1E3050">${mf(sAntes)}</td>
+      <td style="padding:3px 5px;text-align:right;border:1px solid #1E3050;color:var(--amber)">${mf(int)}</td>
+      <td style="padding:3px 5px;text-align:right;border:1px solid #1E3050">${mf(amort)}</td>
+      <td style="padding:3px 5px;text-align:right;border:1px solid #1E3050;font-weight:700;color:${isL?'var(--green)':'var(--cyan)'}">${mf(i===n?cuota+resid:cuota)}</td>
+    </tr>`;
+  }
+  document.getElementById('amort-table').innerHTML=html+'</tbody></table>';
+}
+
+// ═══════════════════════════════════════════════
+// PLANS
+// ═══════════════════════════════════════════════
+function handleDragOver(e){e.preventDefault();document.getElementById('drop-zone').classList.add('drag-over');}
+function handleDragLeave(){document.getElementById('drop-zone').classList.remove('drag-over');}
+function handleDrop(e){e.preventDefault();handleDragLeave();processFiles(e.dataTransfer.files);}
+function handleFiles(e){processFiles(e.target.files);}
+function processFiles(files){
+  const p=curP();if(!p){toast('⚠ Selecciona un proyecto','red');return;}
+  Array.from(files).forEach(f=>{
+    const r=new FileReader();
+    r.onload=e=>{p.plans.push({id:uid(),name:f.name,size:f.size,type:f.type,dataUrl:e.target.result});save();renderPlans();toast('📐 PLANO CARGADO','amber');};
+    r.readAsDataURL(f);
+  });
+}
+function removePlan(id){const p=curP();if(!p)return;p.plans=p.plans.filter(pl=>pl.id!==id);save();renderPlans();}
+function renderPlans(){
+  const p=curP();const list=document.getElementById('plans-list'),badge=document.getElementById('plans-badge');
+  if(!p||!p.plans.length){list.innerHTML='';badge.textContent='0';return;}
+  badge.textContent=p.plans.length;list.innerHTML='';
+  p.plans.forEach(pl=>{
+    const ext=pl.name.split('.').pop().toUpperCase();
+    const isImg=['PNG','JPG','JPEG','SVG'].includes(ext);
+    const d=document.createElement('div');
+    d.style.cssText='display:flex;align-items:center;gap:5px;padding:4px 6px;background:var(--card);border:1px solid var(--border);border-radius:4px';
+    d.innerHTML=`<span class="mono" style="font-size:8px;font-weight:700;color:var(--amber);background:rgba(255,176,64,.15);padding:1px 4px;border-radius:3px;flex-shrink:0">${ext}</span>
+      <span style="flex:1;font-size:10px;color:var(--text);overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${pl.name}">${pl.name}</span>
+      ${isImg?`<a href="${pl.dataUrl}" target="_blank" style="color:var(--cyan);opacity:.5;flex-shrink:0;font-size:12px" title="Ver">⧉</a>`:''}
+      <button onclick="removePlan('${pl.id}')" style="background:none;border:none;cursor:pointer;color:var(--red);opacity:.4;flex-shrink:0;font-size:12px" onmouseover="this.style.opacity=1" onmouseout="this.style.opacity=.4">✕</button>`;
+    list.appendChild(d);
+  });
+}
+
+// ═══════════════════════════════════════════════
+// MODALS
+// ═══════════════════════════════════════════════
+function openModal(){document.getElementById('modal-overlay').style.display='flex';}
+function closeModal(){document.getElementById('modal-overlay').style.display='none';}
+
+function openNewProjectModal(){
+  document.getElementById('modal-title').textContent='NUEVO PROYECTO';
+  document.getElementById('modal-body').innerHTML=`
+    <div style="display:flex;flex-direction:column;gap:14px">
+      <div><label class="lm">NOMBRE DEL PROYECTO *</label>
+        <input type="text" id="np-name" placeholder="Ej: Cámara Frigorífica — Proyecto Mango Norte" class="vi" style="text-align:left;padding:8px 12px;font-size:13px;font-family:Inter,sans-serif">
+      </div>
+      <div><label class="lm">N° COTIZACIÓN ODOO</label>
+        <input type="text" id="np-odoo" placeholder="Ej: COT-2024-0042" class="vi" style="text-align:left;padding:8px 12px;font-size:13px">
+      </div>
+      <div style="display:flex;gap:8px;margin-top:4px">
+        <button class="bg1" style="flex:1;padding:10px" onclick="closeModal()">CANCELAR</button>
+        <button class="b1" style="flex:1;padding:10px;font-size:14px" onclick="confirmNewProject()">CREAR PROYECTO →</button>
+      </div>
+    </div>`;
+  openModal();setTimeout(()=>document.getElementById('np-name')?.focus(),80);
+}
+
+function confirmNewProject(){
+  const name=document.getElementById('np-name')?.value.trim();
+  const odoo=document.getElementById('np-odoo')?.value.trim();
+  if(!name){if(document.getElementById('np-name'))document.getElementById('np-name').style.borderColor='var(--red)';return;}
+  const p=createProject(name,odoo);
+  state.currentId=p.id;renderProjectSelect();closeModal();selectProject(p.id);
+  toast('✓ PROYECTO CREADO','cyan');
+}
+
+function openCustomItemModal(){
+  const p=curP();if(!p){toast('⚠ Selecciona un proyecto','red');return;}
+  document.getElementById('modal-title').textContent='PIEZA PERSONALIZADA';
+  document.getElementById('modal-body').innerHTML=`
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <div style="display:grid;grid-template-columns:100px 1fr;gap:8px">
+        <div><label class="lm">CÓDIGO</label><input type="text" id="ci-code" placeholder="CST-001" class="vi" style="text-align:left;padding:7px"></div>
+        <div><label class="lm">NOMBRE *</label><input type="text" id="ci-name" placeholder="Descripción de la pieza" class="vi a" style="text-align:left;padding:7px"></div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px">
+        <div><label class="lm">TIPO</label><select id="ci-tipo" class="vi" style="text-align:left;padding-right:24px"><option value="ACTIVO">ACTIVO</option><option value="CONSUMIBLE">CONSUMIBLE</option></select></div>
+        <div><label class="lm">UNIDAD</label><input type="text" id="ci-unit" value="und" class="vi a" style="text-align:center;padding:7px"></div>
+        <div><label class="lm">CANTIDAD</label><input type="number" id="ci-qty" value="1" min="0.01" step="0.01" class="vi a" style="text-align:center;padding:7px"></div>
+      </div>
+      <div><label class="lm">PRECIO UNITARIO ($)</label><input type="number" id="ci-price" placeholder="0.00" min="0" step="0.01" class="vi" style="padding:7px"></div>
+      <div style="display:flex;gap:8px">
+        <button class="bg1" style="flex:1;padding:9px" onclick="closeModal()">CANCELAR</button>
+        <button style="flex:1;padding:9px;background:rgba(255,176,64,.14);border:1px solid rgba(255,176,64,.4);color:var(--amber);font-family:Rajdhani,sans-serif;font-weight:600;font-size:13px;letter-spacing:1.5px;border-radius:6px;cursor:pointer" onclick="submitCustomItem()">+ AÑADIR</button>
+      </div>
+    </div>`;
+  openModal();setTimeout(()=>document.getElementById('ci-name')?.focus(),80);
+}
+
+function submitCustomItem(){
+  const name=document.getElementById('ci-name')?.value.trim();
+  if(!name){if(document.getElementById('ci-name'))document.getElementById('ci-name').style.borderColor='var(--red)';return;}
+  const p=curP();if(!p)return;
+  const tipo=document.getElementById('ci-tipo')?.value||'ACTIVO';
+  const unit=document.getElementById('ci-unit')?.value.trim()||'und';
+  const qty=parseFloat(document.getElementById('ci-qty')?.value)||1;
+  const price=parseFloat(document.getElementById('ci-price')?.value)||0;
+  p.items.push({id:uid(),catalogId:'custom',code:document.getElementById('ci-code')?.value.trim()||'CST',name,cat:'Personalizado',tipo,unit,unitPrice:price,qty,subtotal:qty*price});
+  save();renderItems();compute();closeModal();toast('+ PIEZA AÑADIDA','amber');
+}
+
+// ═══════════════════════════════════════════════
+// EXPORT
+// ═══════════════════════════════════════════════
+function openExportModal(){
+  const p=curP();if(!p){toast('⚠ Selecciona un proyecto primero','red');return;}
+  // Re-compute all values inline (no DOM dependency)
+  const baseActivos=p.items.filter(i=>i.tipo!=='CONSUMIBLE').reduce((s,i)=>s+(i.subtotal||0),0);
+  const baseCons=p.items.filter(i=>i.tipo==='CONSUMIBLE').reduce((s,i)=>s+(i.subtotal||0),0);
+  const base=baseActivos+baseCons;
+  const adj=p.adjPct||0;
+  const ventaTotal=p.adjType==='margin'?base*(1+adj/100):base*(1-adj/100);
+
+  // CP
+  const cpPlazo=Math.max(1,p.cpPlazo||6),cpVida=Math.max(1,p.cpVida||60);
+  const cpDep=ventaTotal/cpVida;
+  const cpMermaV=(ventaTotal*(p.cpMerma||2)/100)/cpPlazo;
+  const cpGop=ventaTotal*(p.cpOp||5)/100/12;
+  const cpConsRec=baseCons>0?baseCons/cpPlazo:0;
+  const cpRoaV=ventaTotal*(p.cpRoa||35)/100/12;
+  const cpRenta=cpDep+cpMermaV+cpGop+cpConsRec+cpRoaV;
+  const cpPE=cpRoaV>0?Math.ceil(ventaTotal/cpRoaV):0;
+
+  // LP — two-phase recalculation (mirrors compute())
+  const lpNP=Math.max(1,p.lpN||24), lpNC=Math.max(1,p.lpNContrato||36);
+  const lpNF2e=Math.max(0,lpNC-lpNP);
+  const lpForme=p.lpForm||350;
+  const totalFine=ventaTotal+lpForme;
+  const teaBe=(p.lpTeaBanco||7)/100, teaCe=(p.lpTeaCot||15)/100;
+  const temBe=teaBe>0?Math.pow(1+teaBe,1/12)-1:0;
+  const temCe=teaCe>0?Math.pow(1+teaCe,1/12)-1:0;
+  const cuotaBe=totalFine>0&&lpNP>0?(temBe>0?totalFine*temBe/(1-Math.pow(1+temBe,-lpNP)):totalFine/lpNP):0;
+  const cuotaCe=totalFine>0&&lpNP>0?(temCe>0?totalFine*temCe/(1-Math.pow(1+temCe,-lpNP)):totalFine/lpNP):0;
+  const lpSpe=cuotaCe-cuotaBe;
+  const lpGope=ventaTotal*(p.lpOp||5)/100/12;
+  const lpRF1e=cuotaCe+lpGope;
+  const lpGanF1e=lpSpe;
+  const lpPpe=(p.lpPostPct||80)/100;
+  const lpFre=(p.lpFondoRep||5)/100;
+  const vidaLP=p.lpVida||120;
+  const umbral=vidaLP*0.8;
+  const fondoActive=lpNC>umbral;
+  const fondoMes=fondoActive?ventaTotal*(lpFre/12):0;
+  const lpRF2e=lpRF1e*lpPpe;
+  const lpGanF2e=lpRF2e-lpGope-fondoMes;
+  const lpTotF1e=lpGanF1e*lpNP, lpTotF2e=lpGanF2e*lpNF2e;
+  const lpTotCicle=lpTotF1e+lpTotF2e;
+  const lpPEe=lpGanF1e>0?Math.ceil(lpForme/lpGanF1e):0;
+
+  // EST (uses cuotaBe for standby)
+  const estOp=Math.max(1,p.estOp||8),estSb=Math.max(1,p.estSb||4);
+  const estSegV=ventaTotal*(p.estSeguro||1)/100/12;
+  const estGest=ventaTotal*0.05/12;
+  const estRentaSbV=cuotaBe+estSegV+estGest;
+  const estIngTotal=lpRF1e*estOp+estRentaSbV*estSb;
+  const estGanTotal=lpGanF1e*estOp+(estRentaSbV-cuotaBe-lpGope)*estSb;
+
+  const period=Math.max(1,p.cmpPeriod||24);
+  const f1InP=Math.min(period,lpNP), f2InP=Math.max(0,period-lpNP);
+  const lpTotInP=lpGanF1e*f1InP+lpGanF2e*f2InP;
+
+  const curLbl=state.currency==='USD'?'USD ($)':`PEN (S/) T.C. ${state.exchangeRate}`;
+  const fecha=new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'});
+
+  const fmtItems=arr=>arr.map(i=>`  · [${i.code}] ${i.name}\n    ${i.qty} ${i.unit} × ${mf(i.unitPrice)} = ${mf(i.subtotal)}`).join('\n');
+  const activosI=p.items.filter(i=>i.tipo!=='CONSUMIBLE');
+  const consI=p.items.filter(i=>i.tipo==='CONSUMIBLE');
+
+  const txt=`📋 COTIZACIÓN TÉCNICA — ZGROUP
+${'═'.repeat(54)}
+🏗️  Proyecto   : ${p.name}
+📌  N° Odoo    : ${p.odooNumber||'No asignado'}
+📅  Fecha      : ${fecha}
+💱  Moneda     : ${curLbl}
+${'─'.repeat(54)}
+
+ACTIVOS (${activosI.length} ítem${activosI.length!==1?'s':''}):
+${activosI.length?fmtItems(activosI):'  (ninguno)'}
+  Subtotal Activos:        ${mf(baseActivos)}
+${baseCons>0?`\nCONSUMIBLES (${consI.length} ítem${consI.length!==1?'s':''}):
+${fmtItems(consI)}
+  Subtotal Consumibles:    ${mf(baseCons)}\n`:''}
+  TOTAL LISTA:             ${mf(base)}
+${'═'.repeat(54)}
+
+💰 ANÁLISIS DE MODALIDADES
+
+1️⃣  VENTA DIRECTA
+    Base: ${mf(base)}  ${p.adjType==='margin'?`+ Margen ${adj}% = + ${mf(base*adj/100)}`:`− Desc. ${adj}% = − ${mf(base*adj/100)}`}
+    ──────────────────────────────────────────────────
+    TOTAL VENTA:             ${mf(ventaTotal)}
+
+2️⃣  CORTO PLAZO — Capital Propio ZGROUP
+    Vida útil: ${p.cpVida||60} meses (desgaste por montaje/desmontaje)
+    Depreciación:            ${mf(cpDep)}/mes
+    Merma montaje (${p.cpMerma||2}%÷${cpPlazo}m):  ${mf(cpMermaV)}/mes
+    Gastos Operativos (${p.cpOp||5}%): ${mf(cpGop)}/mes${baseCons>0?`\n    Consumibles ÷${cpPlazo}m:     ${mf(cpConsRec)}/mes`:''}
+    ROA ${p.cpRoa||35}% anual:           ${mf(cpRoaV)}/mes ← GANANCIA ZGROUP
+    ──────────────────────────────────────────────────
+    RENTA AL CLIENTE:        ${mf(cpRenta)}/mes  (LA MÁS CARA)
+    GANANCIA ZGROUP:         ${mf(cpRoaV)}/mes
+    CAPITAL EN RIESGO:       ${mf(ventaTotal)}
+    PUNTO DE EQUILIBRIO:     ${cpPE} meses
+
+3️⃣  LARGO PLAZO — Renta Evolutiva (Apalancamiento Bancario)
+    Vida útil LP: ${vidaLP} meses (equipo estático, menor desgaste)
+    Capital: ${mf(ventaTotal)} + ${mf(lpForme)} form. = ${mf(totalFine)} financiado al banco
+    TEA banco: ${p.lpTeaBanco||7}%  |  Tasa cotización: ${p.lpTeaCot||15}%
+
+    ┌─ FASE 1 — CON DEUDA (meses 1 a ${lpNP}) ─────────────────
+    │ Cuota banco:          ${mf(cuotaBe)}/mes ← ZGROUP paga
+    │ Gastos Op. (${p.lpOp||5}%):    ${mf(lpGope)}/mes
+    │ Spread (${p.lpTeaCot||15}%−${p.lpTeaBanco||7}%):      ${mf(lpSpe)}/mes ← GANANCIA ZGROUP F1
+    │ ──────────────────────────────────────────────────
+    │ RENTA AL CLIENTE F1:  ${mf(lpRF1e)}/mes  (MÁS BARATA QUE CP)
+    │ GANANCIA F1:          ${mf(lpGanF1e)}/mes × ${lpNP}m = ${mf(lpTotF1e)}
+    │ CAPITAL EN RIESGO:    $ 0.00 (riesgo del banco)
+    │ P.EQUILIBRIO:         ${lpPEe} meses (recuperar formalización)
+    └───────────────────────────────────────────────────
+${lpNF2e>0?`    ┌─ FASE 2 — ACTIVO LIBRE (meses ${lpNP+1} a ${lpNC}) ──────────────
+    │ Renta F1 × ${p.lpPostPct||80}%:      ${mf(lpRF2e)}/mes (fidelización)
+    │ Gastos Op.:           ${mf(lpGope)}/mes
+    ${fondoActive?`│ Fondo reposición (${p.lpFondoRep||5}%): ${mf(fondoMes)}/mes ← capital nuevo equipo\n    `:''}│ ──────────────────────────────────────────────────
+    │ UTILIDAD NETA F2:     ${mf(lpGanF2e)}/mes × ${lpNF2e}m = ${mf(lpTotF2e)}
+    └───────────────────────────────────────────────────
+    ★  TOTAL CICLO LP (${lpNC}m): ${mf(lpTotCicle)}  ← utilidad acumulada`:'    (Sin Fase 2: contrato = plazo préstamo)'}
+
+4️⃣  ESTACIONALIDAD (${estOp} meses full + ${estSb} meses standby)
+    Renta Full × ${estOp}m:       ${mf(lpRF1e*estOp)}/año
+    Renta Standby × ${estSb}m:    ${mf(estRentaSbV*estSb)}/año [banco+seguro+5%gestión]
+    INGRESO ANUAL:           ${mf(estIngTotal)}
+    GANANCIA ANUAL:          ${mf(estGanTotal)}
+
+${'═'.repeat(54)}
+📊 PANEL GERENCIAL — COMPARATIVA (${period} meses)
+    ┌──────────────────────┬────────────┬────────────┐
+    │ Indicador            │ CORTO PLAZO│ LARGO PLAZO│
+    ├──────────────────────┼────────────┼────────────┤
+    │ Renta cliente/mes    │${mf(cpRenta).padStart(12)}│ ${mf(lpRF1e).padStart(10)} F1│
+    │ Ganancia F1/mes      │${mf(cpRoaV).padStart(12)}│${mf(lpGanF1e).padStart(12)}│
+    │ Ganancia F2/mes      │${' N/A'.padStart(12)}│${mf(lpGanF2e).padStart(12)}│
+    │ Capital en riesgo    │${mf(ventaTotal).padStart(12)}│    $0 banco│
+    │ Punto de equilibrio  │${String(cpPE+'m').padStart(12)}│${String(lpPEe+'m').padStart(12)}│
+    │ Ganancia ${period}m     │${mf(cpRoaV*period).padStart(12)}│${mf(lpTotInP).padStart(12)}│
+    │ TOTAL CICLO LP       │           —│${mf(lpTotCicle).padStart(12)}│
+    └──────────────────────┴────────────┴────────────┘
+    ${lpRF1e<=cpRenta?'✅ LP FASE 1 más barata → estrategia óptima ZGROUP.':'⚠ Ajustar Tasa de Cotización LP para ser más barata que CP.'}
+${'═'.repeat(54)}
+📐 Planos adjuntos: ${p.plans.length} archivo(s)
+🔧 ZGROUP Sistema de Cotizaciones v7.0 · ${fecha}
+${'═'.repeat(54)}`;
+
+  document.getElementById('modal-title').textContent='FINALIZAR Y EXPORTAR';
+  document.getElementById('modal-body').innerHTML=`
+    <div style="display:flex;flex-direction:column;gap:10px">
+      <p class="mono" style="font-size:11px;color:var(--muted)">Resumen estructurado para Odoo o WhatsApp:</p>
+      <textarea id="exp-text" readonly class="mono" style="width:100%;height:340px;background:var(--card);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:10px;font-size:11px;line-height:1.65;resize:none;outline:none">${txt}</textarea>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px">
+        <button class="b1" style="padding:10px;font-size:13px" onclick="doCopy()">📋 COPIAR TEXTO</button>
+        <button class="bgreen" style="padding:10px;font-size:13px" onclick="doWhatsapp()">📱 WHATSAPP</button>
+      </div>
+      <button class="bg1" style="padding:8px;font-size:12px" onclick="closeModal()">CERRAR</button>
+    </div>`;
+  openModal();
+}
+
+function doCopy(){
+  const txt=document.getElementById('exp-text')?.value;if(!txt)return;
+  if(navigator.clipboard)navigator.clipboard.writeText(txt).then(()=>{toast('📋 COPIADO','cyan');closeModal();});
+  else{document.getElementById('exp-text').select();document.execCommand('copy');toast('📋 COPIADO','cyan');closeModal();}
+}
+function doWhatsapp(){
+  window.open('https://wa.me/?text='+encodeURIComponent(document.getElementById('exp-text')?.value||''),'_blank');
+}
+
+// ═══════════════════════════════════════════════
+// EVENTS
+// ═══════════════════════════════════════════════
+document.getElementById('modal-overlay').addEventListener('click',e=>{if(e.target===e.currentTarget)closeModal();});
+document.addEventListener('keydown',e=>{
+  if(e.key==='Escape')closeModal();
+  if(e.key==='Enter'&&document.getElementById('modal-overlay').style.display==='flex'){
+    if(document.getElementById('np-name'))confirmNewProject();
+    else if(document.getElementById('ci-name'))submitCustomItem();
+  }
+});
+
+// ═══════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════
+function init(){
+  document.getElementById('hdr-date').textContent=new Date().toLocaleDateString('es-PE',{day:'2-digit',month:'2-digit',year:'numeric'});
+  load();renderCatFilters();renderCatalog();renderProjectSelect();
+  if(state.projects.length>0){
+    state.currentId=state.projects[state.projects.length-1].id;
+    document.getElementById('project-select').value=state.currentId;
+    selectProject(state.currentId);
+  } else render();
+  setAdjType('margin',false);
+}
+init();
+</script>
+</body>
+</html>

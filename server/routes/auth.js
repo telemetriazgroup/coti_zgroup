@@ -12,17 +12,83 @@ const {
 
 const router = express.Router();
 
-// Rate limit: 5 intentos por 15 minutos por IP
-const loginLimiter = rateLimit({
-  windowMs: 15 * 60 * 1000,
-  max: 5,
-  standardHeaders: true,
-  legacyHeaders: false,
-  message: {
-    success: false,
-    error: { code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Intenta en 15 minutos.' }
+/**
+ * Intenta emitir un access token a partir de la cookie refresh.
+ * @returns {{ ok: true, data: { accessToken, user } } | { ok: false, err: string }}
+ */
+async function resolveRefresh(req) {
+  const refreshToken = req.cookies?.refreshToken;
+  if (!refreshToken) {
+    return { ok: false, err: 'NO_REFRESH_TOKEN' };
   }
-});
+
+  const payload = verifyRefreshToken(refreshToken);
+  if (!payload) {
+    return { ok: false, err: 'INVALID_REFRESH_TOKEN' };
+  }
+
+  const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
+
+  const { rows } = await pool.query(
+    `SELECT rt.id, u.id as user_id, u.email, u.role, u.active,
+            e.nombres, e.apellidos, e.cargo, e.foto_url
+     FROM refresh_tokens rt
+     JOIN users u ON u.id = rt.user_id
+     LEFT JOIN employees e ON e.user_id = u.id
+     WHERE rt.token_hash = $1
+       AND rt.revoked_at IS NULL
+       AND rt.expires_at > NOW()`,
+    [tokenHash]
+  );
+
+  if (!rows[0] || !rows[0].active) {
+    return { ok: false, err: 'SESSION_EXPIRED' };
+  }
+
+  const user = rows[0];
+  const accessToken = signAccessToken({
+    id:    user.user_id,
+    email: user.email,
+    role:  user.role,
+  });
+
+  return {
+    ok: true,
+    data: {
+      accessToken,
+      user: {
+        id:        user.user_id,
+        email:     user.email,
+        role:      user.role,
+        nombres:   user.nombres,
+        apellidos: user.apellidos,
+        cargo:     user.cargo,
+        fotoUrl:   user.foto_url,
+      },
+    },
+  };
+}
+
+const REFRESH_ERR_MSG = {
+  NO_REFRESH_TOKEN: 'Sesión expirada',
+  INVALID_REFRESH_TOKEN: 'Sesión inválida',
+  SESSION_EXPIRED: 'Sesión expirada. Por favor inicia sesión.',
+};
+
+// Rate limit: 5 intentos por 15 minutos por IP (desactivado en NODE_ENV=test para integración)
+const loginLimiter =
+  process.env.NODE_ENV === 'test'
+    ? (req, res, next) => next()
+    : rateLimit({
+        windowMs: 15 * 60 * 1000,
+        max: 5,
+        standardHeaders: true,
+        legacyHeaders: false,
+        message: {
+          success: false,
+          error: { code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Intenta en 15 minutos.' }
+        }
+      });
 
 // ─── POST /api/auth/login ───────────────────────────────────────
 router.post('/login', loginLimiter, async (req, res) => {
@@ -77,13 +143,13 @@ router.post('/login', loginLimiter, async (req, res) => {
       [user.id, tokenHash, expiresAt, req.ip, req.get('user-agent')]
     );
 
-    // Refresh token en cookie httpOnly
+    // Cookie: path '/' para que el navegador la envíe en toda la app; lax evita problemas con redirecciones
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
       secure:   process.env.COOKIE_SECURE === 'true',
-      sameSite: 'strict',
+      sameSite: 'lax',
       maxAge:   7 * 24 * 60 * 60 * 1000,
-      path:     '/api/auth',
+      path:     '/',
     });
 
     return res.json({
@@ -111,71 +177,47 @@ router.post('/login', loginLimiter, async (req, res) => {
   }
 });
 
-// ─── POST /api/auth/refresh ─────────────────────────────────────
-router.post('/refresh', async (req, res) => {
-  const refreshToken = req.cookies?.refreshToken;
-
-  if (!refreshToken) {
-    return res.status(401).json({
-      success: false,
-      error: { code: 'NO_REFRESH_TOKEN', message: 'Sesión expirada' }
-    });
-  }
-
-  const payload = verifyRefreshToken(refreshToken);
-  if (!payload) {
-    return res.status(401).json({
-      success: false,
-      error: { code: 'INVALID_REFRESH_TOKEN', message: 'Sesión inválida' }
-    });
-  }
-
+// ─── GET /api/auth/session ────────────────────────────────────
+// Comprueba sesión sin devolver 401 (evita ruido en consola del navegador en login).
+router.get('/session', async (req, res) => {
+  res.setHeader('Cache-Control', 'no-store, no-cache, must-revalidate, private');
+  res.setHeader('Pragma', 'no-cache');
   try {
-    const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
-
-    // Verificar que el token existe, no fue revocado, y no expiró
-    const { rows } = await pool.query(
-      `SELECT rt.id, u.id as user_id, u.email, u.role, u.active,
-              e.nombres, e.apellidos, e.cargo, e.foto_url
-       FROM refresh_tokens rt
-       JOIN users u ON u.id = rt.user_id
-       LEFT JOIN employees e ON e.user_id = u.id
-       WHERE rt.token_hash = $1
-         AND rt.revoked_at IS NULL
-         AND rt.expires_at > NOW()`,
-      [tokenHash]
-    );
-
-    if (!rows[0] || !rows[0].active) {
-      return res.status(401).json({
-        success: false,
-        error: { code: 'SESSION_EXPIRED', message: 'Sesión expirada. Por favor inicia sesión.' }
-      });
+    const r = await resolveRefresh(req);
+    if (!r.ok) {
+      return res.json({ success: true, data: { authenticated: false } });
     }
-
-    const user = rows[0];
-    const newAccessToken = signAccessToken({
-      id:    user.user_id,
-      email: user.email,
-      role:  user.role,
-    });
-
     return res.json({
       success: true,
       data: {
-        accessToken: newAccessToken,
-        user: {
-          id:        user.user_id,
-          email:     user.email,
-          role:      user.role,
-          nombres:   user.nombres,
-          apellidos: user.apellidos,
-          cargo:     user.cargo,
-          fotoUrl:   user.foto_url,
-        }
-      }
+        authenticated: true,
+        accessToken: r.data.accessToken,
+        user:        r.data.user,
+      },
     });
+  } catch (err) {
+    console.error('[AUTH] Session error:', err);
+    return res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Error interno' }
+    });
+  }
+});
 
+// ─── POST /api/auth/refresh ─────────────────────────────────────
+router.post('/refresh', async (req, res) => {
+  try {
+    const r = await resolveRefresh(req);
+    if (!r.ok) {
+      return res.status(401).json({
+        success: false,
+        error: {
+          code:    r.err,
+          message: REFRESH_ERR_MSG[r.err] || 'Sesión inválida',
+        }
+      });
+    }
+    return res.json({ success: true, data: r.data });
   } catch (err) {
     console.error('[AUTH] Refresh error:', err);
     return res.status(500).json({
@@ -201,6 +243,7 @@ router.post('/logout', requireAuth, async (req, res) => {
     }
   }
 
+  res.clearCookie('refreshToken', { path: '/' });
   res.clearCookie('refreshToken', { path: '/api/auth' });
   return res.json({ success: true, data: { message: 'Sesión cerrada correctamente' } });
 });

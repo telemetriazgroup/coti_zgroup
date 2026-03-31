@@ -5,7 +5,10 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
-    "dev": "nodemon server/index.js",
+    "dev": "concurrently -n api,vite -c blue,magenta \"npm run dev:api\" \"npm run dev:client\"",
+    "dev:api": "nodemon server/index.js",
+    "dev:client": "vite",
+    "build": "vite build",
     "seed": "node server/db/seed.js",
     "test": "vitest run",
     "test:watch": "vitest"
@@ -23,12 +26,18 @@
     "jsonwebtoken": "^9.0.2",
     "morgan": "^1.10.0",
     "pg": "^8.11.3",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-router-dom": "^6.22.0",
     "uuid": "^9.0.1"
   },
   "devDependencies": {
+    "@vitejs/plugin-react": "^4.2.1",
+    "concurrently": "^8.2.2",
     "nodemon": "^3.0.2",
-    "vitest": "^1.0.0",
-    "supertest": "^6.3.3"
+    "supertest": "^6.3.3",
+    "vite": "^5.1.0",
+    "vitest": "^1.0.0"
   },
   "engines": {
     "node": ">=18.0.0"

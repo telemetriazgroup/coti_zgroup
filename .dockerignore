@@ -1,0 +1,30 @@
+# Dependencias y artefactos locales
+node_modules
+client/dist
+npm-debug.log*
+
+# Git y entorno
+.git
+.gitignore
+.env
+.env.*
+!.env.example
+
+# IDE y tests locales
+.cursor
+.vscode
+coverage
+**/*.test.js
+tests
+
+# Documentación (no necesaria en la imagen)
+*.md
+!README.md
+
+# Referencia estática / prototipos (no usados en runtime)
+zgroup-cotizaciones-v10-final.html
+
+# Docker
+Dockerfile*
+docker-compose*.yml
+.dockerignore

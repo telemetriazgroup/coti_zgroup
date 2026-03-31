@@ -3,11 +3,11 @@
 
 ## PROYECTO
 Sistema de cotizaciones técnicas para refrigeración industrial (ZGROUP, Perú).
-Stack: Node.js 20 + Express 4 + PostgreSQL 15 + Vanilla HTML/JS + Tailwind-less CSS custom.
+Stack: Node.js 20 + Express 4 + PostgreSQL 15 + React (Vite) + CSS custom (paleta .cursorrules; referencia `zgroup-cotizaciones-v10-final.html`).
 
 ## ARQUITECTURA
 - `server/` → Express API (JWT auth, REST routes, middleware)
-- `public/` → Frontend HTML/JS (app.html principal, login.html, /js/*.js)
+- `client/` → Frontend React (Vite): `src/` login, shell, `react-router-dom` hash `#/…`
 - `shared/` → finance-engine.js (motor puro, sin side effects)
 - `server/db/` → schema.sql, seed.js
 
@@ -64,7 +64,7 @@ Stack: Node.js 20 + Express 4 + PostgreSQL 15 + Vanilla HTML/JS + Tailwind-less 
 - M5: Panel Gerencial (CP vs LP, KPIs admin)
 
 ## ESTADO DEL PROYECTO (Sprint actual: 0)
-- ✅ Sprint 0: Auth, schema, login.html, app.html shell, seed
+- ✅ Sprint 0: Auth, schema, client React (login + shell), seed
 - ⏳ Sprint 1: Employees, Clients, Projects routes
 - ⏳ Sprint 2: Catalog CRUD (admin)
 - ⏳ Sprint 3: Budget items
@@ -78,9 +78,9 @@ Stack: Node.js 20 + Express 4 + PostgreSQL 15 + Vanilla HTML/JS + Tailwind-less 
 - server/middleware/auth.js → JWT middleware
 - server/routes/auth.js → login/refresh/logout
 - server/db/schema.sql → DDL completo
-- public/login.html → pantalla de acceso
-- public/app.html → shell principal con todas las vistas
-- public/js/api.js → fetch wrapper con auto-refresh
-- public/js/auth.js → manejo de sesión
+- client/src/pages/LoginPage.jsx → pantalla de acceso
+- client/src/layout/AppShell.jsx → shell con nav lateral
+- client/src/lib/api.js → fetch wrapper con auto-refresh
+- client/src/context/AuthContext.jsx → manejo de sesión
 - SPRINT_PLAN.md → plan de desarrollo
 - ZGROUP_ANALYSIS.md → análisis completo de implicancias
