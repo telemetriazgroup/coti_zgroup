@@ -96,17 +96,17 @@ express-rate-limit, dotenv, nodemon (dev)
 **Objetivo:** El comercial puede construir el presupuesto de un proyecto.
 
 ### Entregables
-- [ ] `db/schema.sql` ampliado: project_items
-- [ ] `server/routes/items.js` — CRUD ítems del proyecto
-- [ ] Panel izquierdo: catálogo filtrable (búsqueda debounce 200ms, filtro por categoría)
-- [ ] Panel central: tabla de ítems con edición inline (precio, cantidad)
-- [ ] Footer: subtotal ACTIVOS | subtotal CONSUMIBLES | total lista
-- [ ] Botón LIMPIAR con modal de confirmación
-- [ ] Modal: Pieza personalizada (código, nombre, tipo, unidad, qty, precio)
-- [ ] Sincronización InfoBar: total lista, contador ítems
-- [ ] Persistencia en BD con debounce 300ms (fire-and-forget optimista)
-- [ ] Animación fade-out al eliminar ítem
-- [ ] Transición automática a estado `EN_SEGUIMIENTO` al agregar primer ítem
+- [x] `db/schema.sql` ampliado: project_items *(ya en schema base)*
+- [x] `server/routes/projectItems.js` — CRUD ítems (`/api/projects/:id/items`)
+- [x] Panel izquierdo: catálogo filtrable (búsqueda debounce 200ms, filtro por categoría)
+- [x] Panel central: tabla de ítems con edición inline (precio, cantidad)
+- [x] Footer: subtotal ACTIVOS | subtotal CONSUMIBLES | total lista
+- [x] Botón LIMPIAR con modal de confirmación
+- [x] Modal: Pieza personalizada (código, nombre, tipo, unidad, qty, precio)
+- [x] Sincronización InfoBar: total lista, contador ítems
+- [x] Persistencia en BD con debounce 300ms en edición inline
+- [x] Opacidad reducida en fila mientras se elimina ítem
+- [x] Transición automática a estado `EN_SEGUIMIENTO` al agregar primer ítem
 
 ### Criterios de aceptación
 - Filtrar categoría + buscar simultáneamente funciona

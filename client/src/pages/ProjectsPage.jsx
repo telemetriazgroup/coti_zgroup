@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
@@ -238,6 +239,9 @@ export function ProjectsPage() {
                       </td>
                     )}
                     <td className="actions-cell">
+                      <Link className="btn-link mono" to={`/projects/${row.id}/presupuesto`}>
+                        Presupuesto
+                      </Link>
                       <button type="button" className="btn-link mono" onClick={() => openAudit(row)}>
                         Auditoría
                       </button>

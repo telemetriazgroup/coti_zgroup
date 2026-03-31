@@ -149,7 +149,7 @@ export function AppShell() {
           )}
         </nav>
         <div className="sb-footer">
-          <div className="sb-version">ZGROUP · Sprint 2 · React</div>
+          <div className="sb-version">ZGROUP · Sprint 3 · React</div>
         </div>
       </aside>
 

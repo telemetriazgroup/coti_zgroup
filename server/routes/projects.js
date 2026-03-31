@@ -4,6 +4,7 @@ const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
+const { canReadProject, canWriteProject } = require('../utils/projectAccess');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -25,19 +26,6 @@ function mapProject(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
-}
-
-function canWriteProject(user, row) {
-  if (user.role === 'ADMIN') return true;
-  if (user.role === 'COMERCIAL' && row.created_by === user.id) return true;
-  return false;
-}
-
-function canReadProject(user, row) {
-  if (user.role === 'ADMIN') return true;
-  if (user.role === 'COMERCIAL' && row.created_by === user.id) return true;
-  if (user.role === 'VIEWER' && row.assigned_viewer === user.id) return true;
-  return false;
 }
 
 // ─── GET /api/projects — listado filtrado por rol ───────────────
