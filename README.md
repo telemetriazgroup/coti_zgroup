@@ -89,7 +89,11 @@ Si entras con **`http://<tu-ip>:3000`** (sin dominio), configura en `.env` / Doc
 
 Opcional: **`ALLOWED_ORIGINS`** (coma) si necesitas más de un origen; **`TRUST_PROXY=1`** si hay proxy inverso.
 
-Los errores **`ERR_SSL_PROTOCOL_ERROR`** en `/assets/...` suelen aparecer si el navegador intenta **`https://`** contra un servidor que solo habla **HTTP**. Usa la barra de direcciones con **`http://`** explícito, o desactiva “HTTPS-First” / prueba otro navegador. El aviso de **origen no fiable** con COOP es coherente con HTTP no cifrado; la solución estable es servir la app con **HTTPS**.
+Los errores **`ERR_SSL_PROTOCOL_ERROR`** en `/assets/...` suelen aparecer si el navegador intenta **`https://`** contra un servidor que solo habla **HTTP**. El build de Vite usa **`base: './'`** (rutas relativas) para que CSS/JS pidan el mismo esquema que la página (`http://` si entras por HTTP).
+
+**Si sigue fallando:** en Chrome, borra **datos del sitio** para esa IP (Configuración → Privacidad → Borrar datos de navegación → solo ese origen) para quitar caché/HSTS y el aviso **Origin-Agent-Cluster** (“previously been placed in a site-keyed agent cluster”). También prueba ventana de incógnito o desactiva **“Usar siempre conexiones seguras”** para sitios que no tengan HTTPS. Entra siempre con **`http://IP:3000`** escrito en la barra.
+
+El aviso de **origen no fiable** con COOP es coherente con HTTP no cifrado; la solución estable es servir la app con **HTTPS** (proxy + certificado).
 
 ### 3. Comprobar
 

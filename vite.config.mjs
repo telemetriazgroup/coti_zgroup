@@ -6,6 +6,9 @@ import { fileURLToPath } from 'url';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 export default defineConfig({
+  // Rutas relativas (./assets/...) para que JS/CSS sigan el mismo esquema que la página (http vs https).
+  // Evita que el navegador pida https:// en despliegues solo-HTTP por IP (Chrome HTTPS-First / orígenes mixtos).
+  base: './',
   root: path.join(__dirname, 'client'),
   resolve: {
     alias: {
