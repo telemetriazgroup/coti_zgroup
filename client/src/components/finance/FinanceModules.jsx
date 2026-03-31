@@ -6,6 +6,60 @@ function formatUsd(n) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 }
 
+/** Etiqueta + texto explicativo + control (UX módulos financieros) */
+function FinParam({ label, hint, children }) {
+  return (
+    <label className="fin-param">
+      <span className="fin-param__label">{label}</span>
+      {hint ? <p className="fin-param__hint">{hint}</p> : null}
+      {children}
+    </label>
+  );
+}
+
+const HINT = {
+  adjPct:
+    'Porcentaje aplicado sobre la base lista: en modo «Margen» se suma al precio; en «Descuento» se resta. Define el precio objetivo de venta (M1).',
+  cpPlazo:
+    'Duración del contrato de arriendo en corto plazo (meses). Reparte merma y consumibles en el tiempo y fija el horizonte de la cuota CP.',
+  cpVida:
+    'Meses en los que se deprecia el activo en CP. A mayor vida útil, menor depreciación mensual y suele bajar la renta.',
+  cpOp:
+    'Gastos operativos anuales expresados como % del valor de venta. Se convierten a costo mensual fijo en el modelo.',
+  cpRoa:
+    'Retorno sobre activo esperado (anual). Es la ganancia objetivo mensual que el modelo asigna al arrendador.',
+  cpMerma:
+    'Pérdida de valor por montaje / desmontaje repartida en el plazo del contrato (sobre el valor de venta).',
+  lpVida:
+    'Vida útil contable del equipo en largo plazo (meses). Se usa para umbrales (p. ej. fondo reposición) y contexto del contrato.',
+  lpN:
+    'Plazo del préstamo bancario en meses (sistema francés): define cuotas banco/cliente hasta liquidación.',
+  lpNContrato:
+    'Duración total del contrato con el cliente (≥ plazo préstamo). Después del préstamo sigue la fase F2 con otra renta.',
+  lpTeaBanco:
+    'Tasa Efectiva Anual del financiamiento bancario. Entra en la cuota del préstamo (sistema francés).',
+  lpTeaCot:
+    'TEA cobrada o referida al cliente en la cuota. El spread respecto al banco es parte del análisis M3.',
+  lpOp:
+    'Gastos operativos anualizados sobre el valor de venta, convertidos a costo mensual en LP (como en CP).',
+  lpForm:
+    'Gastos únicos de formalización (USD) que capitalizan el monto financiado al inicio del préstamo.',
+  lpPostPct:
+    'Tras pagar el préstamo, la renta F2 se expresa como porcentaje de la renta de Fase 1.',
+  lpFondoRep:
+    'Porcentaje anual sobre el activo para fondo de reposición cuando el contrato supera el umbral de vida útil.',
+  estOp:
+    'Meses al año con operación a plena renta de referencia (estacionalidad M4).',
+  estSb:
+    'Meses al año en régimen standby (menor ingreso); el % de ajuste aplica sobre la renta de referencia.',
+  estSeguro:
+    'Costo de seguro anual como porcentaje del valor de venta (referencia de costo fijo).',
+  estSbPct:
+    'Porcentaje de la renta F1 que se aplica como ingreso en meses standby (regla operativa del modelo).',
+  cmpPeriod:
+    'Cantidad de meses para acumular utilidades CP vs LP y emitir el veredicto comparativo (M5 y PDF Gerencia).',
+};
+
 function Accordion({ id, title, subtitle, badge, open, onToggle, children, disabled }) {
   return (
     <div className={`fin-acc ${disabled ? 'fin-acc--off' : ''}`}>
@@ -72,9 +126,10 @@ export function FinanceModules({
       <h2 className="budget-panel-title" style={{ marginBottom: 12 }}>
         Módulos financieros
       </h2>
-      <p className="muted mono" style={{ fontSize: 11, marginBottom: 12 }}>
-        M1 define TOTAL VENTA; M2–M4 se recalculan en cascada; M5 resume CP vs LP (mismo criterio que PDF
-        Gerencia). Activa modalidades y ajusta parámetros.
+      <p className="fin-intro">
+        <strong>M1</strong> fija el <strong>TOTAL VENTA</strong>. <strong>M2–M4</strong> se recalculan en cascada
+        según CP / LP / Estacionalidad. <strong>M5</strong> compara escenarios en el horizonte elegido (alineado al
+        PDF Gerencia). Cada parámetro incluye una nota breve sobre su rol en el modelo.
       </p>
 
       <div className="fin-toggles mono">
@@ -134,21 +189,21 @@ export function FinanceModules({
           </div>
         )}
         <div className="fin-grid">
-          <label>
-            <span className="fg-lbl">
-              {m1.adjType === 'margin' ? 'Margen (+) %' : 'Descuento (−) %'}
-            </span>
+          <FinParam
+            label={m1.adjType === 'margin' ? 'Margen (+) %' : 'Descuento (−) %'}
+            hint={HINT.adjPct}
+          >
             <input
               type="number"
               step="0.5"
-              className="form-input mono"
+              className="form-input mono fin-input-lg"
               disabled={hideSensitive}
               value={p.adjPct ?? 0}
               onChange={(e) => patch({ adjPct: parseFloat(e.target.value) || 0 })}
             />
-          </label>
+          </FinParam>
         </div>
-        <div className="fin-kpis mono">
+        <div className="fin-kpis fin-kpis--xl mono">
           <div>
             <span className="muted">Base lista</span> {formatUsd(m1.base)}
           </div>
@@ -185,59 +240,54 @@ export function FinanceModules({
           <>
             {!hideSensitive && (
               <div className="fin-grid fin-grid--3">
-                <label>
-                  <span className="fg-lbl">Plazo contrato (meses)</span>
+                <FinParam label="Plazo contrato (meses)" hint={HINT.cpPlazo}>
                   <input
                     type="number"
                     min={1}
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.cpPlazo}
                     onChange={(e) => patch({ cpPlazo: parseInt(e.target.value, 10) || 1 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Vida útil CP (meses)</span>
+                </FinParam>
+                <FinParam label="Vida útil CP (meses)" hint={HINT.cpVida}>
                   <input
                     type="number"
                     min={1}
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.cpVida}
                     onChange={(e) => patch({ cpVida: parseInt(e.target.value, 10) || 1 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Gtos. op. % anual</span>
+                </FinParam>
+                <FinParam label="Gtos. op. % anual" hint={HINT.cpOp}>
                   <input
                     type="number"
                     step="0.5"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.cpOp}
                     onChange={(e) => patch({ cpOp: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">ROA % anual</span>
+                </FinParam>
+                <FinParam label="ROA % anual" hint={HINT.cpRoa}>
                   <input
                     type="number"
                     step="0.5"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.cpRoa}
                     onChange={(e) => patch({ cpRoa: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Merma montaje %</span>
+                </FinParam>
+                <FinParam label="Merma montaje %" hint={HINT.cpMerma}>
                   <input
                     type="number"
                     step="0.5"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.cpMerma}
                     onChange={(e) => patch({ cpMerma: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
+                </FinParam>
               </div>
             )}
-            <div className="fin-table mono">
+            <div className="fin-table mono fin-table--xl">
               {!hideSensitive && (
                 <>
                   <div className="fin-table__row">
@@ -306,99 +356,90 @@ export function FinanceModules({
             )}
             {!hideSensitive && (
               <div className="fin-grid fin-grid--3">
-                <label>
-                  <span className="fg-lbl">Vida útil LP (meses)</span>
+                <FinParam label="Vida útil LP (meses)" hint={HINT.lpVida}>
                   <input
                     type="number"
                     min={1}
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.lpVida}
                     onChange={(e) => patch({ lpVida: parseInt(e.target.value, 10) || 1 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Plazo préstamo banco (meses)</span>
+                </FinParam>
+                <FinParam label="Plazo préstamo banco (meses)" hint={HINT.lpN}>
                   <input
                     type="number"
                     min={1}
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.lpN}
                     onChange={(e) => patch({ lpN: parseInt(e.target.value, 10) || 1 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Plazo contrato (meses)</span>
+                </FinParam>
+                <FinParam label="Plazo contrato (meses)" hint={HINT.lpNContrato}>
                   <input
                     type="number"
                     min={1}
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.lpNContrato}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10) || 1;
                       patch({ lpNContrato: Math.max(p.lpN || 24, v) });
                     }}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">TEA banco %</span>
+                </FinParam>
+                <FinParam label="TEA banco %" hint={HINT.lpTeaBanco}>
                   <input
                     type="number"
                     step="0.1"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.lpTeaBanco}
                     onChange={(e) => patch({ lpTeaBanco: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">TEA cotización cliente %</span>
+                </FinParam>
+                <FinParam label="TEA cotización cliente %" hint={HINT.lpTeaCot}>
                   <input
                     type="number"
                     step="0.1"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.lpTeaCot}
                     onChange={(e) => patch({ lpTeaCot: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Gtos. op. % anual</span>
+                </FinParam>
+                <FinParam label="Gtos. op. % anual" hint={HINT.lpOp}>
                   <input
                     type="number"
                     step="0.5"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.lpOp}
                     onChange={(e) => patch({ lpOp: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Gastos formalización USD</span>
+                </FinParam>
+                <FinParam label="Gastos formalización USD" hint={HINT.lpForm}>
                   <input
                     type="number"
                     step="1"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.lpForm}
                     onChange={(e) => patch({ lpForm: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Renta post-préstamo % F1</span>
+                </FinParam>
+                <FinParam label="Renta post-préstamo % F1" hint={HINT.lpPostPct}>
                   <input
                     type="number"
                     step="1"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.lpPostPct}
                     onChange={(e) => patch({ lpPostPct: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Fondo reposición % anual</span>
+                </FinParam>
+                <FinParam label="Fondo reposición % anual" hint={HINT.lpFondoRep}>
                   <input
                     type="number"
                     step="0.5"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.lpFondoRep}
                     onChange={(e) => patch({ lpFondoRep: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
+                </FinParam>
               </div>
             )}
             {m3.lpSpreadNegative && !hideSensitive && (
@@ -428,7 +469,7 @@ export function FinanceModules({
               </div>
             </div>
             {!hideSensitive && (
-              <div className="fin-table mono">
+              <div className="fin-table mono fin-table--xl">
                 <div className="fin-table__row">
                   <span>Cuota banco</span>
                   <span>{formatUsd(m3.cuotaBanco)}</span>
@@ -531,46 +572,42 @@ export function FinanceModules({
             )}
             {!hideSensitive && (
               <div className="fin-grid fin-grid--3">
-                <label>
-                  <span className="fg-lbl">Meses operativos</span>
+                <FinParam label="Meses operativos" hint={HINT.estOp}>
                   <input
                     type="number"
                     min={1}
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.estOp}
                     onChange={(e) => patch({ estOp: parseInt(e.target.value, 10) || 1 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Meses standby</span>
+                </FinParam>
+                <FinParam label="Meses standby" hint={HINT.estSb}>
                   <input
                     type="number"
                     min={1}
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.estSb}
                     onChange={(e) => patch({ estSb: parseInt(e.target.value, 10) || 1 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">Seguro % anual</span>
+                </FinParam>
+                <FinParam label="Seguro % anual" hint={HINT.estSeguro}>
                   <input
                     type="number"
                     step="0.1"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.estSeguro}
                     onChange={(e) => patch({ estSeguro: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
-                <label>
-                  <span className="fg-lbl">% ajuste standby</span>
+                </FinParam>
+                <FinParam label="% ajuste standby" hint={HINT.estSbPct}>
                   <input
                     type="number"
                     step="1"
-                    className="form-input mono"
+                    className="form-input mono fin-input-lg"
                     value={p.estSbPct}
                     onChange={(e) => patch({ estSbPct: parseFloat(e.target.value) || 0 })}
                   />
-                </label>
+                </FinParam>
               </div>
             )}
             {m4.standbyBelowMin && !hideSensitive && (
@@ -662,22 +699,21 @@ export function FinanceModules({
       >
         {!hideSensitive && (
           <div className="fin-grid fin-grid--3" style={{ marginBottom: 12 }}>
-            <label>
-              <span className="fg-lbl">Horizonte comparativo (meses)</span>
+            <FinParam label="Horizonte comparativo (meses)" hint={HINT.cmpPeriod}>
               <input
                 type="number"
                 min={1}
                 max={120}
-                className="form-input mono"
+                className="form-input mono fin-input-lg"
                 value={p.cmpPeriod ?? 24}
                 onChange={(e) =>
                   patch({ cmpPeriod: Math.min(120, Math.max(1, parseInt(e.target.value, 10) || 24)) })
                 }
               />
-            </label>
+            </FinParam>
           </div>
         )}
-        <div className="fin-table mono" style={{ marginBottom: 12 }}>
+        <div className="fin-table mono fin-table--xl" style={{ marginBottom: 12 }}>
           <div className="fin-table__row">
             <span>Horizonte</span>
             <span>

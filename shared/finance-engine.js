@@ -29,6 +29,12 @@ export const DEFAULT_FINANCE_PARAMS = {
   estSbPct: 35,
   /** Horizonte meses para panel gerencial CP vs LP */
   cmpPeriod: 24,
+
+  /** Opciones de PDF / reporte (no afectan cálculos M1–M5) */
+  pdfShowRentalMonths: true,
+  pdfIncludeIgv: false,
+  pdfLogoUrl: '',
+  pdfFooter: '',
 };
 
 export function mergeFinanceParams(stored) {

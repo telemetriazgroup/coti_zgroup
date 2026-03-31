@@ -15,6 +15,8 @@ describe('finance-engine — defaults y M1', () => {
     const m = mergeFinanceParams({ adjPct: 10 });
     assert.strictEqual(m.adjPct, 10);
     assert.strictEqual(m.cpPlazo, DEFAULT_FINANCE_PARAMS.cpPlazo);
+    assert.strictEqual(m.pdfShowRentalMonths, DEFAULT_FINANCE_PARAMS.pdfShowRentalMonths);
+    assert.strictEqual(m.pdfIncludeIgv, DEFAULT_FINANCE_PARAMS.pdfIncludeIgv);
   });
 
   it('M1 margen: ventaTotal = base × (1 + pct/100)', () => {

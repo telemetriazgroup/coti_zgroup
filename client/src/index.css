@@ -1516,6 +1516,52 @@ select.form-input {
   padding-top: 16px;
   border-top: 1px solid var(--border-dim);
 }
+.fin-intro {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--muted);
+  margin-bottom: 16px;
+  max-width: 920px;
+}
+.fin-param {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.fin-param__label {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+.fin-param__hint {
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--muted);
+  margin: 0 0 2px;
+  font-family: 'Inter', sans-serif;
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 400;
+}
+.fin-input-lg {
+  font-size: 15px !important;
+  padding: 12px 14px !important;
+}
+.fin-kpis--xl {
+  font-size: 14px;
+  gap: 16px 24px;
+}
+.fin-kpis--xl .fin-kpi-strong {
+  font-size: 18px;
+}
+.fin-table--xl {
+  font-size: 13px;
+}
+.fin-table--xl .fin-table__row--hi {
+  font-size: 15px;
+}
 .fin-toggles {
   display: flex;
   flex-wrap: wrap;

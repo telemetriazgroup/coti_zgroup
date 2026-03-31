@@ -618,6 +618,60 @@ export function ProjectBudgetPage() {
             El bloque <strong>M5 · Panel gerencial</strong> en la sección de arriba muestra los mismos datos
             que irán al PDF Gerencia (ajusta el horizonte en meses antes de exportar).
           </p>
+          <div
+            className="panel panel--flush"
+            style={{ marginTop: 14, padding: 12, border: '1px solid var(--border-dim)', borderRadius: 8 }}
+          >
+            <p className="fin-param__label" style={{ marginBottom: 10 }}>
+              Configuración del reporte PDF
+            </p>
+            <div className="stack-form" style={{ gap: 12 }}>
+              <label className="chk mono" style={{ fontSize: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={financeParams.pdfShowRentalMonths !== false}
+                  onChange={(e) =>
+                    setFinanceParams((f) => ({ ...f, pdfShowRentalMonths: e.target.checked }))
+                  }
+                />
+                Incluir tabla de meses de alquiler / cuotas (CP y LP F1/F2)
+              </label>
+              <label className="chk mono" style={{ fontSize: 12 }}>
+                <input
+                  type="checkbox"
+                  checked={financeParams.pdfIncludeIgv === true}
+                  onChange={(e) =>
+                    setFinanceParams((f) => ({ ...f, pdfIncludeIgv: e.target.checked }))
+                  }
+                />
+                Mostrar IGV Perú 18% sobre total venta (referencia)
+              </label>
+              <label>
+                <span className="fg-lbl">Logo en PDF (URL https o imagen data URL)</span>
+                <input
+                  className="form-input mono"
+                  style={{ fontSize: 12 }}
+                  placeholder="Vacío = texto ZGROUP · ej. https://…/logo.png"
+                  value={financeParams.pdfLogoUrl ?? ''}
+                  onChange={(e) => setFinanceParams((f) => ({ ...f, pdfLogoUrl: e.target.value }))}
+                />
+                <span className="fin-param__hint" style={{ display: 'block', marginTop: 6 }}>
+                  Debe ser accesible desde el servidor que genera el PDF (o pegue una data URL base64).
+                </span>
+              </label>
+              <label>
+                <span className="fg-lbl">Pie de página del PDF</span>
+                <textarea
+                  className="form-input form-textarea mono"
+                  style={{ fontSize: 12, minHeight: 64 }}
+                  placeholder="Texto legal, contacto, vigencia de la cotización…"
+                  rows={3}
+                  value={financeParams.pdfFooter ?? ''}
+                  onChange={(e) => setFinanceParams((f) => ({ ...f, pdfFooter: e.target.value }))}
+                />
+              </label>
+            </div>
+          </div>
           <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
             <button
               type="button"
