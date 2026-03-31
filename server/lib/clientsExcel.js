@@ -10,6 +10,7 @@ const EXPORT_HEADERS = [
   'Ciudad',
   'Dirección',
   'Notas',
+  'Activo',
 ];
 
 function stripAccents(s) {
@@ -181,6 +182,7 @@ function buildClientsXlsx(rows) {
       c.ciudad || '',
       c.direccion || '',
       c.notas || '',
+      c.active === false ? 'No' : 'Sí',
     ]);
   }
   const wb = XLSX.utils.book_new();
@@ -205,8 +207,8 @@ async function applyImportRows(validatedRows, userId) {
       if (row.issues && row.issues.length) continue;
       await client.query(
         `INSERT INTO clients
-          (razon_social, ruc, contacto_nombre, contacto_email, contacto_telefono, direccion, ciudad, notas, created_by)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+          (razon_social, ruc, contacto_nombre, contacto_email, contacto_telefono, direccion, ciudad, notas, created_by, active)
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)`,
         [
           row.razonSocial,
           row.rucForDb || null,

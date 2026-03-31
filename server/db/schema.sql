@@ -100,6 +100,7 @@ CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
 
 CREATE TABLE clients (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  active            BOOLEAN NOT NULL DEFAULT true,
   razon_social      VARCHAR(200) NOT NULL,
   ruc               VARCHAR(20),
   contacto_nombre   VARCHAR(150),
@@ -113,6 +114,7 @@ CREATE TABLE clients (
   updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
+CREATE INDEX idx_clients_active ON clients(active);
 CREATE INDEX idx_clients_razon_social ON clients(razon_social);
 CREATE INDEX idx_clients_ruc ON clients(ruc);
 CREATE INDEX idx_clients_created_by ON clients(created_by);

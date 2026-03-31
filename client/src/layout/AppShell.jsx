@@ -134,7 +134,7 @@ export function AppShell() {
             <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" />
             </svg>
-            Mi ficha
+            {hasRole('ADMIN') ? 'Empleados' : 'Mi ficha'}
           </NavLink>
           {hasRole('ADMIN') && (
             <>
@@ -148,8 +148,19 @@ export function AppShell() {
             </>
           )}
         </nav>
+        <div className="sb-section">Ayuda</div>
+        <nav className="sb-nav sb-nav--footer">
+          <NavLink to="/guia" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+              <path d="M8 7h6M8 11h8" />
+            </svg>
+            Guía de usuario
+          </NavLink>
+        </nav>
         <div className="sb-footer">
-          <div className="sb-version">ZGROUP · Sprint 3 · React</div>
+          <div className="sb-version">ZGROUP · Cotizaciones</div>
         </div>
       </aside>
 

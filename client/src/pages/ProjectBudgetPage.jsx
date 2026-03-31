@@ -7,15 +7,8 @@ import { Modal } from '../components/Modal';
 import { FinanceModules } from '../components/finance/FinanceModules';
 import { ProjectWorkNav } from '../components/ProjectWorkNav';
 import { mergeFinanceParams } from '@shared/finance-engine.js';
-
-const STATUS_LABEL = {
-  BORRADOR: 'Borrador',
-  EN_SEGUIMIENTO: 'En seguimiento',
-  PRESENTADA: 'Presentada',
-  ACEPTADA: 'Aceptada',
-  RECHAZADA: 'Rechazada',
-  EN_NEGOCIACION: 'En negociación',
-};
+import { STATUS_LABEL } from '../lib/quotationStatus';
+import { QuotationStatusFlow } from '../components/QuotationStatusFlow';
 
 function formatUsd(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -385,7 +378,8 @@ export function ProjectBudgetPage() {
           </p>
           <h1 className="page-title">{project?.nombre || 'Presupuesto'}</h1>
           <p className="page-sub muted mono">
-            {STATUS_LABEL[projectStatus] || projectStatus} · {items.length} ítems · Lista {formatUsd(totals.lista)}
+            {STATUS_LABEL[project?.status || projectStatus] || projectStatus} · {items.length} ítems · Lista{' '}
+            {formatUsd(totals.lista)}
           </p>
         </div>
         <div className="page-header-actions">
@@ -406,6 +400,17 @@ export function ProjectBudgetPage() {
           )}
         </div>
       </div>
+
+      <QuotationStatusFlow
+        projectId={projectId}
+        status={project?.status ?? projectStatus}
+        canWrite={canWrite}
+        viewerMode={viewerMode}
+        onStatusChange={(data) => {
+          setProject(data);
+          setProjectStatus(data.status);
+        }}
+      />
 
       <ProjectWorkNav />
 

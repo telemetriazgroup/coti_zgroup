@@ -41,20 +41,27 @@ export function ClientsPage() {
   const [importPreview, setImportPreview] = useState(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importApplying, setImportApplying] = useState(false);
+  const [includeInactive, setIncludeInactive] = useState(false);
 
-  const fetchList = useCallback(async (search) => {
-    setLoading(true);
-    setErr(null);
-    try {
-      const qs = search ? `?q=${encodeURIComponent(search)}` : '';
-      const data = await api.get(`/api/clients${qs}`);
-      setList(data);
-    } catch (e) {
-      setErr(e.message);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  const fetchList = useCallback(
+    async (search) => {
+      setLoading(true);
+      setErr(null);
+      try {
+        const params = new URLSearchParams();
+        if (search) params.set('q', search);
+        if (includeInactive) params.set('includeInactive', 'true');
+        const qs = params.toString() ? `?${params.toString()}` : '';
+        const data = await api.get(`/api/clients${qs}`);
+        setList(data);
+      } catch (e) {
+        setErr(e.message);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [includeInactive]
+  );
 
   useEffect(() => {
     const t = setTimeout(() => fetchList(q), 300);
@@ -76,9 +83,32 @@ export function ClientsPage() {
       ciudad: row.ciudad || '',
       direccion: row.direccion || '',
       notas: row.notas || '',
+      active: row.active !== false,
       _id: row.id,
     });
     setModal('edit');
+  }
+
+  async function toggleClientActive(row, nextActive) {
+    const label = nextActive ? 'reactivar' : 'desactivar';
+    if (!window.confirm(`¿${label} el cliente "${row.razonSocial}"?`)) return;
+    setErr(null);
+    try {
+      await api.put(`/api/clients/${row.id}`, {
+        razonSocial: row.razonSocial,
+        ruc: row.ruc || undefined,
+        contactoNombre: row.contactoNombre || undefined,
+        contactoEmail: row.contactoEmail || undefined,
+        contactoTelefono: row.contactoTelefono || undefined,
+        ciudad: row.ciudad || undefined,
+        direccion: row.direccion || undefined,
+        notas: row.notas || undefined,
+        active: nextActive,
+      });
+      fetchList(q);
+    } catch (e2) {
+      setErr(e2.message);
+    }
   }
 
   async function downloadExcel() {
@@ -147,7 +177,10 @@ export function ClientsPage() {
       if (modal === 'new') {
         await api.post('/api/clients', body);
       } else {
-        await api.put(`/api/clients/${form._id}`, body);
+        await api.put(`/api/clients/${form._id}`, {
+          ...body,
+          active: form.active !== false,
+        });
       }
       setModal(null);
       fetchList(q);
@@ -200,6 +233,16 @@ export function ClientsPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
+        {canWrite && (
+          <label className="chk mono" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+            <input
+              type="checkbox"
+              checked={includeInactive}
+              onChange={(e) => setIncludeInactive(e.target.checked)}
+            />
+            Mostrar inactivos
+          </label>
+        )}
       </div>
 
       {err && (
@@ -217,34 +260,79 @@ export function ClientsPage() {
                 <th>RUC</th>
                 <th>Ciudad</th>
                 <th className="num">Proyectos</th>
-                {canWrite && <th />}
+                <th>Estado</th>
+                {canWrite && <th className="actions-col">Acciones</th>}
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={canWrite ? 5 : 4} className="muted mono">
+                  <td colSpan={canWrite ? 6 : 5} className="muted mono">
                     Cargando…
                   </td>
                 </tr>
               ) : list.length === 0 ? (
                 <tr>
-                  <td colSpan={canWrite ? 5 : 4} className="muted">
+                  <td colSpan={canWrite ? 6 : 5} className="muted">
                     Sin resultados
                   </td>
                 </tr>
               ) : (
                 list.map((row) => (
-                  <tr key={row.id}>
+                  <tr key={row.id} className={row.active === false ? 'row-dim' : ''}>
                     <td>{row.razonSocial}</td>
                     <td className="mono">{row.ruc || '—'}</td>
                     <td>{row.ciudad || '—'}</td>
                     <td className="num mono">{row.projectCount ?? 0}</td>
+                    <td>
+                      {row.active === false ? (
+                        <span className="tag tag--off">Inactivo</span>
+                      ) : (
+                        <span className="tag tag--ok">Activo</span>
+                      )}
+                    </td>
                     {canWrite && (
-                      <td>
-                        <button type="button" className="btn-link mono" onClick={() => openEdit(row)}>
-                          Editar
-                        </button>
+                      <td className="actions-cell">
+                        <div className="proj-actions proj-actions--inline">
+                          <button type="button" className="btn-action" onClick={() => openEdit(row)}>
+                            <span className="btn-action__ic" aria-hidden>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
+                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
+                              </svg>
+                            </span>
+                            Editar
+                          </button>
+                          {row.active !== false ? (
+                            <button
+                              type="button"
+                              className="btn-action btn-action--danger"
+                              onClick={() => toggleClientActive(row, false)}
+                            >
+                              <span className="btn-action__ic" aria-hidden>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <circle cx="12" cy="12" r="10" />
+                                  <path d="M4.93 4.93l14.14 14.14" />
+                                </svg>
+                              </span>
+                              Desactivar
+                            </button>
+                          ) : (
+                            <button
+                              type="button"
+                              className="btn-action btn-action--ok"
+                              onClick={() => toggleClientActive(row, true)}
+                            >
+                              <span className="btn-action__ic" aria-hidden>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                                  <polyline points="22 4 12 14.01 9 11.01" />
+                                </svg>
+                              </span>
+                              Reactivar
+                            </button>
+                          )}
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -419,6 +507,16 @@ export function ClientsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, notas: e.target.value }))}
               />
             </label>
+            {modal === 'edit' && (
+              <label className="chk mono" style={{ marginTop: 4 }}>
+                <input
+                  type="checkbox"
+                  checked={form.active !== false}
+                  onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
+                />
+                Cliente activo (visible en listados y asignable a proyectos)
+              </label>
+            )}
           </form>
         </Modal>
       )}

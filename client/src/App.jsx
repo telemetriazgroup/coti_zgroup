@@ -11,6 +11,7 @@ import { UsersPage } from './pages/UsersPage';
 import { CatalogPage } from './pages/CatalogPage';
 import { ProjectBudgetPage } from './pages/ProjectBudgetPage';
 import { ProjectPlansPage } from './pages/ProjectPlansPage';
+import { UserGuidePage } from './pages/UserGuidePage';
 
 function RequireAuth() {
   const { user, ready } = useAuth();
@@ -41,6 +42,7 @@ export function App() {
           <Route path="projects/:projectId/planos" element={<ProjectPlansPage />} />
           <Route path="catalog" element={<CatalogPage />} />
           <Route path="users" element={<UsersPage />} />
+          <Route path="guia" element={<UserGuidePage />} />
         </Route>
       </Route>
     </Routes>

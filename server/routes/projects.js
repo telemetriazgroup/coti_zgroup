@@ -5,6 +5,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
 const { canReadProject, canWriteProject } = require('../utils/projectAccess');
+const { isValidStatusTransition } = require('../utils/projectStatusTransitions');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -402,6 +403,15 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), updateValidation, async (r
       vals.push(clientId || null);
     }
     if (status !== undefined) {
+      if (!isValidStatusTransition(pr[0].status, status)) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'INVALID_STATUS_TRANSITION',
+            message: `Transición no permitida: ${pr[0].status} → ${status}`,
+          },
+        });
+      }
       fields.push(`status = $${i++}`);
       vals.push(status);
     }

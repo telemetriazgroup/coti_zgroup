@@ -4,15 +4,8 @@ import { api, postFormDataWithProgress } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
 import { ProjectWorkNav } from '../components/ProjectWorkNav';
-
-const STATUS_LABEL = {
-  BORRADOR: 'Borrador',
-  EN_SEGUIMIENTO: 'En seguimiento',
-  PRESENTADA: 'Presentada',
-  ACEPTADA: 'Aceptada',
-  RECHAZADA: 'Rechazada',
-  EN_NEGOCIACION: 'En negociación',
-};
+import { QuotationStatusFlow } from '../components/QuotationStatusFlow';
+import { STATUS_LABEL } from '../lib/quotationStatus';
 
 function formatBytes(n) {
   if (n == null) return '—';
@@ -32,8 +25,9 @@ function formatDate(iso) {
 
 export function ProjectPlansPage() {
   const { projectId } = useParams();
-  const { hasRole } = useAuth();
+  const { hasRole, user } = useAuth();
   const canWrite = hasRole('ADMIN', 'COMERCIAL');
+  const viewerMode = user?.role === 'VIEWER';
 
   const [project, setProject] = useState(null);
   const [plans, setPlans] = useState([]);
@@ -169,6 +163,14 @@ export function ProjectPlansPage() {
           </p>
         </div>
       </div>
+
+      <QuotationStatusFlow
+        projectId={projectId}
+        status={project?.status}
+        canWrite={canWrite}
+        viewerMode={viewerMode}
+        onStatusChange={(data) => setProject(data)}
+      />
 
       <ProjectWorkNav />
 

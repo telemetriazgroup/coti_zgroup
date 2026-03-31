@@ -31,6 +31,7 @@ router.use(requireAuth);
 function mapClient(row) {
   return {
     id: row.id,
+    active: row.active !== false,
     razonSocial: row.razon_social,
     ruc: row.ruc,
     contactoNombre: row.contacto_nombre,
@@ -49,6 +50,7 @@ function mapClient(row) {
 // ─── GET /api/clients — lista + búsqueda (todos los roles autenticados) ───
 router.get('/', async (req, res) => {
   const q = (req.query.q || '').trim();
+  const includeInactive = req.query.includeInactive === 'true';
   try {
     let sql = `
       SELECT c.*,
@@ -57,6 +59,9 @@ router.get('/', async (req, res) => {
       FROM clients c
       WHERE 1=1`;
     const params = [];
+    if (!includeInactive) {
+      sql += ` AND c.active = true`;
+    }
     if (q) {
       params.push(`%${q}%`, `%${q}%`, `%${q}%`);
       sql += ` AND (
@@ -189,6 +194,8 @@ const writeValidation = [
   body('notas').optional().isString(),
 ];
 
+const putExtraValidation = [...writeValidation, body('active').optional().isBoolean()];
+
 // ─── POST /api/clients — ADMIN + COMERCIAL ─────────────────────
 router.post('/', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (req, res) => {
   const errors = validationResult(req);
@@ -213,8 +220,8 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (req,
   try {
     const { rows } = await pool.query(
       `INSERT INTO clients
-        (razon_social, ruc, contacto_nombre, contacto_email, contacto_telefono, direccion, ciudad, notas, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
+        (razon_social, ruc, contacto_nombre, contacto_email, contacto_telefono, direccion, ciudad, notas, created_by, active)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
        RETURNING *`,
       [
         razonSocial.trim(),
@@ -243,7 +250,7 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (req,
 });
 
 // ─── PUT /api/clients/:id — ADMIN + COMERCIAL ──────────────────
-router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (req, res) => {
+router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), putExtraValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -261,6 +268,7 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (re
     direccion,
     ciudad,
     notas,
+    active,
   } = req.body;
 
   try {
@@ -278,8 +286,9 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (re
          contacto_telefono = $5,
          direccion = $6,
          ciudad = $7,
-         notas = $8
-       WHERE id = $9`,
+         notas = $8,
+         active = COALESCE($9, active)
+       WHERE id = $10`,
       [
         razonSocial.trim(),
         ruc || null,
@@ -289,6 +298,7 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (re
         direccion || null,
         ciudad || null,
         notas || null,
+        active === undefined ? null : Boolean(active),
         req.params.id,
       ]
     );

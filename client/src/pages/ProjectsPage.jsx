@@ -3,15 +3,8 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
-
-const STATUS_LABEL = {
-  BORRADOR: 'Borrador',
-  EN_SEGUIMIENTO: 'En seguimiento',
-  PRESENTADA: 'Presentada',
-  ACEPTADA: 'Aceptada',
-  RECHAZADA: 'Rechazada',
-  EN_NEGOCIACION: 'En negociación',
-};
+import { QuotationEstadosGuideContent } from '../components/QuotationEstadosGuideContent';
+import { STATUS_LABEL } from '../lib/quotationStatus';
 
 export function ProjectsPage() {
   const { hasRole, user } = useAuth();
@@ -33,6 +26,7 @@ export function ProjectsPage() {
   const [formNew, setFormNew] = useState({ nombre: '', odooRef: '', clientId: '' });
   const [formViewer, setFormViewer] = useState({ assignedViewerId: '' });
   const [cloneName, setCloneName] = useState('');
+  const [guideOpen, setGuideOpen] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -170,6 +164,14 @@ export function ProjectsPage() {
               Ver archivados
             </label>
           )}
+          <button
+            type="button"
+            className="btn btn-ghost mono"
+            style={{ fontSize: 11 }}
+            onClick={() => setGuideOpen(true)}
+          >
+            Guía de estados
+          </button>
           {canWrite && (
             <button
               type="button"
@@ -239,28 +241,92 @@ export function ProjectsPage() {
                       </td>
                     )}
                     <td className="actions-cell">
-                      <Link className="btn-link mono" to={`/projects/${row.id}/presupuesto`}>
-                        Presupuesto
-                      </Link>
-                      <Link className="btn-link mono" to={`/projects/${row.id}/planos`}>
-                        Planos
-                      </Link>
-                      <button type="button" className="btn-link mono" onClick={() => openAudit(row)}>
-                        Auditoría
-                      </button>
-                      {canWrite && !row.deletedAt && (
-                        <>
-                          <button type="button" className="btn-link mono" onClick={() => openViewer(row)}>
-                            VIEWER
-                          </button>
-                          <button type="button" className="btn-link mono" onClick={() => openClone(row)}>
-                            Clonar
-                          </button>
-                          <button type="button" className="btn-link btn-link--danger mono" onClick={() => softDelete(row)}>
-                            Archivar
-                          </button>
-                        </>
-                      )}
+                      <div className="proj-actions">
+                        <Link
+                          className="btn-action"
+                          to={`/projects/${row.id}/presupuesto`}
+                          title="Presupuesto e ítems"
+                        >
+                          <span className="btn-action__ic" aria-hidden>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <rect x="3" y="3" width="18" height="18" rx="2" />
+                              <path d="M3 9h18M9 21V9" />
+                            </svg>
+                          </span>
+                          Presupuesto
+                        </Link>
+                        <Link className="btn-action" to={`/projects/${row.id}/planos`} title="Planos técnicos">
+                          <span className="btn-action__ic" aria-hidden>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <polygon points="12 2 2 7 12 12 22 7 12 2" />
+                              <polyline points="2 17 12 22 22 17" />
+                              <polyline points="2 12 12 17 22 12" />
+                            </svg>
+                          </span>
+                          Planos
+                        </Link>
+                        <button
+                          type="button"
+                          className="btn-action btn-action--muted"
+                          title="Historial de cambios"
+                          onClick={() => openAudit(row)}
+                        >
+                          <span className="btn-action__ic" aria-hidden>
+                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                              <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+                            </svg>
+                          </span>
+                          Auditoría
+                        </button>
+                        {canWrite && !row.deletedAt && (
+                          <>
+                            <button
+                              type="button"
+                              className="btn-action btn-action--amber"
+                              title="Usuario VIEWER del proyecto"
+                              onClick={() => openViewer(row)}
+                            >
+                              <span className="btn-action__ic" aria-hidden>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+                                  <circle cx="12" cy="12" r="3" />
+                                </svg>
+                              </span>
+                              VIEWER
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-action btn-action--violet"
+                              title="Duplicar proyecto"
+                              onClick={() => openClone(row)}
+                            >
+                              <span className="btn-action__ic" aria-hidden>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <rect x="9" y="9" width="13" height="13" rx="2" />
+                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                                </svg>
+                              </span>
+                              Clonar
+                            </button>
+                            <button
+                              type="button"
+                              className="btn-action btn-action--danger"
+                              title="Archivar proyecto"
+                              onClick={() => softDelete(row)}
+                            >
+                              <span className="btn-action__ic" aria-hidden>
+                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                  <polyline points="21 8 21 21 3 21 3 8" />
+                                  <rect x="1" y="3" width="22" height="5" />
+                                  <line x1="10" y1="12" x2="14" y2="12" />
+                                </svg>
+                              </span>
+                              Archivar
+                            </button>
+                          </>
+                        )}
+                      </div>
                     </td>
                   </tr>
                 ))
@@ -430,6 +496,21 @@ export function ProjectsPage() {
               </tbody>
             </table>
           </div>
+        </Modal>
+      )}
+
+      {guideOpen && (
+        <Modal
+          title="Guía: ciclo de vida de la cotización"
+          wide
+          onClose={() => setGuideOpen(false)}
+          footer={
+            <button type="button" className="btn btn-primary" onClick={() => setGuideOpen(false)}>
+              Cerrar
+            </button>
+          }
+        >
+          <QuotationEstadosGuideContent />
         </Modal>
       )}
     </section>

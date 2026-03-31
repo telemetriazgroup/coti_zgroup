@@ -1,20 +1,12 @@
 import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
+import { STATUS_LABEL } from '../lib/quotationStatus';
 
 function formatUsd(n) {
   if (n == null || Number.isNaN(n)) return '—';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 }
-
-const STATUS_LABEL = {
-  BORRADOR: 'Borrador',
-  EN_SEGUIMIENTO: 'En seguimiento',
-  PRESENTADA: 'Presentada',
-  ACEPTADA: 'Aceptada',
-  RECHAZADA: 'Rechazada',
-  EN_NEGOCIACION: 'En negociación',
-};
 
 export function DashboardPage() {
   const { user, hasRole } = useAuth();

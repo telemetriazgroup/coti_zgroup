@@ -258,6 +258,13 @@ router.put('/:id', async (req, res) => {
   const { nombres, apellidos, cargo, telefono, dni, fechaIngreso, notas, password, role, active } = req.body;
 
   try {
+    if (active === false && req.params.id === req.user.id) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'SELF_DEACTIVATE', message: 'No puedes desactivar tu propio usuario' },
+      });
+    }
+
     // Actualizar datos de usuario si aplica
     if (password || (role && req.user.role === 'ADMIN') || active !== undefined) {
       const updates = [];
