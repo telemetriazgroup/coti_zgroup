@@ -8,6 +8,11 @@ const path = require('path');
 
 const authRoutes = require('./routes/auth');
 const userRoutes = require('./routes/users');
+const employeeRoutes = require('./routes/employees');
+const clientRoutes = require('./routes/clients');
+const projectRoutes = require('./routes/projects');
+const dashboardRoutes = require('./routes/dashboard');
+const catalogRoutes = require('./routes/catalog');
 
 const app = express();
 
@@ -52,7 +57,7 @@ app.use(cors({
     callback(null, false);
   },
   credentials: true,
-  methods:     ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  methods:     ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS'],
   allowedHeaders: ['Content-Type', 'Authorization'],
 }));
 
@@ -69,6 +74,11 @@ if (process.env.NODE_ENV === 'production') {
 
 app.use('/api/auth',  authRoutes);
 app.use('/api/users', userRoutes);
+app.use('/api/employees', employeeRoutes);
+app.use('/api/clients', clientRoutes);
+app.use('/api/projects', projectRoutes);
+app.use('/api/dashboard', dashboardRoutes);
+app.use('/api/catalog', catalogRoutes);
 
 app.get('/api/health', (req, res) => {
   res.json({

@@ -46,17 +46,17 @@ express-rate-limit, dotenv, nodemon (dev)
 **Objetivo:** CRUD completo de las entidades de negocio principales.
 
 ### Entregables
-- [ ] `db/schema.sql` ampliado: employees, clients, projects (sin ítems aún)
-- [ ] `server/routes/employees.js` — GET perfil propio, ADMIN: CRUD completo
-- [ ] `server/routes/clients.js` — CRUD (ADMIN+COMERCIAL escriben, VIEWER lee)
-- [ ] `server/routes/projects.js` — CRUD proyectos, soft delete, clonar
-- [ ] `server/middleware/audit.js` — Interceptor que registra en `project_audit_log`
-- [ ] Vista: `#/employees` — Perfil de empleado con datos completos + foto
-- [ ] Vista: `#/clients` — Panel CRM: lista, búsqueda, alta/edición de clientes
-- [ ] Vista: `#/projects` — Lista de proyectos con estado, cliente, acciones
-- [ ] Modal: Nuevo Proyecto (nombre, Odoo ref, cliente opcional)
-- [ ] Modal: Asignar VIEWER a proyecto (ADMIN/COMERCIAL)
-- [ ] Modal: Historial auditoría de proyecto
+- [x] `db/schema.sql` — employees, clients, projects (DDL ya en Sprint 0; sin `project_items` en flujo aún)
+- [x] `server/routes/employees.js` — GET/PUT `/me`, ADMIN lista + POST/GET/PUT por id
+- [x] `server/routes/clients.js` — CRUD (ADMIN+COMERCIAL escriben; VIEWER y resto leen)
+- [x] `server/routes/projects.js` — CRUD, soft delete, clonar ítems + params, PATCH viewer, auditoría
+- [x] `server/middleware/audit.js` — `logAuditEvent` desde rutas de proyectos (create/update/delete/clone/viewer)
+- [x] Vista: `#/employees` — Perfil de empleado (foto vía URL)
+- [x] Vista: `#/clients` — CRM: lista, búsqueda debounced, alta/edición
+- [x] Vista: `#/projects` — Lista, filtro archivados (ADMIN), acciones
+- [x] Modal: Nuevo Proyecto (nombre, Odoo ref, cliente opcional)
+- [x] Modal: Asignar VIEWER (`PATCH /api/projects/:id/viewer`)
+- [x] Modal: Historial auditoría (`GET /api/projects/:id/audit`)
 
 ### Criterios de aceptación
 - COMERCIAL ve solo sus proyectos; ADMIN ve todos
@@ -73,16 +73,14 @@ express-rate-limit, dotenv, nodemon (dev)
 **Objetivo:** ADMIN gestiona el catálogo; comerciales y todos leen.
 
 ### Entregables
-- [ ] `db/schema.sql` ampliado: catalog_categories, catalog_items
-- [ ] `server/routes/catalog.js` — GET público, POST/PUT/DELETE solo ADMIN
-- [ ] `db/seed.js` — 55 ítems + 4 categorías migradas del HTML v6.0
-- [ ] Vista admin: `#/catalog` — CRUD categorías con drag para reordenar
-- [ ] Vista admin: `#/catalog` — CRUD ítems con filtro por categoría, búsqueda, tipo
-- [ ] Modal: Nueva categoría (nombre, orden, activo)
-- [ ] Modal: Nuevo ítem (código, descripción, unidad, tipo, precio, categoría)
-- [ ] Validación: código de ítem único por categoría
-- [ ] Cache Redis del catálogo (TTL 24h, invalidar en escritura)
-- [ ] Fallback a cache local si API falla (staleTime React Query style)
+- [x] `db/schema.sql` — `catalog_categories`, `catalog_items`; índice único `(category_id, codigo)`; trigger `catalog_categories.updated_at`
+- [x] `server/db/migrations/001_catalog_unique_per_category.sql` — BD existentes
+- [x] `server/routes/catalog.js` — `GET /api/catalog` (lectura); escrituras solo ADMIN; desactivar = soft delete
+- [x] `db/seed.js` — 55 ítems + 4 categorías (ya en Sprint 0)
+- [x] Vista `#/catalog` — CRUD + drag reorder categorías (ADMIN); filtros ítems; modales categoría/ítem
+- [x] Validación BD: `UNIQUE (category_id, codigo)`
+- [x] Cache Redis (`REDIS_URL`, TTL 24h, invalidación en escritura) vía `server/lib/catalogRedis.js`
+- [x] Fallback `localStorage` 24h en `client/src/lib/catalogLocalCache.js` + `catalogApi.js`
 
 ### Criterios de aceptación
 - Solo ADMIN accede a las rutas de escritura del catálogo

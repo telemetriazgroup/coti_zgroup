@@ -8,6 +8,19 @@ const router = express.Router();
 // Todas las rutas requieren auth
 router.use(requireAuth);
 
+// ─── GET /api/users/viewers — VIEWER activos (asignación a proyectos) ───
+router.get('/viewers', requireRole('ADMIN', 'COMERCIAL'), async (req, res) => {
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, email FROM users WHERE role = 'VIEWER' AND active = true ORDER BY email`
+    );
+    return res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('[USERS] viewers:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
 // ─── GET /api/users — Lista todos los usuarios (ADMIN) ──────────
 router.get('/', requireRole('ADMIN'), async (req, res) => {
   try {
@@ -58,8 +71,14 @@ const createValidation = [
   body('email').isEmail().withMessage('Email inválido'),
   body('password').isLength({ min: 8 }).withMessage('Contraseña mínimo 8 caracteres'),
   body('role').isIn(['ADMIN', 'COMERCIAL', 'VIEWER']).withMessage('Rol inválido'),
-  body('nombres').notEmpty().withMessage('Nombres requeridos'),
-  body('apellidos').notEmpty().withMessage('Apellidos requeridos'),
+  body('nombres')
+    .if((_, { req }) => ['ADMIN', 'COMERCIAL'].includes(req.body.role))
+    .notEmpty()
+    .withMessage('Nombres requeridos'),
+  body('apellidos')
+    .if((_, { req }) => ['ADMIN', 'COMERCIAL'].includes(req.body.role))
+    .notEmpty()
+    .withMessage('Apellidos requeridos'),
 ];
 
 router.post('/', requireRole('ADMIN'), createValidation, async (req, res) => {

@@ -134,6 +134,28 @@ async function seed() {
       console.log(`✅ Comercial demo creado: ${comercialEmail} / ZGroup2025!`);
     }
 
+    // ── 2b. CLIENTE + PROYECTO DEMO (Sprint 1) ────────────────────
+    const { rows: comercialUser } = await client.query(`SELECT id FROM users WHERE email = $1`, [
+      comercialEmail,
+    ]);
+    if (comercialUser.length) {
+      const demoRuc = '20601234567';
+      const { rows: exCl } = await client.query(`SELECT id FROM clients WHERE ruc = $1`, [demoRuc]);
+      if (!exCl.length) {
+        const { rows: cl } = await client.query(
+          `INSERT INTO clients (razon_social, ruc, ciudad, contacto_email, created_by)
+           VALUES ($1, $2, $3, $4, $5) RETURNING id`,
+          ['Cliente Demo SAC', demoRuc, 'Lima', 'demo@cliente.pe', adminId]
+        );
+        await client.query(
+          `INSERT INTO projects (nombre, odoo_ref, client_id, status, created_by)
+           VALUES ($1, $2, $3, 'BORRADOR', $4)`,
+          ['Proyecto Demo Cotización', 'ODOO-DEMO-001', cl[0].id, comercialUser[0].id]
+        );
+        console.log('✅ Cliente demo + proyecto demo (comercial)');
+      }
+    }
+
     // ── 3. CATÁLOGO ──────────────────────────────────────────────
     let totalItems = 0;
     let sortOrder  = 0;

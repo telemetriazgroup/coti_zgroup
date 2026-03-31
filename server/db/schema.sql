@@ -172,7 +172,7 @@ CREATE TABLE catalog_items (
 CREATE INDEX idx_catalog_items_category ON catalog_items(category_id);
 CREATE INDEX idx_catalog_items_tipo ON catalog_items(tipo);
 CREATE INDEX idx_catalog_items_active ON catalog_items(active);
-CREATE UNIQUE INDEX idx_catalog_items_codigo ON catalog_items(codigo);
+CREATE UNIQUE INDEX idx_catalog_items_category_codigo ON catalog_items(category_id, codigo);
 
 -- ─── PROJECT ITEMS ─────────────────────────────────────────────
 
@@ -273,6 +273,10 @@ CREATE TRIGGER trg_clients_updated_at
 
 CREATE TRIGGER trg_projects_updated_at
   BEFORE UPDATE ON projects
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER trg_catalog_categories_updated_at
+  BEFORE UPDATE ON catalog_categories
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
 
 CREATE TRIGGER trg_catalog_items_updated_at
