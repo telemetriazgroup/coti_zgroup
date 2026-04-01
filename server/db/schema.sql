@@ -190,6 +190,7 @@ CREATE TABLE project_items (
   qty             NUMERIC(10,3) NOT NULL DEFAULT 1,
   subtotal        NUMERIC(14,2) GENERATED ALWAYS AS (unit_price * qty) STORED,
   is_custom       BOOLEAN NOT NULL DEFAULT false,
+  category_id     UUID REFERENCES catalog_categories(id) ON DELETE SET NULL,
   sort_order      INTEGER NOT NULL DEFAULT 0,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -197,6 +198,7 @@ CREATE TABLE project_items (
 
 CREATE INDEX idx_project_items_project_id ON project_items(project_id);
 CREATE INDEX idx_project_items_tipo ON project_items(tipo);
+CREATE INDEX idx_project_items_category_id ON project_items(category_id);
 
 -- ─── PROJECT PLANS (Technical drawings) ────────────────────────
 

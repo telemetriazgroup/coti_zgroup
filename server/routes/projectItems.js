@@ -9,6 +9,13 @@ const { canReadProject, canWriteProject } = require('../utils/projectAccess');
 const router = express.Router();
 router.use(requireAuth);
 
+/** Lista ítems con nombre de categoría (LEFT JOIN). */
+const ITEMS_SELECT = `
+  SELECT pi.*, cc.nombre AS category_nombre
+  FROM project_items pi
+  LEFT JOIN catalog_categories cc ON cc.id = pi.category_id
+`;
+
 function mapItem(row) {
   return {
     id: row.id,
@@ -22,6 +29,8 @@ function mapItem(row) {
     qty: row.qty != null ? Number(row.qty) : 0,
     subtotal: row.subtotal != null ? Number(row.subtotal) : 0,
     isCustom: row.is_custom,
+    categoryId: row.category_id ?? null,
+    categoryNombre: row.category_nombre ?? null,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -69,6 +78,11 @@ async function touchProjectUpdated(projectId, client = pool) {
   await client.query(`UPDATE projects SET updated_at = NOW() WHERE id = $1`, [projectId]);
 }
 
+async function fetchItemRow(client, id) {
+  const { rows } = await client.query(`${ITEMS_SELECT} WHERE pi.id = $1`, [id]);
+  return rows[0];
+}
+
 // ─── GET /api/projects/:id/items ───────────────────────────────
 router.get('/:id/items', async (req, res) => {
   try {
@@ -76,7 +90,7 @@ router.get('/:id/items', async (req, res) => {
     if (!project) return;
 
     const { rows } = await pool.query(
-      `SELECT * FROM project_items WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC`,
+      `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
       [req.params.id]
     );
 
@@ -184,11 +198,11 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
         merged = true;
         const prevQty = Number(exist[0].qty);
         const newQty = prevQty + qty;
-        const { rows: up } = await client.query(
-          `UPDATE project_items SET qty = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-          [newQty, exist[0].id]
-        );
-        outRow = up[0];
+        await client.query(`UPDATE project_items SET qty = $1, updated_at = NOW() WHERE id = $2`, [
+          newQty,
+          exist[0].id,
+        ]);
+        outRow = await fetchItemRow(client, exist[0].id);
         logAuditEvent({
           projectId: req.params.id,
           eventType: 'BUDGET_ITEM_UPDATE',
@@ -205,9 +219,9 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
         const sortOrder = so[0].n;
         const { rows: ins } = await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9)
-           RETURNING *`,
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, false, $9, $10)
+           RETURNING id`,
           [
             req.params.id,
             catalogItemId,
@@ -218,9 +232,10 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
             unitPrice,
             qty,
             sortOrder,
+            cat.category_id,
           ]
         );
-        outRow = ins[0];
+        outRow = await fetchItemRow(client, ins[0].id);
         logAuditEvent({
           projectId: req.params.id,
           eventType: 'BUDGET_ITEM_ADD',
@@ -238,6 +253,22 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
       const tipo = c.tipo === 'CONSUMIBLE' ? 'CONSUMIBLE' : 'ACTIVO';
       const unitPrice = c.unitPrice != null ? Number(c.unitPrice) : 0;
       const qty = c.qty != null ? Number(c.qty) : 1;
+
+      let categoryId = null;
+      if (c.categoryId != null && String(c.categoryId).trim() !== '') {
+        const rawCat = String(c.categoryId).trim();
+        const { rows: ccRows } = await client.query(`SELECT id FROM catalog_categories WHERE id = $1`, [
+          rawCat,
+        ]);
+        if (!ccRows.length) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            success: false,
+            error: { code: 'INVALID_CATEGORY', message: 'Categoría no válida' },
+          });
+        }
+        categoryId = rawCat;
+      }
 
       if (!codigo || !descripcion) {
         await client.query('ROLLBACK');
@@ -258,19 +289,20 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
         `SELECT id, qty FROM project_items
          WHERE project_id = $1 AND is_custom = true AND catalog_item_id IS NULL
            AND codigo = $2 AND unit_price = $3
+           AND (category_id IS NOT DISTINCT FROM $4::uuid)
          LIMIT 1`,
-        [req.params.id, codigo, unitPrice]
+        [req.params.id, codigo, unitPrice, categoryId]
       );
 
       if (exist[0]) {
         merged = true;
         const prevQty = Number(exist[0].qty);
         const newQty = prevQty + qty;
-        const { rows: up } = await client.query(
-          `UPDATE project_items SET qty = $1, updated_at = NOW() WHERE id = $2 RETURNING *`,
-          [newQty, exist[0].id]
-        );
-        outRow = up[0];
+        await client.query(`UPDATE project_items SET qty = $1, updated_at = NOW() WHERE id = $2`, [
+          newQty,
+          exist[0].id,
+        ]);
+        outRow = await fetchItemRow(client, exist[0].id);
         logAuditEvent({
           projectId: req.params.id,
           eventType: 'BUDGET_ITEM_UPDATE',
@@ -287,12 +319,12 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
         const sortOrder = so[0].n;
         const { rows: ins } = await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order)
-           VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, true, $8)
-           RETURNING *`,
-          [req.params.id, codigo, descripcion, unidad, tipo, unitPrice, qty, sortOrder]
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id)
+           VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, true, $8, $9)
+           RETURNING id`,
+          [req.params.id, codigo, descripcion, unidad, tipo, unitPrice, qty, sortOrder, categoryId]
         );
-        outRow = ins[0];
+        outRow = await fetchItemRow(client, ins[0].id);
         logAuditEvent({
           projectId: req.params.id,
           eventType: 'BUDGET_ITEM_ADD',
@@ -316,7 +348,7 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
     await client.query('COMMIT');
 
     const { rows: all } = await pool.query(
-      `SELECT * FROM project_items WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC`,
+      `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
       [req.params.id]
     );
     const { rows: st } = await pool.query(`SELECT status FROM projects WHERE id = $1`, [req.params.id]);
@@ -380,7 +412,7 @@ router.put(
       }
 
       const { rows: cur } = await pool.query(
-        `SELECT * FROM project_items WHERE id = $1 AND project_id = $2`,
+        `${ITEMS_SELECT} WHERE pi.id = $1 AND pi.project_id = $2`,
         [req.params.itemId, req.params.id]
       );
       if (!cur[0]) {
@@ -391,12 +423,13 @@ router.put(
       const nextQty = qty != null ? Number(qty) : Number(cur[0].qty);
       const nextPrice = unitPrice != null ? Number(unitPrice) : Number(cur[0].unit_price);
 
-      const { rows: up } = await pool.query(
+      await pool.query(
         `UPDATE project_items SET qty = $1, unit_price = $2, updated_at = NOW()
-         WHERE id = $3 AND project_id = $4
-         RETURNING *`,
+         WHERE id = $3 AND project_id = $4`,
         [nextQty, nextPrice, req.params.itemId, req.params.id]
       );
+
+      const { rows: upRows } = await pool.query(`${ITEMS_SELECT} WHERE pi.id = $1`, [req.params.itemId]);
 
       await touchProjectUpdated(req.params.id);
 
@@ -405,19 +438,19 @@ router.put(
         eventType: 'BUDGET_ITEM_UPDATE',
         actorId: req.user.id,
         prevData: prevSnap,
-        newData: mapItem(up[0]),
+        newData: mapItem(upRows[0]),
         ip,
       });
 
       const { rows: all } = await pool.query(
-        `SELECT * FROM project_items WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC`,
+        `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
         [req.params.id]
       );
 
       return res.json({
         success: true,
         data: {
-          item: mapItem(up[0]),
+          item: mapItem(upRows[0]),
           items: all.map(mapItem),
           totals: totalsFromRows(all),
           projectStatus: project.status,
@@ -444,7 +477,7 @@ router.delete('/:id/items/:itemId', requireRole('ADMIN', 'COMERCIAL'), async (re
     }
 
     const { rows: cur } = await pool.query(
-      `SELECT * FROM project_items WHERE id = $1 AND project_id = $2`,
+      `${ITEMS_SELECT} WHERE pi.id = $1 AND pi.project_id = $2`,
       [req.params.itemId, req.params.id]
     );
     if (!cur[0]) {
@@ -464,7 +497,7 @@ router.delete('/:id/items/:itemId', requireRole('ADMIN', 'COMERCIAL'), async (re
     });
 
     const { rows: all } = await pool.query(
-      `SELECT * FROM project_items WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC`,
+      `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
       [req.params.id]
     );
 

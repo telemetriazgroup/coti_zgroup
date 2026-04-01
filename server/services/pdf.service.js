@@ -63,7 +63,10 @@ async function loadExportPayload(projectId) {
   if (!pr[0]) throw new Error('Proyecto no encontrado');
 
   const { rows: items } = await pool.query(
-    `SELECT * FROM project_items WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC`,
+    `SELECT pi.*, cc.nombre AS category_nombre
+     FROM project_items pi
+     LEFT JOIN catalog_categories cc ON cc.id = pi.category_id
+     WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
     [projectId]
   );
 
@@ -193,6 +196,7 @@ function buildHtmlGerencia(payload) {
       (it) => `<tr>
       <td>${esc(it.codigo)}</td>
       <td>${esc(it.descripcion)}</td>
+      <td>${esc(it.category_nombre || '—')}</td>
       <td>${esc(it.tipo)}</td>
       <td class="num">${esc(it.qty)}</td>
       <td class="num">${fmtUsd(Number(it.unit_price))}</td>
@@ -211,8 +215,8 @@ function buildHtmlGerencia(payload) {
 
   <h2>Presupuesto</h2>
   <p>Activos ${fmtUsd(totals.activos)} · Consumibles ${fmtUsd(totals.consumibles)} · <strong>Lista ${fmtUsd(totals.lista)}</strong></p>
-  <table><thead><tr><th>Código</th><th>Descripción</th><th>Tipo</th><th class="num">Cant.</th><th class="num">P.unit</th><th class="num">Subtotal</th></tr></thead>
-  <tbody>${rows || '<tr><td colspan="6">Sin ítems</td></tr>'}</tbody></table>
+  <table><thead><tr><th>Código</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th class="num">Cant.</th><th class="num">P.unit</th><th class="num">Subtotal</th></tr></thead>
+  <tbody>${rows || '<tr><td colspan="7">Sin ítems</td></tr>'}</tbody></table>
   ${igvHtml}
 
   ${rentalHtml}

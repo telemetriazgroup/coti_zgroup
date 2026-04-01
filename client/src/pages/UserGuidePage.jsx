@@ -184,7 +184,7 @@ export function UserGuidePage() {
                 'Filtra por categoría y por tipo ACTIVO / CONSUMIBLE.',
                 'Indica cantidad (y opcionalmente un precio unitario manual si necesitas sobrescribir el del catálogo).',
                 'Haz clic en una fila del catálogo para añadir esa partida al presupuesto.',
-                '«Pieza personalizada» abre un formulario para ítems que no están en catálogo (código, descripción, unidad, tipo, precio y cantidad).',
+                '«Pieza personalizada» abre un formulario para ítems que no están en catálogo (código, descripción, categoría opcional alineada al catálogo, unidad, tipo, precio y cantidad).',
               ]}
             />
 

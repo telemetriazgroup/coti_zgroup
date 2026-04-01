@@ -41,6 +41,7 @@ export function ProjectBudgetPage() {
   const [customForm, setCustomForm] = useState({
     codigo: '',
     descripcion: '',
+    categoryId: '',
     unidad: 'UND',
     tipo: 'ACTIVO',
     unitPrice: '',
@@ -223,6 +224,7 @@ export function ProjectBudgetPage() {
         custom: {
           codigo: customForm.codigo.trim(),
           descripcion: customForm.descripcion.trim(),
+          ...(customForm.categoryId ? { categoryId: customForm.categoryId } : {}),
           unidad: customForm.unidad.trim() || 'UND',
           tipo: customForm.tipo,
           unitPrice,
@@ -237,6 +239,7 @@ export function ProjectBudgetPage() {
       setCustomForm({
         codigo: '',
         descripcion: '',
+        categoryId: '',
         unidad: 'UND',
         tipo: 'ACTIVO',
         unitPrice: '',
@@ -520,6 +523,7 @@ export function ProjectBudgetPage() {
                 <tr>
                   <th>Código</th>
                   <th>Descripción</th>
+                  <th>Categoría</th>
                   <th>Tipo</th>
                   <th>Unidad</th>
                   <th className="num">P. unit.</th>
@@ -531,13 +535,14 @@ export function ProjectBudgetPage() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={canWrite ? 8 : 7} className="muted">
+                    <td colSpan={canWrite ? 9 : 8} className="muted">
                       Agregue ítems desde el catálogo o una pieza personalizada.
                     </td>
                   </tr>
                 ) : (
                   items.map((row) => {
                     const dr = getDraft(row.id);
+                    const catLabel = row.categoryNombre || '—';
                     return (
                       <tr
                         key={row.id}
@@ -545,6 +550,11 @@ export function ProjectBudgetPage() {
                       >
                         <td className="mono">{row.codigo}</td>
                         <td>{row.descripcion}</td>
+                        <td>
+                          <span className="budget-badge budget-badge--cat mono" title={catLabel}>
+                            {catLabel}
+                          </span>
+                        </td>
                         <td className="mono">{row.tipo}</td>
                         <td className="mono">{row.unidad}</td>
                         <td className="num">
@@ -756,6 +766,21 @@ export function ProjectBudgetPage() {
                 value={customForm.descripcion}
                 onChange={(e) => setCustomForm((f) => ({ ...f, descripcion: e.target.value }))}
               />
+            </label>
+            <label>
+              <span className="fg-lbl">Categoría (opcional)</span>
+              <select
+                className="form-input"
+                value={customForm.categoryId}
+                onChange={(e) => setCustomForm((f) => ({ ...f, categoryId: e.target.value }))}
+              >
+                <option value="">— Sin categoría —</option>
+                {sortedCats.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
             </label>
             <label>
               <span className="fg-lbl">Unidad</span>

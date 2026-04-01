@@ -142,7 +142,7 @@ router.post(
       const newId = ins[0].id;
 
       const { rows: items } = await client.query(
-        `SELECT catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order
+        `SELECT catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id
          FROM project_items WHERE project_id = $1 ORDER BY sort_order, created_at`,
         [req.params.id]
       );
@@ -151,8 +151,8 @@ router.post(
         const it = items[i];
         await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)`,
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
           [
             newId,
             it.catalog_item_id,
@@ -164,6 +164,7 @@ router.post(
             it.qty,
             it.is_custom,
             i,
+            it.category_id,
           ]
         );
       }
