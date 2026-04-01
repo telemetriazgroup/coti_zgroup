@@ -150,6 +150,7 @@ export function FinanceModules({
   viewerMode,
   tc: tcProp,
   onTcChange,
+  finPanelClassName = '',
 }) {
   const p = useMemo(() => mergeFinanceParams(financeParams), [financeParams]);
   const tc = tcProp != null && Number(tcProp) > 0 ? Number(tcProp) : 3.75;
@@ -187,7 +188,7 @@ export function FinanceModules({
   const setDisplayCurrency = (c) => patch({ displayCurrency: c });
 
   return (
-    <div className="fin-panel">
+    <div className={`fin-panel${finPanelClassName ? ` ${finPanelClassName}` : ''}`}>
       <div className="fin-panel__head">
         <h2 className="fin-panel__title">Módulos financieros</h2>
         <p className="fin-panel__intro">

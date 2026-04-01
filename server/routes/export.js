@@ -1,5 +1,5 @@
 const express = require('express');
-const { body, validationResult } = require('express-validator');
+const { body, query, validationResult } = require('express-validator');
 const { v4: uuidv4 } = require('uuid');
 const { Queue, Worker } = require('bullmq');
 const { pool } = require('../config/db');
@@ -7,6 +7,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { canReadProject } = require('../utils/projectAccess');
 const { processPdfJob } = require('../workers/pdf.worker');
 const jobStore = require('../lib/pdfJobsStore');
+const pdfService = require('../services/pdf.service');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -89,6 +90,52 @@ async function loadProjectRow(id) {
   const { rows } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [id]);
   return rows[0] || null;
 }
+
+// ─── GET /api/export/pdf/preview-html — HTML mismo layout que el PDF (sin Puppeteer) ─
+router.get(
+  '/pdf/preview-html',
+  requireRole('ADMIN', 'COMERCIAL'),
+  query('projectId').isUUID(),
+  query('kind').isIn(['GERENCIA', 'CLIENTE']),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
+      });
+    }
+
+    const { projectId, kind } = req.query;
+    const row = await loadProjectRow(projectId);
+    if (!row) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+    }
+    if (!canReadProject(req.user, row)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+    }
+    if (row.deleted_at) {
+      return res.status(400).json({ success: false, error: { code: 'DELETED', message: 'Proyecto archivado' } });
+    }
+
+    try {
+      const payload = await pdfService.loadExportPayload(projectId);
+      const html =
+        kind === 'CLIENTE'
+          ? pdfService.buildHtmlCliente(payload)
+          : pdfService.buildHtmlGerencia(payload);
+      res.setHeader('Content-Type', 'text/html; charset=utf-8');
+      res.setHeader('Cache-Control', 'no-store');
+      res.send(html);
+    } catch (e) {
+      console.error('[EXPORT preview-html]', e);
+      res.status(500).json({
+        success: false,
+        error: { code: 'PREVIEW_ERROR', message: e.message || 'Error generando vista previa' },
+      });
+    }
+  }
+);
 
 // ─── POST /api/export/pdf ──────────────────────────────────────
 router.post(

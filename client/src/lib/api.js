@@ -129,6 +129,38 @@ export async function getBlob(url) {
   return res.blob();
 }
 
+/** Respuesta texto/HTML (no JSON). Misma auth y refresh que getBlob. */
+export async function getText(url) {
+  const resolved = resolveAppUrl(url);
+  const makeReq = (token) =>
+    fetch(resolved, {
+      credentials: 'include',
+      headers: {
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+    });
+
+  let res = await makeReq(accessToken);
+  if (res.status === 401) {
+    const body = await res.clone().json().catch(() => ({}));
+    if (body?.error?.code === 'TOKEN_EXPIRED') {
+      try {
+        const newToken = await refresh();
+        res = await makeReq(newToken);
+      } catch {
+        throw new Error('SESSION_EXPIRED');
+      }
+    } else {
+      throw new Error('SESSION_EXPIRED');
+    }
+  }
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}));
+    throw new Error(err?.error?.message || `HTTP ${res.status}`);
+  }
+  return res.text();
+}
+
 export async function postFormData(url, formData) {
   const resolved = resolveAppUrl(url);
   const makeReq = (token) =>

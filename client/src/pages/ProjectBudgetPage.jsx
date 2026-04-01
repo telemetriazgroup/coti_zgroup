@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, getToken, resolveAppUrl } from '../lib/api';
+import { api, getText, getToken, resolveAppUrl } from '../lib/api';
 import { fetchCatalog } from '../lib/catalogApi';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
@@ -57,12 +57,55 @@ export function ProjectBudgetPage() {
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfMsg, setPdfMsg] = useState(null);
   const pdfPollRef = useRef(null);
+  const [pdfPreviewKind, setPdfPreviewKind] = useState(null);
+  const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
+  const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
+  const [pdfPreviewErr, setPdfPreviewErr] = useState(null);
 
   useEffect(() => {
     return () => {
       if (pdfPollRef.current) clearInterval(pdfPollRef.current);
     };
   }, []);
+
+  useEffect(() => {
+    if (!pdfPreviewKind || !projectId) {
+      setPdfPreviewUrl((prev) => {
+        if (prev) URL.revokeObjectURL(prev);
+        return null;
+      });
+      setPdfPreviewLoading(false);
+      setPdfPreviewErr(null);
+      return undefined;
+    }
+    let cancelled = false;
+    setPdfPreviewUrl((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    setPdfPreviewLoading(true);
+    setPdfPreviewErr(null);
+    (async () => {
+      try {
+        const html = await getText(
+          `/api/export/pdf/preview-html?projectId=${encodeURIComponent(projectId)}&kind=${encodeURIComponent(
+            pdfPreviewKind
+          )}`
+        );
+        if (cancelled) return;
+        const blob = new Blob([html], { type: 'text/html;charset=utf-8' });
+        const url = URL.createObjectURL(blob);
+        setPdfPreviewUrl(url);
+      } catch (e) {
+        if (!cancelled) setPdfPreviewErr(e.message || 'Error de vista previa');
+      } finally {
+        if (!cancelled) setPdfPreviewLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [pdfPreviewKind, projectId]);
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(qInput), 200);
@@ -495,7 +538,7 @@ export function ProjectBudgetPage() {
               </label>
             </div>
           </div>
-          <div className="budget-catalog-list">
+          <div className="budget-catalog-list zgroup-scroll">
             {filteredCatalog.length === 0 ? (
               <p className="muted mono" style={{ padding: 12 }}>
                 Sin resultados
@@ -533,7 +576,7 @@ export function ProjectBudgetPage() {
 
         <div className="budget-panel budget-panel--table">
           <h2 className="budget-panel-title">Líneas del presupuesto</h2>
-          <div className="table-wrap budget-table-wrap">
+          <div className="table-wrap budget-table-wrap zgroup-scroll">
             <table className="data-table">
               <thead>
                 <tr>
@@ -650,6 +693,7 @@ export function ProjectBudgetPage() {
         viewerMode={viewerMode}
         tc={project?.tc != null ? Number(project.tc) : 3.75}
         onTcChange={canWrite ? handleTcChange : undefined}
+        finPanelClassName="zgroup-scroll"
       />
         </aside>
       </div>
@@ -720,23 +764,46 @@ export function ProjectBudgetPage() {
               </label>
             </div>
           </div>
-          <div style={{ display: 'flex', flexWrap: 'wrap', gap: 10, marginTop: 12 }}>
-            <button
-              type="button"
-              className="btn btn-ghost mono"
-              disabled={pdfBusy}
-              onClick={() => startPdf('GERENCIA')}
-            >
-              PDF Gerencia
-            </button>
-            <button
-              type="button"
-              className="btn btn-ghost mono"
-              disabled={pdfBusy}
-              onClick={() => startPdf('CLIENTE')}
-            >
-              PDF Cliente
-            </button>
+          <div className="pdf-export-actions">
+            <div className="pdf-export-actions__row">
+              <span className="fg-lbl" style={{ width: '100%', marginBottom: 4 }}>
+                Vista previa (mismo HTML que el PDF)
+              </span>
+              <button
+                type="button"
+                className="btn btn-primary mono"
+                disabled={!!pdfPreviewLoading}
+                onClick={() => setPdfPreviewKind('GERENCIA')}
+              >
+                Ver Gerencia
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary mono"
+                disabled={!!pdfPreviewLoading}
+                onClick={() => setPdfPreviewKind('CLIENTE')}
+              >
+                Ver Cliente
+              </button>
+            </div>
+            <div className="pdf-export-actions__row" style={{ marginTop: 10 }}>
+              <button
+                type="button"
+                className="btn btn-ghost mono"
+                disabled={pdfBusy}
+                onClick={() => startPdf('GERENCIA')}
+              >
+                Descargar PDF Gerencia
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost mono"
+                disabled={pdfBusy}
+                onClick={() => startPdf('CLIENTE')}
+              >
+                Descargar PDF Cliente
+              </button>
+            </div>
           </div>
           {pdfBusy && <p className="muted mono" style={{ marginTop: 8 }}>Generando… (polling cada 2s)</p>}
           {pdfMsg && (
@@ -745,6 +812,68 @@ export function ProjectBudgetPage() {
             </div>
           )}
         </div>
+      )}
+
+      {pdfPreviewKind && (
+        <Modal
+          title="Vista previa del reporte PDF"
+          panelClassName="modal-panel--pdf-preview"
+          onClose={() => setPdfPreviewKind(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" onClick={() => setPdfPreviewKind(null)}>
+                Cerrar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary mono"
+                disabled={pdfBusy}
+                onClick={() => {
+                  const k = pdfPreviewKind;
+                  setPdfPreviewKind(null);
+                  startPdf(k);
+                }}
+              >
+                Descargar {pdfPreviewKind === 'GERENCIA' ? 'Gerencia' : 'Cliente'}
+              </button>
+            </>
+          }
+        >
+          <p className="pdf-preview-hint">
+            Misma composición que el PDF generado (tipografía y márgenes del servidor pueden variar ligeramente al
+            imprimir). Use las pestañas para comparar informes.
+          </p>
+          <div className="pdf-preview-toolbar">
+            <div className="pdf-preview-tabs" role="tablist" aria-label="Tipo de reporte">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pdfPreviewKind === 'GERENCIA'}
+                className={`pdf-preview-tab${pdfPreviewKind === 'GERENCIA' ? ' pdf-preview-tab--on' : ''}`}
+                onClick={() => setPdfPreviewKind('GERENCIA')}
+              >
+                Gerencia
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={pdfPreviewKind === 'CLIENTE'}
+                className={`pdf-preview-tab${pdfPreviewKind === 'CLIENTE' ? ' pdf-preview-tab--on' : ''}`}
+                onClick={() => setPdfPreviewKind('CLIENTE')}
+              >
+                Cliente
+              </button>
+            </div>
+            {pdfPreviewLoading && <span className="muted mono">Cargando…</span>}
+            {pdfPreviewErr && <span className="muted mono" style={{ color: 'var(--red)' }}>{pdfPreviewErr}</span>}
+          </div>
+          {pdfPreviewLoading && (
+            <div className="pdf-preview-frame pdf-preview-frame--loading muted mono">Generando vista previa…</div>
+          )}
+          {!pdfPreviewLoading && pdfPreviewUrl && (
+            <iframe title="Vista previa PDF" className="pdf-preview-frame" src={pdfPreviewUrl} />
+          )}
+        </Modal>
       )}
 
       {modal === 'clear' && (

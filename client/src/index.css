@@ -1316,29 +1316,38 @@ select.form-input {
   flex-direction: column;
   gap: 0;
   min-height: 0;
+  /* Espacio reservado sobre el workspace: shell + título + infobar + nav proyecto (~200–240px) */
+  --budget-chrome: 220px;
 }
 .budget-workspace {
   display: flex;
   flex-direction: row;
-  align-items: flex-start;
+  align-items: stretch;
   gap: 16px;
   width: 100%;
   margin-bottom: 8px;
+  /* Un solo alto acotado al viewport; el scroll es interno (catálogo / tabla / módulos) */
+  height: clamp(220px, calc(100dvh - var(--budget-chrome)), calc(100dvh - 96px));
+  min-height: 0;
+  max-height: calc(100dvh - 96px);
+  overflow: hidden;
 }
 .budget-main {
   flex: 1;
   min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
 }
 .budget-fin-sidebar {
-  flex: 0 0 auto;
+  flex: 0 0 min(420px, 40vw);
   width: min(100%, 420px);
   max-width: 440px;
-  position: sticky;
-  top: 8px;
-  align-self: flex-start;
-  max-height: calc(100vh - 120px);
-  overflow-y: auto;
-  overflow-x: hidden;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
   padding-bottom: 4px;
 }
 .budget-fin-sidebar .fin-panel {
@@ -1347,6 +1356,10 @@ select.form-input {
   margin-right: 0;
   max-width: none;
   width: 100%;
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
 }
 .budget-export-panel {
   margin-top: 20px;
@@ -1356,15 +1369,34 @@ select.form-input {
 .budget-grid {
   display: grid;
   grid-template-columns: minmax(260px, 340px) 1fr;
+  grid-template-rows: 1fr;
   gap: 16px;
-  align-items: start;
-  min-height: 280px;
+  align-items: stretch;
+  flex: 1;
+  min-height: 0;
 }
 .budget-panel {
   background: var(--card);
   border: 1px solid var(--border-dim);
   border-radius: 8px;
   padding: 12px 14px;
+}
+.budget-panel--catalog,
+.budget-panel--table {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+.budget-panel--catalog .budget-toolbar {
+  flex-shrink: 0;
+}
+.budget-panel--table .budget-table-wrap {
+  flex: 1;
+  min-height: 0;
+}
+.budget-panel--table .budget-footer {
+  flex-shrink: 0;
 }
 .budget-panel-title {
   font-family: 'Rajdhani', sans-serif;
@@ -1395,7 +1427,9 @@ select.form-input {
   gap: 4px;
 }
 .budget-catalog-list {
-  max-height: min(52vh, 520px);
+  flex: 1;
+  min-height: 0;
+  max-height: none;
   overflow: auto;
   display: flex;
   flex-direction: column;
@@ -1475,7 +1509,7 @@ select.form-input {
   color: var(--muted2);
 }
 .budget-table-wrap {
-  max-height: min(48vh, 480px);
+  max-height: none;
   overflow: auto;
 }
 .budget-table-wrap .table-input {
@@ -1564,26 +1598,140 @@ select.form-input {
   cursor: not-allowed;
   transform: none;
 }
+/* Scrollbars tema ZGROUP (paneles presupuesto / finanzas) */
+.zgroup-scroll {
+  scrollbar-width: thin;
+  scrollbar-color: rgba(0, 229, 255, 0.5) rgba(28, 28, 28, 0.85);
+}
+.zgroup-scroll::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.zgroup-scroll::-webkit-scrollbar-track {
+  background: var(--card);
+  border-radius: 8px;
+  border: 1px solid var(--border-dim);
+}
+.zgroup-scroll::-webkit-scrollbar-thumb {
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.55), rgba(0, 232, 122, 0.25));
+  border-radius: 8px;
+  border: 2px solid var(--card);
+  box-shadow: inset 0 0 0 1px rgba(0, 229, 255, 0.12);
+}
+.zgroup-scroll::-webkit-scrollbar-thumb:hover {
+  background: linear-gradient(180deg, rgba(0, 229, 255, 0.8), rgba(0, 232, 122, 0.38));
+}
+.zgroup-scroll::-webkit-scrollbar-corner {
+  background: var(--card);
+}
+
+.budget-fin-sidebar .fin-panel.zgroup-scroll {
+  scrollbar-color: rgba(0, 229, 255, 0.45) rgba(20, 20, 20, 0.9);
+}
+
 @media (max-width: 1240px) {
+  .budget-view {
+    --budget-chrome: 260px;
+  }
   .budget-workspace {
     flex-direction: column;
+    /* Vista apilada: menos alto fijo, scroll vertical del bloque o de los paneles */
+    height: clamp(280px, calc(100dvh - var(--budget-chrome)), calc(100dvh - 72px));
+    max-height: calc(100dvh - 72px);
+    overflow: hidden;
   }
   .budget-fin-sidebar {
-    position: sticky;
-    top: 0;
+    flex: 1 1 auto;
+    min-height: 0;
     max-width: none;
     width: 100%;
     max-height: none;
-    overflow: visible;
+    overflow: hidden;
   }
 }
 @media (max-width: 1100px) {
   .budget-grid {
     grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr) minmax(0, 1.2fr);
+    min-height: 0;
+    flex: 1;
+  }
+  .budget-panel--catalog {
+    min-height: 0;
+    max-height: none;
+  }
+  .budget-panel--table {
+    min-height: 0;
   }
   .budget-catalog-list {
-    max-height: 280px;
+    max-height: none;
   }
+}
+
+.modal-panel--pdf-preview {
+  max-width: min(1120px, 96vw);
+  width: min(1120px, 96vw);
+}
+.pdf-preview-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+.pdf-preview-tabs {
+  display: inline-flex;
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.pdf-preview-tab {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  padding: 8px 14px;
+  border: none;
+  background: var(--surface);
+  color: var(--muted);
+  cursor: pointer;
+  letter-spacing: 0.06em;
+}
+.pdf-preview-tab:hover {
+  color: var(--text);
+  background: var(--card);
+}
+.pdf-preview-tab--on {
+  background: rgba(0, 229, 255, 0.12);
+  color: var(--cyan);
+  box-shadow: inset 0 -2px 0 var(--cyan);
+}
+.pdf-preview-frame {
+  width: 100%;
+  min-height: min(68vh, 700px);
+  max-height: min(78vh, 820px);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: #f5f5f5;
+}
+.pdf-preview-hint {
+  font-size: 11px;
+  color: var(--muted);
+  margin: 0 0 10px;
+  line-height: 1.45;
+}
+.pdf-preview-frame--loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 12px;
+}
+.pdf-export-actions {
+  margin-top: 12px;
+}
+.pdf-export-actions__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
 }
 
 /* Catálogo: tipo + import Excel */

@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
-export function Modal({ title, children, footer, onClose, wide }) {
+export function Modal({ title, children, footer, onClose, wide, panelClassName = '' }) {
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -19,7 +19,11 @@ export function Modal({ title, children, footer, onClose, wide }) {
       }}
     >
       <div
-        className={'modal-panel' + (wide ? ' modal-panel--wide' : '')}
+        className={
+          'modal-panel' +
+          (wide ? ' modal-panel--wide' : '') +
+          (panelClassName ? ` ${panelClassName}` : '')
+        }
         role="dialog"
         aria-modal="true"
         aria-labelledby="modal-title"
