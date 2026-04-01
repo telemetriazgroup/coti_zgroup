@@ -19,6 +19,7 @@ export function ProjectBudgetPage() {
   const { projectId } = useParams();
   const { hasRole, user } = useAuth();
   const canWrite = hasRole('ADMIN', 'COMERCIAL');
+  const isAdmin = hasRole('ADMIN');
   const viewerMode = user?.role === 'VIEWER';
 
   const [project, setProject] = useState(null);
@@ -61,6 +62,31 @@ export function ProjectBudgetPage() {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
   const [pdfPreviewErr, setPdfPreviewErr] = useState(null);
+
+  /** Alta rápida de catálogo (solo ADMIN; API /api/catalog/*) */
+  const [catalogModal, setCatalogModal] = useState(null);
+  const [catForm, setCatForm] = useState({ nombre: '', sortOrder: '', active: true });
+  const [itemForm, setItemForm] = useState({
+    categoryId: '',
+    codigo: '',
+    descripcion: '',
+    unidad: 'UND',
+    tipo: 'ACTIVO',
+    unitPrice: '',
+    sortOrder: '',
+    active: true,
+  });
+
+  const refreshCatalog = useCallback(async () => {
+    setErr(null);
+    try {
+      const { data } = await fetchCatalog(false);
+      setCategories(data.categories || []);
+      setCatItems(data.items || []);
+    } catch (e) {
+      setErr(e.message);
+    }
+  }, []);
 
   useEffect(() => {
     return () => {
@@ -408,6 +434,78 @@ export function ProjectBudgetPage() {
     return m;
   }, [categories]);
 
+  function openBudgetCatalogCategory() {
+    setCatForm({ nombre: '', sortOrder: '', active: true });
+    setCatalogModal('category');
+  }
+
+  function openBudgetCatalogItem() {
+    const firstCat = sortedCats[0]?.id || '';
+    setItemForm({
+      categoryId: filterCat || firstCat,
+      codigo: '',
+      descripcion: '',
+      unidad: 'UND',
+      tipo: 'ACTIVO',
+      unitPrice: '',
+      sortOrder: '',
+      active: true,
+    });
+    setCatalogModal('item');
+  }
+
+  async function saveBudgetCatalogCategory(e) {
+    e.preventDefault();
+    if (!isAdmin) return;
+    setErr(null);
+    try {
+      const body = {
+        nombre: catForm.nombre.trim(),
+        sortOrder: catForm.sortOrder === '' ? undefined : parseInt(catForm.sortOrder, 10),
+        active: catForm.active,
+      };
+      const created = await api.post('/api/catalog/categories', body);
+      setCatalogModal(null);
+      await refreshCatalog();
+      if (created?.id) setFilterCat(created.id);
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  }
+
+  async function saveBudgetCatalogItem(e) {
+    e.preventDefault();
+    if (!isAdmin) return;
+    setErr(null);
+    const unitPrice = parseFloat(String(itemForm.unitPrice).replace(',', '.'));
+    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+      setErr('Precio inválido');
+      return;
+    }
+    if (!itemForm.categoryId) {
+      setErr('Seleccione una categoría');
+      return;
+    }
+    const body = {
+      categoryId: itemForm.categoryId,
+      codigo: itemForm.codigo.trim(),
+      descripcion: itemForm.descripcion.trim(),
+      unidad: itemForm.unidad || 'UND',
+      tipo: itemForm.tipo,
+      unitPrice,
+      sortOrder: itemForm.sortOrder === '' ? undefined : parseInt(itemForm.sortOrder, 10),
+      active: itemForm.active,
+    };
+    try {
+      await api.post('/api/catalog/items', body);
+      setCatalogModal(null);
+      await refreshCatalog();
+      setQInput(body.codigo);
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  }
+
   if (loading && !project) {
     return (
       <section className="view-active">
@@ -537,6 +635,23 @@ export function ProjectBudgetPage() {
                 />
               </label>
             </div>
+            {isAdmin && (
+              <div className="budget-catalog-actions">
+                <button type="button" className="btn btn-ghost" onClick={openBudgetCatalogCategory}>
+                  + Categoría
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={openBudgetCatalogItem}
+                  disabled={sortedCats.length === 0}
+                  title={sortedCats.length === 0 ? 'Cree primero una categoría' : undefined}
+                >
+                  + Ítem catálogo
+                </button>
+                <span className="budget-catalog-actions__hint muted mono">Admin · mismo catálogo global</span>
+              </div>
+            )}
           </div>
           <div className="budget-catalog-list zgroup-scroll">
             {filteredCatalog.length === 0 ? (
@@ -873,6 +988,155 @@ export function ProjectBudgetPage() {
           {!pdfPreviewLoading && pdfPreviewUrl && (
             <iframe title="Vista previa PDF" className="pdf-preview-frame" src={pdfPreviewUrl} />
           )}
+        </Modal>
+      )}
+
+      {catalogModal === 'category' && isAdmin && (
+        <Modal
+          title="Nueva categoría"
+          onClose={() => setCatalogModal(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" onClick={() => setCatalogModal(null)}>
+                Cancelar
+              </button>
+              <button type="submit" form="budget-cat-form" className="btn btn-primary">
+                Guardar
+              </button>
+            </>
+          }
+        >
+          <form id="budget-cat-form" className="stack-form" onSubmit={saveBudgetCatalogCategory}>
+            <label>
+              <span className="fg-lbl">Nombre *</span>
+              <input
+                className="form-input"
+                required
+                value={catForm.nombre}
+                onChange={(e) => setCatForm((f) => ({ ...f, nombre: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Orden (opcional)</span>
+              <input
+                type="number"
+                className="form-input mono"
+                value={catForm.sortOrder}
+                onChange={(e) => setCatForm((f) => ({ ...f, sortOrder: e.target.value }))}
+              />
+            </label>
+            <label className="chk-row">
+              <input
+                type="checkbox"
+                checked={catForm.active}
+                onChange={(e) => setCatForm((f) => ({ ...f, active: e.target.checked }))}
+              />
+              <span>Activa</span>
+            </label>
+          </form>
+        </Modal>
+      )}
+
+      {catalogModal === 'item' && isAdmin && (
+        <Modal
+          title="Nuevo ítem en catálogo"
+          wide
+          onClose={() => setCatalogModal(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" onClick={() => setCatalogModal(null)}>
+                Cancelar
+              </button>
+              <button type="submit" form="budget-item-form" className="btn btn-primary">
+                Guardar
+              </button>
+            </>
+          }
+        >
+          <form id="budget-item-form" className="stack-form" onSubmit={saveBudgetCatalogItem}>
+            <label>
+              <span className="fg-lbl">Categoría *</span>
+              <select
+                className="form-input"
+                required
+                value={itemForm.categoryId}
+                onChange={(e) => setItemForm((f) => ({ ...f, categoryId: e.target.value }))}
+              >
+                <option value="">—</option>
+                {sortedCats.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              <span className="fg-lbl">Código *</span>
+              <input
+                className="form-input mono"
+                required
+                value={itemForm.codigo}
+                onChange={(e) => setItemForm((f) => ({ ...f, codigo: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Descripción *</span>
+              <input
+                className="form-input"
+                required
+                value={itemForm.descripcion}
+                onChange={(e) => setItemForm((f) => ({ ...f, descripcion: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Unidad</span>
+              <input
+                className="form-input mono"
+                value={itemForm.unidad}
+                onChange={(e) => setItemForm((f) => ({ ...f, unidad: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Tipo *</span>
+              <select
+                className="form-input"
+                value={itemForm.tipo}
+                onChange={(e) => setItemForm((f) => ({ ...f, tipo: e.target.value }))}
+              >
+                <option value="ACTIVO">ACTIVO</option>
+                <option value="CONSUMIBLE">CONSUMIBLE</option>
+              </select>
+            </label>
+            <label>
+              <span className="fg-lbl">Precio unitario (USD) *</span>
+              <input
+                type="number"
+                step="0.01"
+                min="0"
+                className="form-input mono"
+                required
+                value={itemForm.unitPrice}
+                onChange={(e) => setItemForm((f) => ({ ...f, unitPrice: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Orden (opcional)</span>
+              <input
+                type="number"
+                className="form-input mono"
+                value={itemForm.sortOrder}
+                onChange={(e) => setItemForm((f) => ({ ...f, sortOrder: e.target.value }))}
+              />
+            </label>
+            <label className="chk-row">
+              <input
+                type="checkbox"
+                checked={itemForm.active}
+                onChange={(e) => setItemForm((f) => ({ ...f, active: e.target.checked }))}
+              />
+              <span>Activo</span>
+            </label>
+          </form>
         </Modal>
       )}
 

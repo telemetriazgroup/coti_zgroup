@@ -1426,6 +1426,26 @@ select.form-input {
   flex-direction: column;
   gap: 4px;
 }
+.budget-catalog-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border-dim);
+  margin-top: 6px;
+}
+.budget-catalog-actions .btn {
+  font-size: 11px;
+  padding: 6px 12px;
+  letter-spacing: 0.04em;
+}
+.budget-catalog-actions__hint {
+  font-size: 10px;
+  width: 100%;
+  margin: 0;
+  opacity: 0.85;
+}
 .budget-catalog-list {
   flex: 1;
   min-height: 0;

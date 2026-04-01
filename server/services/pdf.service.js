@@ -247,9 +247,7 @@ function buildClienteModalidadesSection(fin, mergedParams) {
       <td class="opt-note">${m4.estOp} meses a renta plena + ${m4.estSb} meses standby (referencial)</td>
     </tr>`);
     rows.push(`<tr>
-      <td colspan="5" class="opt-sub">Detalle referencial: mes operativo ${fmtUsd(m3.lpRentaF1)}/mes · mes standby ${fmtUsd(
-      m4.estRentaSb
-    )}/mes (sobre base LP F1).</td>
+      <td colspan="5" class="opt-sub">Desglose operativo: ${m4.estOp} meses a plena operación y ${m4.estSb} meses en standby; importes mensuales consolidados en la fila anterior (referencia año 1).</td>
     </tr>`);
   }
 
@@ -332,13 +330,14 @@ function buildHtmlGerencia(payload) {
 }
 
 function buildHtmlCliente(payload) {
-  const { project, items, totals, fin, mergedParams } = payload;
+  const { project, items, fin, mergedParams } = payload;
   const p = project;
   const rp = mergedParams || {};
   const { m1 } = fin;
   const igvHtml = igvBlock(m1.ventaTotal, rp.pdfIncludeIgv === true);
   const modalidadesHtml = buildClienteModalidadesSection(fin, rp);
 
+  /** Sin importes por línea ni totales de lista: solo alcance comercial (PDF Cliente). */
   const rowsItems = (items || [])
     .map(
       (it) => `<tr>
@@ -348,8 +347,6 @@ function buildHtmlCliente(payload) {
       <td>${esc(it.tipo)}</td>
       <td class="num">${esc(it.qty)}</td>
       <td class="num">${esc(it.unidad || 'UND')}</td>
-      <td class="num">${fmtUsd(Number(it.unit_price))}</td>
-      <td class="num">${fmtUsd(Number(it.subtotal))}</td>
     </tr>`
     )
     .join('');
@@ -359,26 +356,23 @@ function buildHtmlCliente(payload) {
   ${headerBlock(p, rp)}
   <div class="muted" style="margin-bottom:14px">Propuesta comercial · ${esc(new Date().toLocaleDateString('es-PE'))}</div>
 
-  <h2>Presupuesto detallado</h2>
-  <p>Activos ${fmtUsd(totals.activos)} · Consumibles ${fmtUsd(totals.consumibles)} · <strong>Lista ${fmtUsd(
-    totals.lista
-  )}</strong></p>
+  <h2>Partidas incluidas en esta propuesta</h2>
+  <p class="muted">Descripción del alcance (sin valores unitarios ni desglose de lista de costos).</p>
   <table><thead><tr>
     <th>Código</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th class="num">Cant.</th><th class="num">Und.</th>
-    <th class="num">P. unit.</th><th class="num">Subtotal</th>
   </tr></thead>
-  <tbody>${rowsItems || '<tr><td colspan="8">Sin partidas</td></tr>'}</tbody></table>
+  <tbody>${rowsItems || '<tr><td colspan="6">Sin partidas</td></tr>'}</tbody></table>
 
-  <h2>Inversión en venta directa (referencial)</h2>
+  <h2>Precio de venta referencial (venta directa)</h2>
   <div class="box">
-    <p><strong>Total venta estimado</strong>: ${fmtUsd(m1.ventaTotal)}</p>
-    <p class="muted">Inversión única por adquisición del equipo y partidas listadas (M1).</p>
+    <p><strong>Total venta</strong> (precio comercial acordado en esta cotización): ${fmtUsd(m1.ventaTotal)}</p>
+    <p class="muted">Corresponde a la modalidad de compra / venta directa (M1). No se detallan precios por ítem.</p>
   </div>
   ${igvHtml}
 
   ${modalidadesHtml}
 
-  <p class="muted" style="margin-top:16px">Los importes son referenciales en USD. Los valores finales quedan sujetos al contrato y a la modalidad elegida. No se incluyen márgenes ni costos internos de ZGROUP.</p>
+  <p class="muted" style="margin-top:16px">Los importes son referenciales en USD. Los valores finales quedan sujetos al contrato y a la modalidad elegida. Este documento no incluye precios unitarios por partida ni información de costos internos de ZGROUP.</p>
   ${footerBlock(rp)}
 </body></html>`;
 }
