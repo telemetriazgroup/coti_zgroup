@@ -114,6 +114,10 @@ function baseStyles() {
     .box { background: #f8f8f8; padding: 10px; border-radius: 6px; margin: 8px 0; }
     .veredicto { white-space: pre-wrap; line-height: 1.5; }
     .pdf-foot { margin-top: 24px; padding-top: 10px; border-top: 1px solid #ccc; font-size: 9px; color: #555; white-space: pre-wrap; }
+    .pdf-opt-table { font-size: 10px; }
+    .pdf-opt-table th:last-child, .pdf-opt-table td:last-child { text-align: left; min-width: 120px; }
+    .opt-note { font-size: 9px; color: #444; line-height: 1.35; }
+    .opt-sub { font-size: 9px; color: #666; font-style: italic; padding: 6px 8px !important; background: #fafafa; }
   `;
 }
 
@@ -185,6 +189,82 @@ function footerBlock(mergedParams) {
   return `<footer class="pdf-foot">${esc(t)}</footer>`;
 }
 
+/**
+ * PDF Cliente: modalidades activas con cuota mensual y total por período tentativo (referencial).
+ */
+function buildClienteModalidadesSection(fin, mergedParams) {
+  const rp = mergedParams || {};
+  const { m1, m2, m3, m4 } = fin;
+  const rows = [];
+
+  rows.push(`<tr>
+    <td><strong>Venta directa</strong> — adquisición</td>
+    <td class="num">—</td>
+    <td class="num">—</td>
+    <td class="num"><strong>${fmtUsd(m1.ventaTotal)}</strong></td>
+    <td class="opt-note">Inversión única referencial (M1). No aplica cuota mensual.</td>
+  </tr>`);
+
+  if (rp.enableCp !== false && m2.enabled !== false) {
+    const totalP = m2.cpPlazo * m2.rentaCliente;
+    rows.push(`<tr>
+      <td><strong>Arriendo corto plazo</strong></td>
+      <td class="num">${m2.cpPlazo}</td>
+      <td class="num">${fmtUsd(m2.rentaCliente)}</td>
+      <td class="num">${fmtUsd(totalP)}</td>
+      <td class="opt-note">Plazo contrato referencial: ${m2.cpPlazo} meses · capital propio</td>
+    </tr>`);
+  }
+
+  if (rp.enableLp !== false && m3.enabled !== false) {
+    const t1 = m3.lpNPrestamo * m3.lpRentaF1;
+    rows.push(`<tr>
+      <td><strong>Leasing largo plazo — Fase 1</strong> (con cuota bancaria)</td>
+      <td class="num">${m3.lpNPrestamo}</td>
+      <td class="num">${fmtUsd(m3.lpRentaF1)}</td>
+      <td class="num">${fmtUsd(t1)}</td>
+      <td class="opt-note">Meses 1–${m3.lpNPrestamo} · cuota mensual referencial</td>
+    </tr>`);
+    if (m3.lpNF2 > 0) {
+      const t2 = m3.lpNF2 * m3.lpRentaF2;
+      rows.push(`<tr>
+        <td><strong>Leasing largo plazo — Fase 2</strong> (post-préstamo)</td>
+        <td class="num">${m3.lpNF2}</td>
+        <td class="num">${fmtUsd(m3.lpRentaF2)}</td>
+        <td class="num">${fmtUsd(t2)}</td>
+        <td class="opt-note">Meses ${m3.lpNPrestamo + 1}–${m3.lpNContrato} · contrato total ${m3.lpNContrato} meses</td>
+      </tr>`);
+    }
+  }
+
+  if (rp.enableEst !== false && m4.enabled !== false) {
+    const promMes = m4.estIngTotalYear > 0 ? m4.estIngTotalYear / 12 : 0;
+    rows.push(`<tr>
+      <td><strong>Arriendo con estacionalidad</strong> (promedio mensual año 1)</td>
+      <td class="num">12</td>
+      <td class="num">${fmtUsd(promMes)}</td>
+      <td class="num">${fmtUsd(m4.estIngTotalYear)}</td>
+      <td class="opt-note">${m4.estOp} meses a renta plena + ${m4.estSb} meses standby (referencial)</td>
+    </tr>`);
+    rows.push(`<tr>
+      <td colspan="5" class="opt-sub">Detalle referencial: mes operativo ${fmtUsd(m3.lpRentaF1)}/mes · mes standby ${fmtUsd(
+      m4.estRentaSb
+    )}/mes (sobre base LP F1).</td>
+    </tr>`);
+  }
+
+  return `<h2>Opciones de contratación (referencial)</h2>
+  <p class="muted">Compare las modalidades <strong>activas</strong> en esta cotización. La cuota mensual y el total por período son referenciales para el plazo tentativo indicado; el contrato definitivo puede variar.</p>
+  <table class="pdf-opt-table"><thead><tr>
+    <th>Modalidad</th>
+    <th class="num">Meses (período)</th>
+    <th class="num">Cuota / mes (USD)</th>
+    <th class="num">Total período (USD)</th>
+    <th>Notas</th>
+  </tr></thead><tbody>${rows.join('')}</tbody></table>
+  <p class="muted" style="margin-top:10px"><strong>Venta directa</strong> es compra; el resto son esquemas de alquiler con cuotas mensuales estimadas. Elija una línea de negociación según su preferencia.</p>`;
+}
+
 function buildHtmlGerencia(payload) {
   const { project, items, totals, fin, mergedParams } = payload;
   const p = project;
@@ -252,31 +332,53 @@ function buildHtmlGerencia(payload) {
 }
 
 function buildHtmlCliente(payload) {
-  const { project, totals, fin, mergedParams } = payload;
+  const { project, items, totals, fin, mergedParams } = payload;
   const p = project;
   const rp = mergedParams || {};
-  const { m1, m2, m3 } = fin;
-  const rentalHtml = buildRentalMonthsSection(rp, fin);
+  const { m1 } = fin;
   const igvHtml = igvBlock(m1.ventaTotal, rp.pdfIncludeIgv === true);
+  const modalidadesHtml = buildClienteModalidadesSection(fin, rp);
+
+  const rowsItems = (items || [])
+    .map(
+      (it) => `<tr>
+      <td>${esc(it.codigo)}</td>
+      <td>${esc(it.descripcion)}</td>
+      <td>${esc(it.category_nombre || '—')}</td>
+      <td>${esc(it.tipo)}</td>
+      <td class="num">${esc(it.qty)}</td>
+      <td class="num">${esc(it.unidad || 'UND')}</td>
+      <td class="num">${fmtUsd(Number(it.unit_price))}</td>
+      <td class="num">${fmtUsd(Number(it.subtotal))}</td>
+    </tr>`
+    )
+    .join('');
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><style>${baseStyles()}</style></head><body>
   ${headerBlock(p, rp)}
   <div class="muted" style="margin-bottom:14px">Propuesta comercial · ${esc(new Date().toLocaleDateString('es-PE'))}</div>
 
-  <h2>Resumen</h2>
-  <p><strong>Inversión referencial (lista)</strong>: ${fmtUsd(totals.lista)}</p>
-  <p><strong>Total venta estimado</strong>: ${fmtUsd(m1.ventaTotal)}</p>
+  <h2>Presupuesto detallado</h2>
+  <p>Activos ${fmtUsd(totals.activos)} · Consumibles ${fmtUsd(totals.consumibles)} · <strong>Lista ${fmtUsd(
+    totals.lista
+  )}</strong></p>
+  <table><thead><tr>
+    <th>Código</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th class="num">Cant.</th><th class="num">Und.</th>
+    <th class="num">P. unit.</th><th class="num">Subtotal</th>
+  </tr></thead>
+  <tbody>${rowsItems || '<tr><td colspan="8">Sin partidas</td></tr>'}</tbody></table>
+
+  <h2>Inversión en venta directa (referencial)</h2>
+  <div class="box">
+    <p><strong>Total venta estimado</strong>: ${fmtUsd(m1.ventaTotal)}</p>
+    <p class="muted">Inversión única por adquisición del equipo y partidas listadas (M1).</p>
+  </div>
   ${igvHtml}
 
-  ${rentalHtml}
+  ${modalidadesHtml}
 
-  <h2>Modalidades (referencia mensual)</h2>
-  <div class="box">
-    <p><strong>Opción arriendo corto plazo</strong>: cuota mensual referencial ${fmtUsd(m2.rentaCliente)}</p>
-    <p><strong>Opción leasing largo plazo</strong>: cuota mensual referencial Fase 1 ${fmtUsd(m3.lpRentaF1)}</p>
-  </div>
-  <p class="muted">Los valores finales sujetos a contrato. No incluye detalle de márgenes internos.</p>
+  <p class="muted" style="margin-top:16px">Los importes son referenciales en USD. Los valores finales quedan sujetos al contrato y a la modalidad elegida. No se incluyen márgenes ni costos internos de ZGROUP.</p>
   ${footerBlock(rp)}
 </body></html>`;
 }

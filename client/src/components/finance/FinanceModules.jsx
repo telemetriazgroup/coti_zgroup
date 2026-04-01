@@ -1,9 +1,22 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useState } from 'react';
 import { computeFinance, mergeFinanceParams } from '@shared/finance-engine.js';
 
 function formatUsd(n) {
   if (n == null || Number.isNaN(n)) return '—';
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
+}
+
+function formatPen(n) {
+  if (n == null || Number.isNaN(n)) return '—';
+  return new Intl.NumberFormat('es-PE', { style: 'currency', currency: 'PEN' }).format(n);
+}
+
+/** USD base del motor; PEN = nUsd * tc (referencial). */
+function formatDisplay(nUsd, displayCurrency, tc) {
+  if (nUsd == null || Number.isNaN(nUsd)) return '—';
+  const tcN = Number(tc) > 0 ? Number(tc) : 3.75;
+  if (displayCurrency === 'PEN') return formatPen(nUsd * tcN);
+  return formatUsd(nUsd);
 }
 
 /** Etiqueta + texto explicativo + control (UX módulos financieros) */
@@ -60,25 +73,70 @@ const HINT = {
     'Cantidad de meses para acumular utilidades CP vs LP y emitir el veredicto comparativo (M5 y PDF Gerencia).',
 };
 
-function Accordion({ id, title, subtitle, badge, open, onToggle, children, disabled }) {
+/** Panel derecho estilo zgroup-cotizaciones-v10-final.html (mod-hdr + mod-badge + colores por módulo). */
+function ModSection({ modId, badgeNum, tone, title, titleExtra, headerRight, open, onToggle, children, disabled }) {
   return (
-    <div className={`fin-acc ${disabled ? 'fin-acc--off' : ''}`}>
+    <div className={`fin-mod ${disabled ? 'fin-mod--off' : ''} fin-mod--tone-${tone}`}>
       <button
         type="button"
-        className="fin-acc__head"
-        onClick={() => onToggle(id)}
+        className="fin-mod-hdr"
+        onClick={() => onToggle(modId)}
         aria-expanded={open}
       >
-        <span className="fin-acc__chev">{open ? '▼' : '▶'}</span>
-        <span className="fin-acc__title">{title}</span>
-        {badge && (
-          <span className="fin-acc__badge mono" style={{ marginLeft: 'auto' }}>
-            {badge}
-          </span>
-        )}
+        <div className={`fin-mod-badge fin-mod-badge--${tone}`}>
+          <span>{badgeNum}</span>
+        </div>
+        <div className="fin-mod-hdr-titles">
+          <span className="fin-mod-title">{title}</span>
+          {titleExtra ? <span className="fin-mod-title-extra mono">{titleExtra}</span> : null}
+        </div>
+        {headerRight ? <span className="fin-mod-hdr-val mono">{headerRight}</span> : null}
+        <span className="fin-mod-chev">{open ? '▼' : '▶'}</span>
       </button>
-      {subtitle && <div className="fin-acc__sub mono muted">{subtitle}</div>}
-      {open && <div className="fin-acc__body">{children}</div>}
+      {open && <div className="fin-mod-body">{children}</div>}
+    </div>
+  );
+}
+
+function FinCurrencyBar({ displayCurrency, onDisplayCurrency, tc, onTcChange, disabled }) {
+  const pen = displayCurrency === 'PEN';
+  return (
+    <div className="fin-cur-bar">
+      <span className="fin-cur-bar__hint mono">Vista importes</span>
+      <div className="fin-cur-bar__inner">
+        <button
+          type="button"
+          className={`fin-cur-btn ${!pen ? 'fin-cur-btn--on' : ''}`}
+          disabled={disabled}
+          onClick={() => onDisplayCurrency('USD')}
+        >
+          USD $
+        </button>
+        <span className="fin-cur-sep">|</span>
+        <button
+          type="button"
+          className={`fin-cur-btn ${pen ? 'fin-cur-btn--on' : ''}`}
+          disabled={disabled}
+          onClick={() => onDisplayCurrency('PEN')}
+        >
+          PEN S/
+        </button>
+        {pen && (
+          <div className="fin-tc-row">
+            <span className="mono fin-tc-lbl">T.C.</span>
+            <input
+              type="number"
+              min="1"
+              step="0.01"
+              className="fin-tc-input mono"
+              disabled={disabled}
+              value={tc}
+              onChange={(e) => onTcChange(parseFloat(e.target.value) || 0)}
+            />
+            <span className="fin-tc-unit mono">PEN/USD</span>
+          </div>
+        )}
+      </div>
     </div>
   );
 }
@@ -90,8 +148,13 @@ export function FinanceModules({
   financeParams,
   onFinanceParamsChange,
   viewerMode,
+  tc: tcProp,
+  onTcChange,
 }) {
   const p = useMemo(() => mergeFinanceParams(financeParams), [financeParams]);
+  const tc = tcProp != null && Number(tcProp) > 0 ? Number(tcProp) : 3.75;
+  const cur = p.displayCurrency === 'PEN' ? 'PEN' : 'USD';
+  const fmt = useCallback((n) => formatDisplay(n, cur, tc), [cur, tc]);
   const fin = useMemo(
     () =>
       computeFinance({
@@ -120,17 +183,25 @@ export function FinanceModules({
 
   const { m1, m2, m3, m4, m5 } = fin;
   const hideSensitive = !!viewerMode;
+  const handleTc = typeof onTcChange === 'function' ? onTcChange : () => {};
+  const setDisplayCurrency = (c) => patch({ displayCurrency: c });
 
   return (
-    <div className="fin-wrap">
-      <h2 className="budget-panel-title" style={{ marginBottom: 12 }}>
-        Módulos financieros
-      </h2>
-      <p className="fin-intro">
-        <strong>M1</strong> fija el <strong>TOTAL VENTA</strong>. <strong>M2–M4</strong> se recalculan en cascada
-        según CP / LP / Estacionalidad. <strong>M5</strong> compara escenarios en el horizonte elegido (alineado al
-        PDF Gerencia). Cada parámetro incluye una nota breve sobre su rol en el modelo.
-      </p>
+    <div className="fin-panel">
+      <div className="fin-panel__head">
+        <h2 className="fin-panel__title">Módulos financieros</h2>
+        <p className="fin-panel__intro">
+          <strong>M1</strong> fija el total de venta; <strong>M2–M4</strong> en cascada (CP / LP / estacionalidad).{' '}
+          <strong>M5</strong> compara con el PDF Gerencia. Importes en USD (motor); vista PEN referencial con T.C.
+        </p>
+        <FinCurrencyBar
+          displayCurrency={cur}
+          onDisplayCurrency={setDisplayCurrency}
+          tc={tc}
+          onTcChange={handleTc}
+          disabled={hideSensitive}
+        />
+      </div>
 
       <div className="fin-toggles mono">
         <label className="fin-check">
@@ -162,11 +233,13 @@ export function FinanceModules({
         </label>
       </div>
 
-      <Accordion
-        id="m1"
-        title="M1 · Venta directa"
-        subtitle="Base lista y ajuste comercial"
-        badge={`TOTAL VENTA ${formatUsd(m1.ventaTotal)}`}
+      <ModSection
+        modId="m1"
+        badgeNum="1"
+        tone="cyan"
+        title="VENTA DIRECTA"
+        titleExtra="Base lista · ajuste comercial"
+        headerRight={fmt(m1.ventaTotal)}
         open={open.m1}
         onToggle={toggle}
       >
@@ -203,21 +276,23 @@ export function FinanceModules({
             />
           </FinParam>
         </div>
-        <div className="fin-kpis fin-kpis--xl mono">
-          <div>
-            <span className="muted">Base lista</span> {formatUsd(m1.base)}
+        <div className="fin-result fin-result--cyan mono">
+          <div className="fin-result__row">
+            <span className="muted">Base lista</span>
+            <span>{fmt(m1.base)}</span>
           </div>
           {!hideSensitive && (
-            <div>
-              <span className="muted">Ajuste</span>{' '}
+            <div className="fin-result__row">
+              <span className="muted">{m1.adjType === 'margin' ? '+ Seguridad' : '− Descuento'}</span>
               <span style={{ color: m1.adjType === 'margin' ? 'var(--amber)' : 'var(--red)' }}>
                 {m1.adjType === 'margin' ? '+' : '−'}
-                {formatUsd(m1.ventaAdj)}
+                {fmt(m1.ventaAdj)}
               </span>
             </div>
           )}
-          <div className="fin-kpi-strong">
-            <span className="muted">TOTAL VENTA</span> {formatUsd(m1.ventaTotal)}
+          <div className="fin-result__total">
+            <span className="fin-result__total-lbl">TOTAL VENTA</span>
+            <span className="fin-result__total-val">{fmt(m1.ventaTotal)}</span>
           </div>
         </div>
         {m1.discount100Warning && (
@@ -225,13 +300,15 @@ export function FinanceModules({
             Descuento 100%: venta $0 — revisar parámetros.
           </div>
         )}
-      </Accordion>
+      </ModSection>
 
-      <Accordion
-        id="m2"
-        title="M2 · Corto plazo"
-        subtitle={p.enableCp === false ? 'Desactivado' : 'Capital propio / alquiler'}
-        badge={p.enableCp === false ? '—' : `${formatUsd(m2.rentaCliente)}/mes`}
+      <ModSection
+        modId="m2"
+        badgeNum="2"
+        tone="amber"
+        title="CORTO PLAZO"
+        titleExtra="CAPITAL PROPIO"
+        headerRight={p.enableCp === false ? '—' : `${fmt(m2.rentaCliente)}/mes`}
         open={open.m2}
         onToggle={toggle}
         disabled={p.enableCp === false}
@@ -292,37 +369,37 @@ export function FinanceModules({
                 <>
                   <div className="fin-table__row">
                     <span>Depreciación / mes</span>
-                    <span>{formatUsd(m2.depreciationMonthly)}</span>
+                    <span>{fmt(m2.depreciationMonthly)}</span>
                   </div>
                   <div className="fin-table__row">
                     <span>Merma / mes</span>
-                    <span>{formatUsd(m2.mermaMonthly)}</span>
+                    <span>{fmt(m2.mermaMonthly)}</span>
                   </div>
                   <div className="fin-table__row">
                     <span>Gtos. op. / mes</span>
-                    <span>{formatUsd(m2.gopMonthly)}</span>
+                    <span>{fmt(m2.gopMonthly)}</span>
                   </div>
                   {baseConsumibles > 0 && (
                     <div className="fin-table__row">
                       <span>Consumibles / mes</span>
-                      <span>{formatUsd(m2.consumiblesMonthly)}</span>
+                      <span>{fmt(m2.consumiblesMonthly)}</span>
                     </div>
                   )}
                   <div className="fin-table__row">
                     <span style={{ color: 'var(--amber)' }}>ROA / mes (ganancia)</span>
-                    <span style={{ color: 'var(--amber)' }}>{formatUsd(m2.roaMonthly)}</span>
+                    <span style={{ color: 'var(--amber)' }}>{fmt(m2.roaMonthly)}</span>
                   </div>
                 </>
               )}
               <div className="fin-table__row fin-table__row--hi">
                 <span>Renta al cliente</span>
-                <span>{formatUsd(m2.rentaCliente)}/mes</span>
+                <span>{fmt(m2.rentaCliente)}/mes</span>
               </div>
             </div>
             {!hideSensitive && (
               <div className="fin-kpi-line">
                 <span className="fin-kpi-tag fin-kpi-tag--green">
-                  Ganancia / mes {formatUsd(m2.gananciaMensual)}
+                  Ganancia / mes {fmt(m2.gananciaMensual)}
                 </span>
                 <span className="fin-kpi-tag fin-kpi-tag--cyan">
                   Punto equilibrio {m2.peDisplay}
@@ -336,13 +413,15 @@ export function FinanceModules({
             )}
           </>
         )}
-      </Accordion>
+      </ModSection>
 
-      <Accordion
-        id="m3"
-        title="M3 · Largo plazo (leasing)"
-        subtitle={p.enableLp === false ? 'Desactivado' : 'Sistema francés · F1 / F2'}
-        badge={p.enableLp === false ? '—' : `${formatUsd(m3.lpRentaF1)}/m F1`}
+      <ModSection
+        modId="m3"
+        badgeNum="3"
+        tone="green"
+        title="LARGO PLAZO"
+        titleExtra="BANCO FINANCIA"
+        headerRight={p.enableLp === false ? '—' : `${fmt(m3.lpRentaF1)}/m F1`}
         open={open.m3}
         onToggle={toggle}
         disabled={p.enableLp === false}
@@ -351,7 +430,7 @@ export function FinanceModules({
           <>
             {hideSensitive && (
               <p className="mono" style={{ marginBottom: 8 }}>
-                Renta cliente F1: <span style={{ color: 'var(--cyan)' }}>{formatUsd(m3.lpRentaF1)}/mes</span>
+                Renta cliente F1: <span style={{ color: 'var(--cyan)' }}>{fmt(m3.lpRentaF1)}/mes</span>
               </p>
             )}
             {!hideSensitive && (
@@ -472,35 +551,35 @@ export function FinanceModules({
               <div className="fin-table mono fin-table--xl">
                 <div className="fin-table__row">
                   <span>Cuota banco</span>
-                  <span>{formatUsd(m3.cuotaBanco)}</span>
+                  <span>{fmt(m3.cuotaBanco)}</span>
                 </div>
                 <div className="fin-table__row">
                   <span>Cuota cliente (mismo N)</span>
-                  <span>{formatUsd(m3.cuotaCliente)}</span>
+                  <span>{fmt(m3.cuotaCliente)}</span>
                 </div>
                 <div className="fin-table__row">
                   <span>Spread / mes</span>
-                  <span>{formatUsd(m3.lpSpread)}</span>
+                  <span>{fmt(m3.lpSpread)}</span>
                 </div>
                 <div className="fin-table__row fin-table__row--hi">
                   <span>Renta F1 (cliente)</span>
-                  <span>{formatUsd(m3.lpRentaF1)}/mes</span>
+                  <span>{fmt(m3.lpRentaF1)}/mes</span>
                 </div>
                 <div className="fin-table__row">
                   <span>Renta F2</span>
-                  <span>{formatUsd(m3.lpRentaF2)}/mes</span>
+                  <span>{fmt(m3.lpRentaF2)}/mes</span>
                 </div>
                 <div className="fin-table__row">
                   <span>Util. F1 / mes</span>
-                  <span>{formatUsd(m3.lpGanF1)}</span>
+                  <span>{fmt(m3.lpGanF1)}</span>
                 </div>
                 <div className="fin-table__row">
                   <span>Util. F2 / mes</span>
-                  <span>{formatUsd(m3.lpGanF2)}</span>
+                  <span>{fmt(m3.lpGanF2)}</span>
                 </div>
                 <div className="fin-table__row">
                   <span>Total ciclo utilidad</span>
-                  <span>{formatUsd(m3.lpTotalCiclo)}</span>
+                  <span>{fmt(m3.lpTotalCiclo)}</span>
                 </div>
                 <div className="fin-table__row">
                   <span>PE formalización</span>
@@ -510,7 +589,7 @@ export function FinanceModules({
             )}
             {m3.activarFondoReposicion && !hideSensitive && (
               <div className="banner banner--warn mono" style={{ marginTop: 8 }}>
-                Contrato &gt; 80% vida útil: fondo reposición {formatUsd(m3.lpFondoMensual)}/mes.
+                Contrato &gt; 80% vida útil: fondo reposición {fmt(m3.lpFondoMensual)}/mes.
               </div>
             )}
             {!hideSensitive && (
@@ -539,10 +618,10 @@ export function FinanceModules({
                     {m3.amortization.map((r) => (
                       <tr key={r.period}>
                         <td className="mono">{r.period}</td>
-                        <td className="num mono">{formatUsd(r.saldoInicial)}</td>
-                        <td className="num mono">{formatUsd(r.interes)}</td>
-                        <td className="num mono">{formatUsd(r.amortizacion)}</td>
-                        <td className="num mono">{formatUsd(r.cuota)}</td>
+                        <td className="num mono">{fmt(r.saldoInicial)}</td>
+                        <td className="num mono">{fmt(r.interes)}</td>
+                        <td className="num mono">{fmt(r.amortizacion)}</td>
+                        <td className="num mono">{fmt(r.cuota)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -551,13 +630,15 @@ export function FinanceModules({
             )}
           </>
         )}
-      </Accordion>
+      </ModSection>
 
-      <Accordion
-        id="m4"
-        title="M4 · Estacionalidad"
-        subtitle={p.enableEst === false ? 'Desactivado' : 'Tabla 5 años · Regla de Oro'}
-        badge={p.enableEst === false ? '—' : `${formatUsd(m4.estIngTotalYear)}/año`}
+      <ModSection
+        modId="m4"
+        badgeNum="4"
+        tone="violet"
+        title="ESTACIONALIDAD"
+        titleExtra="AGRO / STANDBY"
+        headerRight={p.enableEst === false ? '—' : `${fmt(m4.estIngTotalYear)}/año`}
         open={open.m4}
         onToggle={toggle}
         disabled={p.enableEst === false}
@@ -567,7 +648,7 @@ export function FinanceModules({
             {hideSensitive && (
               <p className="mono" style={{ marginBottom: 8 }}>
                 Ingreso anual estimado:{' '}
-                <span style={{ color: 'var(--cyan)' }}>{formatUsd(m4.estIngTotalYear)}/año</span>
+                <span style={{ color: 'var(--cyan)' }}>{fmt(m4.estIngTotalYear)}/año</span>
               </p>
             )}
             {!hideSensitive && (
@@ -612,7 +693,7 @@ export function FinanceModules({
             )}
             {m4.standbyBelowMin && !hideSensitive && (
               <div className="banner banner--err mono">
-                Standby {formatUsd(m4.estRentaSb)}/mes &lt; costo mínimo {formatUsd(m4.estCostoMin)}
+                Standby {fmt(m4.estRentaSb)}/mes &lt; costo mínimo {fmt(m4.estCostoMin)}
                 . Subir % standby a ≥ {m4.minStandbyPct}%.
               </div>
             )}
@@ -624,7 +705,7 @@ export function FinanceModules({
                 <div>
                   <span className="muted">Regla de Oro (5 años)</span>{' '}
                   {m4.reglaDeOro.ok ? '✓' : '⚠'}{' '}
-                  {formatUsd(m4.reglaDeOro.actual)} vs {formatUsd(m4.reglaDeOro.expected)}
+                  {fmt(m4.reglaDeOro.actual)} vs {fmt(m4.reglaDeOro.expected)}
                 </div>
               </div>
             )}
@@ -650,11 +731,11 @@ export function FinanceModules({
                             {row.phaseLabel} · m{row.monthStart}–{row.monthEnd}
                           </div>
                         </td>
-                        <td className="num mono">{formatUsd(row.ingBruto)}</td>
-                        <td className="num mono">{formatUsd(row.pagoBanco)}</td>
-                        <td className="num mono">{formatUsd(row.gopYear)}</td>
-                        <td className="num mono">{formatUsd(row.utilNeta)}</td>
-                        <td className="num mono">{formatUsd(row.cumAcum)}</td>
+                        <td className="num mono">{fmt(row.ingBruto)}</td>
+                        <td className="num mono">{fmt(row.pagoBanco)}</td>
+                        <td className="num mono">{fmt(row.gopYear)}</td>
+                        <td className="num mono">{fmt(row.utilNeta)}</td>
+                        <td className="num mono">{fmt(row.cumAcum)}</td>
                       </tr>
                       {row.showTransitionBanner && !hideSensitive && (
                         <tr className="fin-5y-banner fin-5y-banner--cyan">
@@ -674,26 +755,26 @@ export function FinanceModules({
                 <tfoot>
                   <tr className="mono">
                     <td>Σ 5 años</td>
-                    <td className="num">{formatUsd(m4.totals5y.totIng)}</td>
-                    <td className="num">{formatUsd(m4.totals5y.totBanco)}</td>
-                    <td className="num">{formatUsd(m4.totals5y.totGop)}</td>
-                    <td className="num">{formatUsd(m4.totals5y.totUtil)}</td>
-                    <td className="num">{formatUsd(m4.totals5y.cumAcum)}</td>
+                    <td className="num">{fmt(m4.totals5y.totIng)}</td>
+                    <td className="num">{fmt(m4.totals5y.totBanco)}</td>
+                    <td className="num">{fmt(m4.totals5y.totGop)}</td>
+                    <td className="num">{fmt(m4.totals5y.totUtil)}</td>
+                    <td className="num">{fmt(m4.totals5y.cumAcum)}</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
           </>
         )}
-      </Accordion>
+      </ModSection>
 
-      <Accordion
-        id="m5"
-        title="M5 · Panel gerencial"
-        subtitle="Comparativa CP vs LP · PDF Gerencia"
-        badge={
-          m5.lpMasBaratoCliente ? 'LP más barata (F1)' : 'Revisar rentas'
-        }
+      <ModSection
+        modId="m5"
+        badgeNum="5"
+        tone="panel"
+        title="PANEL GERENCIAL"
+        titleExtra="CP vs LP"
+        headerRight={m5.lpMasBaratoCliente ? 'LP ref. favorable' : 'Comparar'}
         open={open.m5}
         onToggle={toggle}
       >
@@ -722,21 +803,21 @@ export function FinanceModules({
           </div>
           <div className="fin-table__row">
             <span>Renta al cliente (ref.) · CP</span>
-            <span>{formatUsd(m5.cpRenta)}/mes</span>
+            <span>{fmt(m5.cpRenta)}/mes</span>
           </div>
           <div className="fin-table__row">
             <span>Renta Fase 1 · LP</span>
-            <span>{formatUsd(m5.lpRentaF1)}/mes</span>
+            <span>{fmt(m5.lpRentaF1)}/mes</span>
           </div>
           {!hideSensitive && (
             <>
               <div className="fin-table__row fin-table__row--hi">
                 <span>Utilidad acum. en periodo · CP</span>
-                <span>{formatUsd(m5.cpTotPeriodo)}</span>
+                <span>{fmt(m5.cpTotPeriodo)}</span>
               </div>
               <div className="fin-table__row fin-table__row--hi">
                 <span>Utilidad acum. en periodo · LP</span>
-                <span>{formatUsd(m5.lpTotPeriodo)}</span>
+                <span>{fmt(m5.lpTotPeriodo)}</span>
               </div>
             </>
           )}
@@ -752,7 +833,7 @@ export function FinanceModules({
         )}
         {hideSensitive && (
           <p className="muted mono" style={{ fontSize: 11 }}>
-            Opciones referenciales: CP {formatUsd(m5.cpRenta)}/mes · LP F1 {formatUsd(m5.lpRentaF1)}/mes.
+            Opciones referenciales: CP {fmt(m5.cpRenta)}/mes · LP F1 {fmt(m5.lpRentaF1)}/mes.
             Detalle gerencial reservado al equipo comercial.
           </p>
         )}
@@ -761,7 +842,7 @@ export function FinanceModules({
             Esta vista coincide con la sección «Panel gerencial (M5)» del PDF Gerencia al exportar.
           </p>
         )}
-      </Accordion>
+      </ModSection>
     </div>
   );
 }

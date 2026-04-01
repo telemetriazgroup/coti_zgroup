@@ -53,7 +53,7 @@ export function ProjectBudgetPage() {
   const itemsRef = useRef([]);
   const flushTimers = useRef({});
   const [financeParams, setFinanceParams] = useState(() => mergeFinanceParams({}));
-  const financePersistRef = useRef('');
+  const financeTcPersistRef = useRef('');
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfMsg, setPdfMsg] = useState(null);
   const pdfPollRef = useRef(null);
@@ -82,7 +82,7 @@ export function ProjectBudgetPage() {
       setProject(proj);
       const mergedFp = mergeFinanceParams(proj.financeParams);
       setFinanceParams(mergedFp);
-      financePersistRef.current = JSON.stringify(mergedFp);
+      financeTcPersistRef.current = `${JSON.stringify(mergedFp)}|${Number(proj.tc ?? 3.75)}`;
       setProjectStatus(budget.projectStatus);
       setItems(budget.items || []);
       setTotals(budget.totals || { activos: 0, consumibles: 0, lista: 0 });
@@ -108,22 +108,36 @@ export function ProjectBudgetPage() {
     itemsRef.current = items;
   }, [items]);
 
+  const handleTcChange = useCallback((v) => {
+    const n = Number(v) > 0 ? Number(v) : 3.75;
+    setProject((prev) => (prev ? { ...prev, tc: n } : prev));
+  }, []);
+
   useEffect(() => {
-    if (!projectId || !canWrite) return;
-    const j = JSON.stringify(financeParams);
-    if (j === financePersistRef.current) return;
+    if (!projectId || !canWrite || !project) return;
+    const fpJson = JSON.stringify(financeParams);
+    const tcVal = project.tc != null ? Number(project.tc) : 3.75;
+    const sig = `${fpJson}|${tcVal}`;
+    if (sig === financeTcPersistRef.current) return;
     const t = setTimeout(async () => {
       try {
-        const data = await api.put(`/api/projects/${projectId}`, { financeParams });
+        const data = await api.put(`/api/projects/${projectId}`, {
+          financeParams: mergeFinanceParams(financeParams),
+          tc: tcVal,
+        });
         const next = mergeFinanceParams(data.financeParams);
-        financePersistRef.current = JSON.stringify(next);
-        setProject((prev) => (prev ? { ...prev, financeParams: data.financeParams } : prev));
+        const nextTc = data.tc != null ? Number(data.tc) : tcVal;
+        financeTcPersistRef.current = `${JSON.stringify(next)}|${nextTc}`;
+        setProject((prev) =>
+          prev ? { ...prev, financeParams: data.financeParams, tc: nextTc } : prev
+        );
+        setFinanceParams(next);
       } catch (e) {
         setErr(e.message);
       }
     }, 500);
     return () => clearTimeout(t);
-  }, [financeParams, projectId, canWrite]);
+  }, [financeParams, project, projectId, canWrite]);
 
   const syncDraftFromItems = useCallback((list) => {
     const dm = { ...draftsRef.current };
@@ -433,6 +447,8 @@ export function ProjectBudgetPage() {
         <span>Ítems: {items.length}</span>
       </div>
 
+      <div className="budget-workspace">
+        <div className="budget-main">
       <div className="budget-grid">
         <aside className="budget-panel budget-panel--catalog">
           <h2 className="budget-panel-title">Catálogo</h2>
@@ -529,7 +545,13 @@ export function ProjectBudgetPage() {
                   <th className="num">P. unit.</th>
                   <th className="num">Cant.</th>
                   <th className="num">Subtotal</th>
-                  {canWrite && <th className="actions-col" />}
+                  {canWrite && (
+                    <th className="actions-col budget-actions-th" scope="col" title="Quitar línea" aria-label="Quitar">
+                      <span className="budget-actions-th-icon" aria-hidden="true">
+                        ×
+                      </span>
+                    </th>
+                  )}
                 </tr>
               </thead>
               <tbody>
@@ -581,13 +603,23 @@ export function ProjectBudgetPage() {
                         </td>
                         <td className="num mono">{formatUsd(row.subtotal)}</td>
                         {canWrite && (
-                          <td className="actions-cell">
+                          <td className="actions-cell budget-actions-cell">
                             <button
                               type="button"
-                              className="btn-link btn-link--danger mono"
+                              className="budget-row-remove"
+                              title="Quitar esta línea del presupuesto"
+                              aria-label={`Quitar línea ${row.codigo}`}
+                              disabled={deletingId === row.id}
                               onClick={() => removeItem(row.id)}
                             >
-                              Quitar
+                              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                <path
+                                  d="M18 6L6 18M6 6l12 12"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                />
+                              </svg>
                             </button>
                           </td>
                         )}
@@ -606,7 +638,9 @@ export function ProjectBudgetPage() {
           </footer>
         </div>
       </div>
+        </div>
 
+        <aside className="budget-fin-sidebar" aria-label="Módulos financieros">
       <FinanceModules
         baseLista={totals.lista}
         baseActivos={totals.activos}
@@ -614,10 +648,14 @@ export function ProjectBudgetPage() {
         financeParams={financeParams}
         onFinanceParamsChange={setFinanceParams}
         viewerMode={viewerMode}
+        tc={project?.tc != null ? Number(project.tc) : 3.75}
+        onTcChange={canWrite ? handleTcChange : undefined}
       />
+        </aside>
+      </div>
 
       {canWrite && (
-        <div className="panel" style={{ marginTop: 20 }}>
+        <div className="panel budget-export-panel">
           <div className="panel-hdr">
             <span className="panel-title">Exportar PDF</span>
           </div>

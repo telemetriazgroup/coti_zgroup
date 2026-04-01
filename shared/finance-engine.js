@@ -30,6 +30,9 @@ export const DEFAULT_FINANCE_PARAMS = {
   /** Horizonte meses para panel gerencial CP vs LP */
   cmpPeriod: 24,
 
+  /** Solo UI: USD (base motor) vs PEN (referencial con tc del proyecto) */
+  displayCurrency: 'USD',
+
   /** Opciones de PDF / reporte (no afectan cálculos M1–M5) */
   pdfShowRentalMonths: true,
   pdfIncludeIgv: false,
