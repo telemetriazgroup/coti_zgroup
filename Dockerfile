@@ -37,9 +37,11 @@ COPY --from=builder --chown=zgroup:zgroup /app/server ./server
 COPY --from=builder --chown=zgroup:zgroup /app/shared ./shared
 COPY --from=builder --chown=zgroup:zgroup /app/client/dist ./client/dist
 
+RUN chmod +x /app/server/docker-entrypoint.sh
+
 USER zgroup
 
 EXPOSE 3000
 
-# Seed idempotente + API que sirve /api y el SPA desde client/dist
-CMD ["sh", "-c", "node server/db/seed.js && node server/index.js"]
+# Al `docker compose up` (no en build): seed.js aplica schema + catálogo v12; luego Express + SPA
+CMD ["/app/server/docker-entrypoint.sh"]

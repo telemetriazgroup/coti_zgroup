@@ -98,11 +98,18 @@ router.get('/:id/audit', async (req, res) => {
   }
 });
 
+const cloneValidation = [
+  body('nombre').optional().isString(),
+  body('clientId').optional({ nullable: true }).isUUID(),
+  body('itemIds').optional().isArray().withMessage('itemIds debe ser un array'),
+  body('itemIds.*').optional().isUUID(),
+];
+
 // ─── POST /api/projects/:id/clone ──────────────────────────────
 router.post(
   '/:id/clone',
   requireRole('ADMIN', 'COMERCIAL'),
-  [body('nombre').optional().isString()],
+  cloneValidation,
   async (req, res) => {
     const errors = validationResult(req);
     if (!errors.isEmpty()) {
@@ -122,8 +129,31 @@ router.post(
       if (!canWriteProject(req.user, src)) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
       }
+      if (src.deleted_at) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'DELETED', message: 'No se puede clonar un proyecto archivado' },
+        });
+      }
 
       const nombre = (req.body.nombre && String(req.body.nombre).trim()) || `Copia de ${src.nombre}`;
+
+      let targetClientId = src.client_id;
+      if (Object.prototype.hasOwnProperty.call(req.body, 'clientId')) {
+        targetClientId = req.body.clientId || null;
+        if (targetClientId) {
+          const { rows: c } = await client.query(`SELECT id FROM clients WHERE id = $1`, [targetClientId]);
+          if (!c.length) {
+            return res.status(400).json({
+              success: false,
+              error: { code: 'INVALID_CLIENT', message: 'Cliente no existe' },
+            });
+          }
+        }
+      }
+
+      const itemIdsRaw = req.body.itemIds;
+      const filterByIds = Array.isArray(itemIdsRaw);
 
       await client.query('BEGIN');
 
@@ -137,15 +167,37 @@ router.post(
           (nombre, odoo_ref, client_id, status, created_by, assigned_viewer, currency, tc, finance_params)
          VALUES ($1, $2, $3, 'BORRADOR', $4, NULL, $5, $6, $7::jsonb)
          RETURNING *`,
-        [nombre, src.odoo_ref, src.client_id, req.user.id, src.currency, src.tc, JSON.stringify(fp)]
+        [nombre, src.odoo_ref, targetClientId, req.user.id, src.currency, src.tc, JSON.stringify(fp)]
       );
       const newId = ins[0].id;
 
-      const { rows: items } = await client.query(
-        `SELECT catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id
-         FROM project_items WHERE project_id = $1 ORDER BY sort_order, created_at`,
-        [req.params.id]
-      );
+      let items;
+      if (filterByIds && itemIdsRaw.length === 0) {
+        items = [];
+      } else if (filterByIds) {
+        const { rows } = await client.query(
+          `SELECT id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id
+           FROM project_items
+           WHERE project_id = $1 AND id = ANY($2::uuid[])
+           ORDER BY sort_order, created_at`,
+          [req.params.id, itemIdsRaw]
+        );
+        if (rows.length !== itemIdsRaw.length) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            success: false,
+            error: { code: 'INVALID_ITEMS', message: 'Algunas partidas no pertenecen a este proyecto' },
+          });
+        }
+        items = rows;
+      } else {
+        const { rows } = await client.query(
+          `SELECT catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id
+           FROM project_items WHERE project_id = $1 ORDER BY sort_order, created_at`,
+          [req.params.id]
+        );
+        items = rows;
+      }
 
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
@@ -177,7 +229,13 @@ router.post(
         eventType: 'PROJECT_CLONE',
         actorId: req.user.id,
         prevData: { sourceProjectId: req.params.id },
-        newData: { id: newId, nombre },
+        newData: {
+          id: newId,
+          nombre,
+          clientId: targetClientId,
+          itemCount: items.length,
+          subset: filterByIds,
+        },
         ip,
       });
 

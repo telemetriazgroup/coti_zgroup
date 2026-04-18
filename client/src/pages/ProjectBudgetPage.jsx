@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams } from 'react-router-dom';
 import { api, getText, getToken, resolveAppUrl } from '../lib/api';
 import { fetchCatalog } from '../lib/catalogApi';
 import { useAuth } from '../context/AuthContext';
@@ -17,6 +17,7 @@ function formatUsd(n) {
 
 export function ProjectBudgetPage() {
   const { projectId } = useParams();
+  const navigate = useNavigate();
   const { hasRole, user } = useAuth();
   const canWrite = hasRole('ADMIN', 'COMERCIAL');
   const isAdmin = hasRole('ADMIN');
@@ -88,6 +89,26 @@ export function ProjectBudgetPage() {
     }
   }, []);
 
+  const [accessibleProjects, setAccessibleProjects] = useState([]);
+  const [clientsList, setClientsList] = useState([]);
+  const [newProjectBusy, setNewProjectBusy] = useState(false);
+  const [dupBusy, setDupBusy] = useState(false);
+  const [newProjectForm, setNewProjectForm] = useState({
+    nombre: '',
+    odooRef: '',
+    clientMode: 'existing',
+    clientId: '',
+    newRazon: '',
+    newRuc: '',
+    newContactoNombre: '',
+    newContactoEmail: '',
+    newContactoTelefono: '',
+  });
+  const [dupNombre, setDupNombre] = useState('');
+  const [dupClientId, setDupClientId] = useState('');
+  const [dupAllItems, setDupAllItems] = useState(true);
+  const [dupItemIds, setDupItemIds] = useState(() => new Set());
+
   useEffect(() => {
     return () => {
       if (pdfPollRef.current) clearInterval(pdfPollRef.current);
@@ -143,11 +164,15 @@ export function ProjectBudgetPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [proj, budget, catData] = await Promise.all([
+      const [proj, budget, catData, projs, clData] = await Promise.all([
         api.get(`/api/projects/${projectId}`),
         api.get(`/api/projects/${projectId}/items`),
         fetchCatalog(false).then((r) => r.data),
+        api.get('/api/projects'),
+        canWrite ? api.get('/api/clients').catch(() => []) : Promise.resolve([]),
       ]);
+      setAccessibleProjects(Array.isArray(projs) ? projs : []);
+      if (canWrite && Array.isArray(clData)) setClientsList(clData);
       setProject(proj);
       const mergedFp = mergeFinanceParams(proj.financeParams);
       setFinanceParams(mergedFp);
@@ -167,7 +192,7 @@ export function ProjectBudgetPage() {
     } finally {
       setLoading(false);
     }
-  }, [projectId]);
+  }, [projectId, canWrite]);
 
   useEffect(() => {
     loadAll();
@@ -506,6 +531,99 @@ export function ProjectBudgetPage() {
     }
   }
 
+  function openDuplicateModal() {
+    if (!project) return;
+    setDupNombre(`Copia de ${project.nombre}`);
+    setDupClientId(project.clientId || '');
+    setDupAllItems(true);
+    setDupItemIds(new Set(items.map((i) => i.id)));
+    setModal('duplicateProject');
+  }
+
+  function toggleDupItem(id) {
+    setDupItemIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  }
+
+  async function submitNewProject(e) {
+    e.preventDefault();
+    if (!canWrite) return;
+    setNewProjectBusy(true);
+    setErr(null);
+    try {
+      let clientId = newProjectForm.clientId || undefined;
+      if (newProjectForm.clientMode === 'new') {
+        if (!newProjectForm.newRazon.trim()) {
+          setErr('Razón social del cliente requerida');
+          setNewProjectBusy(false);
+          return;
+        }
+        const created = await api.post('/api/clients', {
+          razonSocial: newProjectForm.newRazon.trim(),
+          ruc: newProjectForm.newRuc.trim() || undefined,
+          contactoNombre: newProjectForm.newContactoNombre.trim() || undefined,
+          contactoEmail: newProjectForm.newContactoEmail.trim() || undefined,
+          contactoTelefono: newProjectForm.newContactoTelefono.trim() || undefined,
+        });
+        clientId = created.id;
+        setClientsList((prev) => [...prev, created]);
+      }
+      const createdProj = await api.post('/api/projects', {
+        nombre: newProjectForm.nombre.trim(),
+        odooRef: newProjectForm.odooRef.trim() || undefined,
+        clientId,
+      });
+      setModal(null);
+      setNewProjectForm({
+        nombre: '',
+        odooRef: '',
+        clientMode: 'existing',
+        clientId: '',
+        newRazon: '',
+        newRuc: '',
+        newContactoNombre: '',
+        newContactoEmail: '',
+        newContactoTelefono: '',
+      });
+      navigate(`/projects/${createdProj.id}/presupuesto`);
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setNewProjectBusy(false);
+    }
+  }
+
+  async function submitDuplicateProject(e) {
+    e.preventDefault();
+    if (!canWrite || !projectId) return;
+    if (!dupAllItems && dupItemIds.size === 0) {
+      setErr('Seleccione al menos una partida o elija “Todas las partidas”.');
+      return;
+    }
+    setDupBusy(true);
+    setErr(null);
+    try {
+      const body = {
+        nombre: dupNombre.trim() || undefined,
+        clientId: dupClientId || null,
+      };
+      if (!dupAllItems) {
+        body.itemIds = Array.from(dupItemIds);
+      }
+      const createdProj = await api.post(`/api/projects/${projectId}/clone`, body);
+      setModal(null);
+      navigate(`/projects/${createdProj.id}/presupuesto`);
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setDupBusy(false);
+    }
+  }
+
   if (loading && !project) {
     return (
       <section className="view-active">
@@ -557,6 +675,52 @@ export function ProjectBudgetPage() {
             </>
           )}
         </div>
+      </div>
+
+      <div className="budget-project-bar">
+        <label className="budget-project-bar__lbl mono muted" htmlFor="budget-project-sel">
+          Proyecto
+        </label>
+        <select
+          id="budget-project-sel"
+          className="form-input budget-project-sel mono"
+          value={projectId}
+          onChange={(e) => navigate(`/projects/${e.target.value}/presupuesto`)}
+        >
+          {accessibleProjects.map((p) => (
+            <option key={p.id} value={p.id}>
+              {p.nombre}
+              {p.clientRazonSocial ? ` — ${p.clientRazonSocial}` : ''}
+            </option>
+          ))}
+        </select>
+        {canWrite && (
+          <div className="budget-project-bar__actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              onClick={() => {
+                setNewProjectForm({
+                  nombre: '',
+                  odooRef: '',
+                  clientMode: 'existing',
+                  clientId: project?.clientId || '',
+                  newRazon: '',
+                  newRuc: '',
+                  newContactoNombre: '',
+                  newContactoEmail: '',
+                  newContactoTelefono: '',
+                });
+                setModal('newProject');
+              }}
+            >
+              Nuevo proyecto
+            </button>
+            <button type="button" className="btn btn-ghost" onClick={openDuplicateModal}>
+              Duplicar / variante
+            </button>
+          </div>
+        )}
       </div>
 
       <QuotationStatusFlow
@@ -988,6 +1152,218 @@ export function ProjectBudgetPage() {
           {!pdfPreviewLoading && pdfPreviewUrl && (
             <iframe title="Vista previa PDF" className="pdf-preview-frame" src={pdfPreviewUrl} />
           )}
+        </Modal>
+      )}
+
+      {modal === 'newProject' && canWrite && (
+        <Modal
+          title="Nuevo proyecto"
+          wide
+          onClose={() => !newProjectBusy && setModal(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" disabled={newProjectBusy} onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+              <button type="submit" form="budget-new-project-form" className="btn btn-primary" disabled={newProjectBusy}>
+                {newProjectBusy ? 'Creando…' : 'Crear y abrir presupuesto'}
+              </button>
+            </>
+          }
+        >
+          <form id="budget-new-project-form" className="stack-form" onSubmit={submitNewProject}>
+            <label>
+              <span className="fg-lbl">Nombre del proyecto *</span>
+              <input
+                className="form-input"
+                required
+                value={newProjectForm.nombre}
+                onChange={(e) => setNewProjectForm((f) => ({ ...f, nombre: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Referencia Odoo (opcional)</span>
+              <input
+                className="form-input mono"
+                value={newProjectForm.odooRef}
+                onChange={(e) => setNewProjectForm((f) => ({ ...f, odooRef: e.target.value }))}
+              />
+            </label>
+            <div className="budget-modal-seg mono muted" style={{ fontSize: 11, margin: '8px 0 4px' }}>
+              Cliente
+            </div>
+            <div className="chk-row" style={{ marginBottom: 10 }}>
+              <label className="chk mono" style={{ fontSize: 12 }}>
+                <input
+                  type="radio"
+                  name="np-client-mode"
+                  checked={newProjectForm.clientMode === 'existing'}
+                  onChange={() => setNewProjectForm((f) => ({ ...f, clientMode: 'existing' }))}
+                />
+                Cliente existente
+              </label>
+              <label className="chk mono" style={{ fontSize: 12 }}>
+                <input
+                  type="radio"
+                  name="np-client-mode"
+                  checked={newProjectForm.clientMode === 'new'}
+                  onChange={() => setNewProjectForm((f) => ({ ...f, clientMode: 'new' }))}
+                />
+                Nuevo cliente
+              </label>
+            </div>
+            {newProjectForm.clientMode === 'existing' ? (
+              <label>
+                <span className="fg-lbl">Cliente</span>
+                <select
+                  className="form-input"
+                  value={newProjectForm.clientId}
+                  onChange={(e) => setNewProjectForm((f) => ({ ...f, clientId: e.target.value }))}
+                >
+                  <option value="">— Sin cliente —</option>
+                  {clientsList.map((c) => (
+                    <option key={c.id} value={c.id}>
+                      {c.razonSocial}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            ) : (
+              <>
+                <label>
+                  <span className="fg-lbl">Razón social *</span>
+                  <input
+                    className="form-input"
+                    required={newProjectForm.clientMode === 'new'}
+                    value={newProjectForm.newRazon}
+                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newRazon: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  <span className="fg-lbl">RUC (opcional)</span>
+                  <input
+                    className="form-input mono"
+                    value={newProjectForm.newRuc}
+                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newRuc: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  <span className="fg-lbl">Contacto nombre</span>
+                  <input
+                    className="form-input"
+                    value={newProjectForm.newContactoNombre}
+                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newContactoNombre: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  <span className="fg-lbl">Contacto email</span>
+                  <input
+                    type="email"
+                    className="form-input mono"
+                    value={newProjectForm.newContactoEmail}
+                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newContactoEmail: e.target.value }))}
+                  />
+                </label>
+                <label>
+                  <span className="fg-lbl">Contacto teléfono</span>
+                  <input
+                    className="form-input mono"
+                    value={newProjectForm.newContactoTelefono}
+                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newContactoTelefono: e.target.value }))}
+                  />
+                </label>
+              </>
+            )}
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'duplicateProject' && canWrite && (
+        <Modal
+          title="Duplicar proyecto (variante)"
+          wide
+          onClose={() => !dupBusy && setModal(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" disabled={dupBusy} onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+              <button type="submit" form="budget-dup-project-form" className="btn btn-primary" disabled={dupBusy}>
+                {dupBusy ? 'Duplicando…' : 'Crear copia'}
+              </button>
+            </>
+          }
+        >
+          <p className="muted mono" style={{ fontSize: 12, marginBottom: 12 }}>
+            Se crea un proyecto en <strong>BORRADOR</strong> con los mismos parámetros financieros. Elija el cliente
+            destino (puede ser otro) y qué partidas copiar.
+          </p>
+          <form id="budget-dup-project-form" className="stack-form" onSubmit={submitDuplicateProject}>
+            <label>
+              <span className="fg-lbl">Nombre del nuevo proyecto *</span>
+              <input
+                className="form-input"
+                required
+                value={dupNombre}
+                onChange={(e) => setDupNombre(e.target.value)}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Cliente del nuevo proyecto</span>
+              <select
+                className="form-input"
+                value={dupClientId}
+                onChange={(e) => setDupClientId(e.target.value)}
+              >
+                <option value="">— Sin cliente —</option>
+                {clientsList.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.razonSocial}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <div className="chk-row" style={{ marginBottom: 8 }}>
+              <label className="chk mono" style={{ fontSize: 12 }}>
+                <input
+                  type="radio"
+                  name="dup-items"
+                  checked={dupAllItems}
+                  onChange={() => setDupAllItems(true)}
+                />
+                Todas las partidas ({items.length})
+              </label>
+              <label className="chk mono" style={{ fontSize: 12 }}>
+                <input
+                  type="radio"
+                  name="dup-items"
+                  checked={!dupAllItems}
+                  onChange={() => setDupAllItems(false)}
+                />
+                Solo algunas
+              </label>
+            </div>
+            {!dupAllItems && (
+              <div className="budget-dup-items zgroup-scroll">
+                {items.length === 0 ? (
+                  <p className="muted mono">No hay partidas en este proyecto.</p>
+                ) : (
+                  items.map((row) => (
+                    <label key={row.id} className="budget-dup-item chk-row">
+                      <input
+                        type="checkbox"
+                        checked={dupItemIds.has(row.id)}
+                        onChange={() => toggleDupItem(row.id)}
+                      />
+                      <span className="mono" style={{ fontSize: 12 }}>
+                        {row.codigo} — {row.descripcion}
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
+          </form>
         </Modal>
       )}
 

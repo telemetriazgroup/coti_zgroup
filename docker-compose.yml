@@ -1,7 +1,18 @@
 # ZGROUP — API Express + SPA React (imagen multi-stage: npm run build en Docker)
-# Uso: docker compose build && docker compose up -d
-# App: http://localhost:3000  ·  API: {PUBLIC_BASE_PATH}/api/*  ·  Hash: #/login (subruta: ver README)
-# MinIO host: API :9010 · consola :9011 (MINIO_*_HOST_PORT) — interno sigue minio:9000
+#
+# Guía de despliegue (Docker Compose + subruta /madurador + Apache): deploy/README.md
+# Plantilla .env: deploy/docker-compose.env.example → copiar a .env en la raíz del repo
+#
+# Uso:
+#   cp deploy/docker-compose.env.example .env   # editar valores
+#   docker compose build && docker compose up -d
+#
+# Catálogo HTML v12 (55 ítems EST/FRI/ACC/PTA): se cargan al arrancar el contenedor `app`
+# (server/docker-entrypoint.sh → seed.js → importZgroupHtmlCatalogRows), no durante `build`.
+# `depends_on` espera Postgres sano antes de levantar la app.
+#
+# App: host ${APP_HOST_PORT:-3000} → contenedor :3000; API: {PUBLIC_BASE_PATH}/api/*; Hash #/login
+# MinIO en host: MINIO_API_HOST_PORT (9010) / consola MINIO_CONSOLE_HOST_PORT (9011)
 
 services:
 

@@ -5,7 +5,8 @@ import { fileURLToPath } from 'url';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
-// ./ = raíz (IP:3000 o dev). /coti_zgroup/ = subruta detrás de Apache (debe coincidir con PUBLIC_BASE_PATH en Node).
+// ./ = raíz (IP:3000 o dev). /coti_zgroup/ o /madurador/ = subruta detrás de Apache (mismo valor que PUBLIC_BASE_PATH en Node + barra final).
+// Producción subruta: npm run build:madurador  →  base /madurador/
 const viteBase = process.env.VITE_BASE_PATH || './';
 
 export default defineConfig({

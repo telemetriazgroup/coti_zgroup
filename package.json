@@ -9,6 +9,7 @@
     "dev:api": "nodemon server/index.js",
     "dev:client": "vite",
     "build": "vite build",
+    "build:madurador": "vite build --base /madurador/",
     "seed": "node server/db/seed.js",
     "test": "vitest run",
     "test:watch": "vitest"

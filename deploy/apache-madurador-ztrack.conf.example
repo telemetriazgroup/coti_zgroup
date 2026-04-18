@@ -1,0 +1,39 @@
+# Ejemplo Apache 2.4 — proxy inverso hacia Node en :18080 con subruta /madurador
+# Ajusta ServerName, rutas SSL y la IP/puerto del backend.
+#
+# Requisitos:
+#   sudo a2enmod proxy proxy_http headers ssl rewrite
+#   Incluir este bloque dentro de tu VirtualHost :443 (p. ej. default-ssl.conf).
+#
+# En el servidor Node (161.132.53.51:18080) debe coincidir:
+#   PUBLIC_BASE_PATH=/madurador
+#   Build Vite con base /madurador/  →  npm run build:madurador
+#
+# URL pública: https://ztrack.app/madurador/#/login  (SPA con HashRouter)
+
+<IfModule mod_ssl.c>
+<VirtualHost *:443>
+    ServerName ztrack.app
+    # SSLEngine on
+    # SSLCertificateFile ...
+    # SSLCertificateKeyFile ...
+
+    # Opcional: redirigir sin barra final
+    # RewriteEngine On
+    # RewriteRule ^/madurador$ /madurador/ [R=301,L]
+
+    ProxyPreserveHost On
+    ProxyRequests Off
+
+    # Backend: mismo path /madurador/ que sirve Express (PUBLIC_BASE_PATH=/madurador)
+    ProxyPass        /madurador/ http://161.132.53.51:18080/madurador/
+    ProxyPassReverse /madurador/ http://161.132.53.51:18080/madurador/
+
+    # Express usa TRUST_PROXY=1 para confiar en HTTPS y X-Forwarded-*
+    RequestHeader set X-Forwarded-Proto "https"
+    RequestHeader set X-Forwarded-Port "443"
+
+    # Si el proxy no añade X-Forwarded-For automáticamente (según versión/módulos):
+    # RequestHeader append X-Forwarded-For "%{REMOTE_ADDR}s"
+</VirtualHost>
+</IfModule>

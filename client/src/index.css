@@ -1287,6 +1287,48 @@ select.form-input {
 }
 
 /* ── Presupuesto (Sprint 3) ─────────────────────────────────── */
+.budget-project-bar {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px 14px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  background: var(--surface);
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+}
+.budget-project-bar__lbl {
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+.budget-project-sel {
+  flex: 1;
+  min-width: 200px;
+  max-width: min(560px, 100%);
+  cursor: pointer;
+}
+.budget-project-bar__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-left: auto;
+}
+.budget-dup-items {
+  max-height: min(48vh, 360px);
+  overflow-y: auto;
+  padding: 8px 10px;
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: var(--card);
+}
+.budget-dup-item {
+  margin-bottom: 6px;
+  cursor: pointer;
+}
+
 .budget-back-link {
   color: var(--cyan);
   text-decoration: none;
