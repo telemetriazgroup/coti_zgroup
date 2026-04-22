@@ -126,6 +126,28 @@ function baseStyles() {
     .pdf-lp-sec { margin: 16px 0 8px; border-bottom: 2pt solid #1a365d; padding-bottom: 4pt; display: flex; align-items: center; gap: 8pt; }
     .pdf-lp-sec__n { background: #1a365d; color: #fff; font-weight: 700; font-size: 10pt; padding: 2pt 8pt; border-radius: 3pt; }
     .pdf-lp-sec__t { font-weight: 700; font-size: 12pt; color: #1a365d; }
+    /* Secciones informe gerencia: cada bloque en página nueva; filas de tabla no partidas a mitad de página (Chromium) */
+    .pdf-ger-sec { break-inside: auto; }
+    .pdf-ger-sec--break { page-break-before: always; break-before: page; }
+    .pdf-ger-sec table { width: 100%; border-collapse: collapse; }
+    .pdf-ger-sec tr { break-inside: avoid; page-break-inside: avoid; }
+    .pdf-ger-sec .pdf-lp-sec { break-after: avoid; page-break-after: avoid; }
+    /* Resumen ejecutivo (gerencia): cifras y etiquetas no desbordan el marco (A4, 5 cajas) */
+    .pdf-exec-hdr { font-weight: 700; font-size: 10pt; color: #1a365d; text-transform: uppercase; letter-spacing: 1pt; margin-bottom: 6pt; }
+    .pdf-exec-kpis { display: flex; flex-wrap: wrap; gap: 8pt; margin-bottom: 14pt; width: 100%; align-items: stretch; box-sizing: border-box; }
+    .pdf-exec-kpi {
+      border: 1pt solid #e2e8f0; border-left: 4pt solid #2b6cb0; border-radius: 3pt; padding: 5pt 7pt; flex: 1 1 120px; min-width: 0; max-width: 100%;
+      box-sizing: border-box; overflow: hidden;
+    }
+    .pdf-exec-kpi__label {
+      font-size: 6.5pt; color: #718096; text-transform: uppercase; letter-spacing: 0.45pt; font-weight: 600; line-height: 1.2;
+      word-wrap: break-word; overflow-wrap: break-word;
+    }
+    .pdf-exec-kpi__value {
+      font-size: 9.5pt; font-weight: 700; color: #1a365d; font-family: ui-monospace, 'Cascadia Mono', 'JetBrains Mono', 'Segoe UI Mono', monospace;
+      line-height: 1.2; margin-top: 2pt; max-width: 100%; word-break: break-all; overflow-wrap: anywhere; hyphens: none;
+    }
+    .pdf-exec-kpi__sub { font-size: 7pt; color: #4a5568; line-height: 1.25; margin-top: 2pt; word-wrap: break-word; overflow-wrap: break-word; }
   `;
 }
 
@@ -423,10 +445,10 @@ function fmtPct1(n) {
 }
 
 function pdfV12Kpi(label, valueHtml, sub) {
-  return `<div style="border:1pt solid #e2e8f0;border-left:4pt solid #2b6cb0;border-radius:3pt;padding:6pt 10pt;flex:1;min-width:90pt">
-    <div style="font-size:7pt;color:#718096;text-transform:uppercase;letter-spacing:0.5pt;font-weight:600">${esc(label)}</div>
-    <div style="font-size:12pt;font-weight:700;color:#1a365d;font-family:monospace">${valueHtml}</div>
-    ${sub ? `<div style="font-size:7.5pt;color:#4a5568">${esc(sub)}</div>` : ''}
+  return `<div class="pdf-exec-kpi">
+    <div class="pdf-exec-kpi__label">${esc(label)}</div>
+    <div class="pdf-exec-kpi__value">${valueHtml}</div>
+    ${sub ? `<div class="pdf-exec-kpi__sub">${esc(sub)}</div>` : ''}
   </div>`;
 }
 
@@ -448,8 +470,8 @@ function buildGerenciaResumenKpis(fin, totals, items) {
     m3.enabled && m3
       ? `Banco: ${m3.lpNPrestamo}m · contrato: ${m3.lpNContrato}m total`
       : '—';
-  return `<div style="font-weight:700;font-size:10pt;color:#1a365d;text-transform:uppercase;letter-spacing:1pt;margin-bottom:6pt">Resumen ejecutivo</div>
-  <div style="display:flex;gap:8pt;flex-wrap:wrap;margin-bottom:14pt">
+  return `<div class="pdf-exec-hdr">Resumen ejecutivo</div>
+  <div class="pdf-exec-kpis">
     ${pdfV12Kpi('Base de activos', fmtUsd(totals.activos), nAct + ' ítem(s) activos')}
     ${pdfV12Kpi('Total lista (base)', fmtUsd(totals.lista), '')}
     ${pdfV12Kpi(`${labAdj} ${fmtPct1(m1.adjPct)}`, fmtUsd(m1.ventaTotal), '')}
@@ -810,6 +832,8 @@ function buildHtmlGerencia(payload) {
   const { m1, m3, m4 } = fin;
   const igvHtml = igvBlock(m1.ventaTotal, rp.pdfIncludeIgv === true);
   const lpBlo = rp.enableLp !== false && m3.enabled ? buildGerenciaLargoPlazoV12(fin, rp) : '';
+  const est5yHtml =
+    m4.fiveYearRows && m4.fiveYearRows.length ? buildGerenciaEst5yBloque(fin) : '';
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><title>Informe gerencial</title><style>${baseStyles()}</style></head><body>
 <div style="font-size:9.5pt;color:#1a202c;max-width:100%">
@@ -817,14 +841,30 @@ function buildHtmlGerencia(payload) {
   <p class="muted" style="margin:0 0 10px 0">Informe gerencial (uso interno) · ${esc(
     new Date().toLocaleString('es-PE')
   )} · motor <code>shared/finance-engine.js</code></p>
-  ${buildGerenciaResumenKpis(fin, totals, items)}
-  ${buildGerenciaPartidasBloque(items, m1)}
-  ${igvHtml}
-  ${buildGerenciaCortoPlazoBloque(fin, rp)}
-  ${lpBlo}
-  ${buildGerenciaEstacionalidadBloque(fin)}
-  ${m4.fiveYearRows && m4.fiveYearRows.length ? buildGerenciaEst5yBloque(fin) : ''}
-  ${buildGerenciaPanelM5Bloque(fin)}
+  <div class="pdf-ger-sec">
+    ${buildGerenciaResumenKpis(fin, totals, items)}
+    ${buildGerenciaPartidasBloque(items, m1)}
+    ${igvHtml}
+  </div>
+  <div class="pdf-ger-sec pdf-ger-sec--break">
+    ${buildGerenciaCortoPlazoBloque(fin, rp)}
+  </div>
+  ${
+    lpBlo
+      ? `<div class="pdf-ger-sec pdf-ger-sec--break">${lpBlo}</div>`
+      : ''
+  }
+  <div class="pdf-ger-sec pdf-ger-sec--break">
+    ${buildGerenciaEstacionalidadBloque(fin)}
+  </div>
+  ${
+    est5yHtml
+      ? `<div class="pdf-ger-sec pdf-ger-sec--break">${est5yHtml}</div>`
+      : ''
+  }
+  <div class="pdf-ger-sec pdf-ger-sec--break">
+    ${buildGerenciaPanelM5Bloque(fin)}
+  </div>
   <p class="muted" style="margin-top:12px">Presentación alineada a <code>zgroup-cotizaciones-v12-final-12.html</code> (imprimirPDF); cifras del motor M1–M5 (LP Cost-Plus v12, TEA banco, margen %).</p>
   ${footerBlock(rp)}
 </div>

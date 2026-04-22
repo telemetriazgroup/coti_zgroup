@@ -58,12 +58,12 @@
   --fin-cur-btn-on-border: rgba(0, 229, 255, 0.45);
 }
 
-/* Tema claro: slate + teal, buen contraste en inputs y tablas */
+/* Tema claro: slate + teal — superficies “soft” (evita blanco puro en cards y lee mejor a larga sesión) */
 [data-theme='light'] {
-  --bg: #e7ecf3;
-  --surface: #ffffff;
-  --card: #ffffff;
-  --card2: #f1f5f9;
+  --bg: #dde5ee;
+  --surface: #ebeef5;
+  --card: #f3f5f8;
+  --card2: #e8edf4;
   --border: #0d9488;
   --border-dim: #cbd5e1;
   --cyan: #0f766e;
@@ -80,31 +80,31 @@
   --active-nav: rgba(13, 148, 136, 0.16);
   --logo-hex-border: rgba(15, 118, 110, 0.4);
   --logo-hex-bg: rgba(15, 118, 110, 0.12);
-  --input-bg: #ffffff;
-  --input-stroke: #c7d0db;
+  --input-bg: #eef1f6;
+  --input-stroke: #b8c4d4;
   --input-focus-glow: rgba(13, 148, 136, 0.22);
   --input-placeholder: #94a3b8;
-  --table-th-bg: #f1f5f9;
+  --table-th-bg: #e4e9f1;
   --table-border: rgba(15, 23, 42, 0.1);
-  --table-row-hover: rgba(13, 148, 136, 0.08);
-  --btn-chrome: #f0fdfa;
+  --table-row-hover: rgba(13, 148, 136, 0.1);
+  --btn-chrome: #e8f3f1;
   --btn-chrome-hover: rgba(13, 148, 136, 0.14);
   --btn-chrome-shade: rgba(15, 23, 42, 0.1);
   --chip-bg: rgba(15, 23, 42, 0.06);
-  --tonal-raised: #f1f5f9;
-  --fin-acc-hover: #f8fafc;
+  --tonal-raised: #e2e8f0;
+  --fin-acc-hover: #e8edf4;
   --scroll-a: rgba(15, 118, 110, 0.55);
   --scroll-b: rgba(45, 212, 191, 0.35);
   --scroll-track: #e2e8f0;
   --panel-shadow-1: 0 1px 2px rgba(15, 23, 42, 0.06);
-  --data-table-td-zebra: #fafbfc;
+  --data-table-td-zebra: #e9eef5;
   --btn-surface: rgba(13, 148, 136, 0.1);
   --btn-surface-hover: rgba(13, 148, 136, 0.16);
   --btn-surface-primary: rgba(13, 148, 136, 0.16);
   --btn-border-accent: rgba(15, 118, 110, 0.42);
-  --fin-panel-hdr: #f1f5f9;
-  --fin-cur-bar-bg: #ffffff;
-  --fin-cur-bar-border: #c7d0db;
+  --fin-panel-hdr: #e4e9f1;
+  --fin-cur-bar-bg: #f0f2f6;
+  --fin-cur-bar-border: #b8c4d4;
   --fin-cur-btn-on-bg: rgba(13, 148, 136, 0.14);
   --fin-cur-btn-on-border: rgba(15, 118, 110, 0.45);
 }
