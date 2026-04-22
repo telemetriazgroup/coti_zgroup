@@ -82,18 +82,32 @@ describe('finance-engine — M3 largo plazo', () => {
     assert.ok(Math.abs(c - pv / n) < 1e-6);
   });
 
-  it('spread negativo cuando tasa cliente < banco (mismo N)', () => {
+  it('M3 Cost-Plus (v12): renta F1 = costoBase × (1 + margen/100), spread = costoBase × margen', () => {
     const { m3 } = computeFinance({
-      baseLista: 50000,
+      baseLista: 10000,
       params: {
-        lpTeaBanco: 15,
-        lpTeaCot: 7,
+        adjPct: 0,
         lpN: 24,
         lpNContrato: 36,
         lpForm: 350,
+        lpTeaBanco: 7,
+        lpMargen: 30,
+        lpOp: 5,
       },
     });
-    assert.strictEqual(m3.lpSpreadNegative, true);
+    const costo = m3.costoBase;
+    assert.ok(costo > 0);
+    assert.ok(Math.abs(m3.lpRentaF1 - costo * 1.3) < 0.02, `renta ${m3.lpRentaF1} vs ${costo * 1.3}`);
+    assert.ok(Math.abs(m3.lpSpread - costo * 0.3) < 0.02);
+    assert.strictEqual(m3.lpMargenNegativo, false);
+  });
+
+  it('M3 margen negativo: bandera', () => {
+    const { m3 } = computeFinance({
+      baseLista: 10000,
+      params: { lpMargen: -5 },
+    });
+    assert.strictEqual(m3.lpMargenNegativo, true);
   });
 
   it('amortización: último saldo residual pequeño', () => {

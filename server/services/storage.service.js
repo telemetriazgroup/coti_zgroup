@@ -57,10 +57,28 @@ async function getSignedGetUrl(key, expiresInSeconds = 900) {
   return getSignedUrl(client, cmd, { expiresIn: expiresInSeconds });
 }
 
+/**
+ * Lee objeto desde el endpoint interno (servidor → MinIO).
+ * Uso: proxy HTTP al navegador con JWT (evita firmar con host inaccesible en producción).
+ */
+async function getObjectStream(key) {
+  await ensureBucket();
+  const client = getClientForUpload();
+  const out = await client.send(
+    new GetObjectCommand({ Bucket: getBucket(), Key: key })
+  );
+  return {
+    body: out.Body,
+    contentType: out.ContentType || 'application/octet-stream',
+    contentLength: out.ContentLength,
+  };
+}
+
 module.exports = {
   ensureBucket,
   uploadObject,
   deleteObject,
   getSignedGetUrl,
+  getObjectStream,
   isStorageConfigured,
 };

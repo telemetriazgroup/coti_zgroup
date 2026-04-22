@@ -1,6 +1,7 @@
 /**
  * Motor financiero ZGROUP M1–M4 (puro, sin I/O).
- * Lógica alineada a zgroup-cotizaciones-v10-final.html y modulo financiero.md
+ * M3 largo plazo: modelo Cost-Plus (zgroup-cotizaciones-v12-final-12.html) —
+ * renta F1 = (cuota banco + GOP) × (1 + margen%), no TEA al cliente.
  * ESM (shared/package.json "type": "module") para Vite/Rollup y Vitest.
  */
 export const DEFAULT_FINANCE_PARAMS = {
@@ -18,7 +19,8 @@ export const DEFAULT_FINANCE_PARAMS = {
   lpNContrato: 36,
   lpVida: 120,
   lpTeaBanco: 7,
-  lpTeaCot: 15,
+  /** % margen ZGROUP (Cost-Plus) sobre costo base = cuota banco + GOP */
+  lpMargen: 30,
   lpOp: 5,
   lpForm: 350,
   lpPostPct: 80,
@@ -146,7 +148,8 @@ export function computeFinance(input) {
   let lpNContrato = Math.max(lpNPrestamo, p.lpNContrato || 36);
   const lpVida = Math.max(1, p.lpVida || 120);
   const lpTeaBanco = (p.lpTeaBanco || 7) / 100;
-  const lpTeaCot = (p.lpTeaCot || 15) / 100;
+  const lpMargenPct = p.lpMargen != null && Number.isFinite(Number(p.lpMargen)) ? Number(p.lpMargen) : 30;
+  const lpMargen = lpMargenPct / 100;
   const lpOp = p.lpOp || 5;
   const lpForm = p.lpForm || 350;
   const lpPostPct = (p.lpPostPct || 80) / 100;
@@ -154,19 +157,17 @@ export function computeFinance(input) {
 
   const totalFin = ventaTotal + lpForm;
   const temBanco = lpTeaBanco > 0 ? Math.pow(1 + lpTeaBanco, 1 / 12) - 1 : 0;
-  const temCot = lpTeaCot > 0 ? Math.pow(1 + lpTeaCot, 1 / 12) - 1 : 0;
 
   let cuotaBanco = 0;
-  let cuotaCliente = 0;
   if (totalFin > 0 && lpNPrestamo > 0) {
     cuotaBanco = frenchPayment(totalFin, temBanco, lpNPrestamo);
-    cuotaCliente = frenchPayment(totalFin, temCot, lpNPrestamo);
   }
 
-  const lpSpreadVal = cuotaCliente - cuotaBanco;
   const lpGop = (ventaTotal * (lpOp / 100)) / 12;
-
-  const lpRentaF1 = cuotaCliente + lpGop;
+  // v12: costo base real; renta = costo × (1 + margen) → oferta LP más baja si plazo banco sube
+  const costoBase = cuotaBanco + lpGop;
+  const lpSpreadVal = costoBase * lpMargen;
+  const lpRentaF1 = costoBase * (1 + lpMargen);
   const lpGanF1 = lpSpreadVal;
   const lpTotalGanF1 = lpGanF1 * lpNPrestamo;
 
@@ -181,7 +182,7 @@ export function computeFinance(input) {
   const lpTotalCiclo = lpTotalGanF1 + lpTotalGanF2;
   const lpPE = lpGanF1 > 0 ? Math.ceil(lpForm / lpGanF1) : 0;
 
-  const lpSpreadNegative = cuotaCliente < cuotaBanco - 1e-9;
+  const lpMargenNegativo = lpMargen < 0;
 
   const amort = buildAmortizationSchedule(totalFin, temBanco, lpNPrestamo, cuotaBanco);
 
@@ -191,16 +192,15 @@ export function computeFinance(input) {
     lpNContrato,
     lpVida,
     lpTeaBancoPct: p.lpTeaBanco || 7,
-    lpTeaCotPct: p.lpTeaCot || 15,
+    lpMargenPct,
     lpOp,
     lpForm,
     lpPostPct: p.lpPostPct || 80,
     lpFondoRepPct: p.lpFondoRep || 5,
     totalFinanciado: totalFin,
     temBanco,
-    temCliente: temCot,
+    costoBase,
     cuotaBanco,
-    cuotaCliente,
     lpSpread: lpSpreadVal,
     lpGop,
     lpRentaF1,
@@ -216,7 +216,7 @@ export function computeFinance(input) {
     activarFondoReposicion: activarFondo,
     contratoUmbralMeses: Math.round(contrUmbral),
     lpFondoMensual,
-    lpSpreadNegative,
+    lpMargenNegativo,
     amortization: amort.rows,
     timeline: {
       f1Pct: lpNContrato > 0 ? (lpNPrestamo / lpNContrato) * 100 : 0,
@@ -370,7 +370,7 @@ export function computeFinance(input) {
       `Horizonte ${cmpPeriod}m: utilidad acumulada CP ${cpTot.toFixed(2)} USD vs LP ${lpTotInPeriod.toFixed(2)} USD. ` +
       (roiAnual != null ? `ROI anual CP sobre capital ~${roiAnual.toFixed(1)}%.` : '');
   } else {
-    veredicto = `LP Fase 1 es más cara que CP (${diffRenta.toFixed(2)} USD/mes). Ajustar tasa de cotización LP para competir.`;
+    veredicto = `LP Fase 1 es más cara que CP (${diffRenta.toFixed(2)} USD/mes). Ajustar margen Cost-Plus, plazos o parámetros CP.`;
   }
 
   const m5 = {

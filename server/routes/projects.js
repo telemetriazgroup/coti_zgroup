@@ -176,7 +176,7 @@ router.post(
         items = [];
       } else if (filterByIds) {
         const { rows } = await client.query(
-          `SELECT id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id
+          `SELECT id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id
            FROM project_items
            WHERE project_id = $1 AND id = ANY($2::uuid[])
            ORDER BY sort_order, created_at`,
@@ -192,7 +192,7 @@ router.post(
         items = rows;
       } else {
         const { rows } = await client.query(
-          `SELECT catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id
+          `SELECT catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id
            FROM project_items WHERE project_id = $1 ORDER BY sort_order, created_at`,
           [req.params.id]
         );
@@ -203,8 +203,8 @@ router.post(
         const it = items[i];
         await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, qty, is_custom, sort_order, category_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)`,
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
           [
             newId,
             it.catalog_item_id,
@@ -213,6 +213,7 @@ router.post(
             it.unidad,
             it.tipo,
             it.unit_price,
+            it.official_unit_price != null ? it.official_unit_price : it.unit_price,
             it.qty,
             it.is_custom,
             i,

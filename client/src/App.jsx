@@ -27,6 +27,21 @@ function RequireAuth() {
   return <Outlet />;
 }
 
+function RequireAdmin() {
+  const { user, ready } = useAuth();
+  if (!ready) {
+    return (
+      <div className="boot-screen">
+        <div className="boot-spinner" />
+        <p className="boot-text mono">Cargando…</p>
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (user.role !== 'ADMIN') return <Navigate to="/dashboard" replace />;
+  return <Outlet />;
+}
+
 export function App() {
   return (
     <Routes>
@@ -35,14 +50,16 @@ export function App() {
         <Route element={<AppShell />}>
           <Route index element={<Navigate to="dashboard" replace />} />
           <Route path="dashboard" element={<DashboardPage />} />
-          <Route path="employees" element={<EmployeesPage />} />
-          <Route path="clients" element={<ClientsPage />} />
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId/presupuesto" element={<ProjectBudgetPage />} />
           <Route path="projects/:projectId/planos" element={<ProjectPlansPage />} />
-          <Route path="catalog" element={<CatalogPage />} />
-          <Route path="users" element={<UsersPage />} />
           <Route path="guia" element={<UserGuidePage />} />
+          <Route element={<RequireAdmin />}>
+            <Route path="clients" element={<ClientsPage />} />
+            <Route path="catalog" element={<CatalogPage />} />
+            <Route path="employees" element={<EmployeesPage />} />
+            <Route path="users" element={<UsersPage />} />
+          </Route>
         </Route>
       </Route>
     </Routes>

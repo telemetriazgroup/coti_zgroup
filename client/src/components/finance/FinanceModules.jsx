@@ -51,8 +51,8 @@ const HINT = {
     'Duración total del contrato con el cliente (≥ plazo préstamo). Después del préstamo sigue la fase F2 con otra renta.',
   lpTeaBanco:
     'Tasa Efectiva Anual del financiamiento bancario. Entra en la cuota del préstamo (sistema francés).',
-  lpTeaCot:
-    'TEA cobrada o referida al cliente en la cuota. El spread respecto al banco es parte del análisis M3.',
+  lpMargen:
+    'Modelo Cost-Plus (v12): porcentaje sobre el costo base (cuota banco + gastos op.). A mayor plazo de préstamo, la cuota bancaria baja y, con ello, la renta al cliente; el margen % se aplica sobre ese costo base.',
   lpOp:
     'Gastos operativos anualizados sobre el valor de venta, convertidos a costo mensual en LP (como en CP).',
   lpForm:
@@ -192,7 +192,7 @@ export function FinanceModules({
       <div className="fin-panel__head">
         <h2 className="fin-panel__title">Módulos financieros</h2>
         <p className="fin-panel__intro">
-          <strong>M1</strong> fija el total de venta; <strong>M2–M4</strong> en cascada (CP / LP / estacionalidad).{' '}
+          <strong>M1</strong> fija el total de venta; <strong>M2–M4</strong> en cascada (CP / LP cost-plus / estacionalidad).{' '}
           <strong>M5</strong> compara con el PDF Gerencia. Importes en USD (motor); vista PEN referencial con T.C.
         </p>
         <FinCurrencyBar
@@ -245,24 +245,24 @@ export function FinanceModules({
         onToggle={toggle}
       >
         {!hideSensitive && (
-          <div className="fin-row fin-row--modes">
+          <div className="fin-row fin-row--modes" role="group" aria-label="Tipo de ajuste M1">
             <button
               type="button"
-              className={`fin-pill ${m1.adjType === 'margin' ? 'fin-pill--on' : ''}`}
+              className={`fin-pill fin-pill--mode${m1.adjType === 'margin' ? ' fin-pill--on' : ''}`}
               onClick={() => patch({ adjType: 'margin' })}
             >
               Margen seguridad
             </button>
             <button
               type="button"
-              className={`fin-pill ${m1.adjType === 'discount' ? 'fin-pill--on' : ''}`}
+              className={`fin-pill fin-pill--mode${m1.adjType === 'discount' ? ' fin-pill--on' : ''}`}
               onClick={() => patch({ adjType: 'discount' })}
             >
               Descuento
             </button>
           </div>
         )}
-        <div className="fin-grid">
+        <div className="fin-grid fin-grid--m1">
           <FinParam
             label={m1.adjType === 'margin' ? 'Margen (+) %' : 'Descuento (−) %'}
             hint={HINT.adjPct}
@@ -270,7 +270,7 @@ export function FinanceModules({
             <input
               type="number"
               step="0.5"
-              className="form-input mono fin-input-lg"
+              className="form-input mono fin-input-lg fin-m1-pct-input"
               disabled={hideSensitive}
               value={p.adjPct ?? 0}
               onChange={(e) => patch({ adjPct: parseFloat(e.target.value) || 0 })}
@@ -421,7 +421,7 @@ export function FinanceModules({
         badgeNum="3"
         tone="green"
         title="LARGO PLAZO"
-        titleExtra="BANCO FINANCIA"
+        titleExtra="BANCO + COST-PLUS"
         headerRight={p.enableLp === false ? '—' : `${fmt(m3.lpRentaF1)}/m F1`}
         open={open.m3}
         onToggle={toggle}
@@ -475,13 +475,15 @@ export function FinanceModules({
                     onChange={(e) => patch({ lpTeaBanco: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
-                <FinParam label="TEA cotización cliente %" hint={HINT.lpTeaCot}>
+                <FinParam label="Margen ZGROUP % (Cost-Plus)" hint={HINT.lpMargen}>
                   <input
                     type="number"
-                    step="0.1"
+                    step="0.5"
+                    min={-100}
+                    max={300}
                     className="form-input mono fin-input-lg"
-                    value={p.lpTeaCot}
-                    onChange={(e) => patch({ lpTeaCot: parseFloat(e.target.value) || 0 })}
+                    value={p.lpMargen ?? 30}
+                    onChange={(e) => patch({ lpMargen: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
                 <FinParam label="Gtos. op. % anual" hint={HINT.lpOp}>
@@ -522,10 +524,16 @@ export function FinanceModules({
                 </FinParam>
               </div>
             )}
-            {m3.lpSpreadNegative && !hideSensitive && (
+            {m3.lpMargenNegativo && !hideSensitive && (
               <div className="banner banner--err mono">
-                Tasa cliente &lt; TEA banco: spread negativo. Ajuste tasas.
+                Margen Cost-Plus negativo: la renta F1 queda por debajo del costo base. Revise el porcentaje.
               </div>
+            )}
+            {!hideSensitive && (
+              <p className="mono fin-costplus-note" style={{ fontSize: 11, color: 'var(--amber)', lineHeight: 1.5, marginTop: 4 }}>
+                Cost-Plus: renta = (cuota banco + gtos. op.) × (1 + margen%). A mayor plazo bancario, la cuota baja y la
+                renta baja; el spread en $ es margen% sobre el costo base.
+              </p>
             )}
             <div className="fin-timeline mono">
               <div className="fin-timeline__bar">
@@ -555,11 +563,17 @@ export function FinanceModules({
                   <span>{fmt(m3.cuotaBanco)}</span>
                 </div>
                 <div className="fin-table__row">
-                  <span>Cuota cliente (mismo N)</span>
-                  <span>{fmt(m3.cuotaCliente)}</span>
+                  <span>Gtos. op. (/mes, sobre venta)</span>
+                  <span>{fmt(m3.lpGop)}</span>
                 </div>
                 <div className="fin-table__row">
-                  <span>Spread / mes</span>
+                  <span>Costo base (Banco + GtosOp)</span>
+                  <span>{fmt(m3.costoBase)}</span>
+                </div>
+                <div className="fin-table__row">
+                  <span>
+                    Util. F1 / mes (margen {m3.lpMargenPct}%)
+                  </span>
                   <span>{fmt(m3.lpSpread)}</span>
                 </div>
                 <div className="fin-table__row fin-table__row--hi">
@@ -590,7 +604,8 @@ export function FinanceModules({
             )}
             {m3.activarFondoReposicion && !hideSensitive && (
               <div className="banner banner--warn mono" style={{ marginTop: 8 }}>
-                Contrato &gt; 80% vida útil: fondo reposición {fmt(m3.lpFondoMensual)}/mes.
+                Contrato ({m3.lpNContrato}m) &gt; 80% de vida útil ({m3.contratoUmbralMeses}m): se activa fondo de
+                reposición {m3.lpFondoRepPct}% anual ≈ {fmt(m3.lpFondoMensual)}/mes sobre activo.
               </div>
             )}
             {!hideSensitive && (

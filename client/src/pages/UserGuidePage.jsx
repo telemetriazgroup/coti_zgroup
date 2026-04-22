@@ -100,8 +100,9 @@ export function UserGuidePage() {
                 gerencial en dashboard, todos los proyectos.
               </li>
               <li>
-                <strong className="mono">COMERCIAL</strong> — Sus proyectos, clientes, cotizaciones, catálogo
-                (lectura), exportación PDF, mi ficha de empleado.
+                <strong className="mono">COMERCIAL</strong> — Sus proyectos y cotizaciones; en el menú solo
+                Dashboard y Proyectos. El resumen del dashboard muestra sus números (proyectos, clientes vinculados,
+                lista). Clientes (CRM), catálogo, empleados y usuarios los gestiona solo ADMIN.
               </li>
               <li>
                 <strong className="mono">VIEWER</strong> — Solo lectura del proyecto asignado (presupuesto y
@@ -112,8 +113,9 @@ export function UserGuidePage() {
 
           <GuideSection id="dashboard" title="Dashboard y reportes">
             <p>
-              En <Link to="/dashboard">Dashboard</Link> verás un resumen según tu rol: número de proyectos
-              visibles, clientes y tu rol.
+              En <Link to="/dashboard">Dashboard</Link>, <strong>ADMIN</strong> ve totales globales y el panel
+              gerencial. <strong>COMERCIAL</strong> y <strong>VIEWER</strong> ven solo los números de sus proyectos
+              (y montos de lista asociados), no el CRM completo.
             </p>
             {isAdmin && (
               <>
@@ -270,19 +272,27 @@ export function UserGuidePage() {
           </GuideSection>
 
           <GuideSection id="clientes" title="Clientes (CRM)">
-            <Steps
-              items={[
-                'En Clientes alta, edición y búsqueda de razón social y datos de contacto.',
-                'Al crear o editar un proyecto puedes asociar un cliente existente.',
-              ]}
-            />
+            {isAdmin ? (
+              <Steps
+                items={[
+                  'Desde el menú Clientes: alta, edición y búsqueda de razón social y datos de contacto.',
+                  'Al crear o editar un proyecto puedes asociar un cliente existente.',
+                ]}
+              />
+            ) : (
+              <p className="muted">
+                La administración del CRM (listado y edición de clientes) es solo <strong>ADMIN</strong>. En{' '}
+                <strong>Proyectos</strong> y en el flujo de nuevo proyecto podés elegir un cliente existente o dar de
+                alta uno si el API lo permite en tu flujo de trabajo.
+              </p>
+            )}
           </GuideSection>
 
           <GuideSection id="catalogo" title="Catálogo">
             <p>
-              El <strong>catálogo</strong> agrupa partidas por categorías (ADMIN puede reorganizar y
-              mantener ítems). COMERCIAL usa el catálogo al armar presupuestos desde el panel lateral del
-              presupuesto.
+              El <strong>catálogo</strong> agrupa partidas por categorías. La pantalla <strong>Catálogo</strong> del
+              menú (importación, categorías e ítems) es solo <strong>ADMIN</strong>. Los comerciales usan el mismo
+              catálogo desde el <strong>panel lateral del presupuesto</strong> de cada proyecto.
             </p>
             <Steps
               items={[
@@ -305,15 +315,9 @@ export function UserGuidePage() {
               </>
             ) : (
               <>
-                <Steps
-                  items={[
-                    'Mi ficha: actualiza tus datos personales (cargo, teléfono, DNI, foto por URL, fecha de ingreso, notas).',
-                    'La administración de cuentas y el listado de todo el equipo corresponde a usuarios ADMIN.',
-                  ]}
-                />
                 <p className="muted">
-                  Si necesitas una ficha de empleado y no aparece, solicita a un administrador que la cree en
-                  Empleados.
+                  El menú <strong>Empleados</strong> y <strong>Usuarios</strong> es solo <strong>ADMIN</strong>. La
+                  administración de fichas y cuentas la coordina el equipo administrativo.
                 </p>
               </>
             )}

@@ -3,6 +3,7 @@ import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 
 const LS_SIDEBAR = 'zgroup_sidebar_open';
+const LS_THEME = 'zgroup-theme';
 
 function readSidebarOpenDesktop() {
   if (typeof window === 'undefined') return true;
@@ -21,6 +22,26 @@ export function AppShell() {
     if (window.matchMedia('(max-width: 900px)').matches) return false;
     return readSidebarOpenDesktop();
   });
+
+  const [theme, setTheme] = useState(() => {
+    if (typeof document === 'undefined') return 'dark';
+    return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
+  });
+
+  const toggleTheme = useCallback(() => {
+    setTheme((prev) => {
+      const next = prev === 'dark' ? 'light' : 'dark';
+      if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-theme', next);
+        try {
+          localStorage.setItem(LS_THEME, next);
+        } catch {
+          /* ignore */
+        }
+      }
+      return next;
+    });
+  }, []);
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 900px)');
@@ -117,29 +138,33 @@ export function AppShell() {
             </svg>
             Proyectos
           </NavLink>
-          <NavLink to="/clients" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z" />
-            </svg>
-            Clientes
-          </NavLink>
-          <NavLink to="/catalog" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
-              <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
-            </svg>
-            Catálogo
-          </NavLink>
-          <NavLink to="/employees" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
-            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" />
-            </svg>
-            {hasRole('ADMIN') ? 'Empleados' : 'Mi ficha'}
-          </NavLink>
           {hasRole('ADMIN') && (
             <>
               <div className="sb-section">Administración</div>
-              <NavLink to="/users" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+              <NavLink to="/clients" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z" />
+                </svg>
+                Clientes
+              </NavLink>
+              <NavLink to="/catalog" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+                </svg>
+                Catálogo
+              </NavLink>
+              <NavLink to="/employees" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" />
+                </svg>
+                Empleados
+              </NavLink>
+              <NavLink
+                to="/users"
+                className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
+                onClick={closeSidebarMobile}
+              >
                 <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path d="M16 21v-2a4 4 0 00-4-4H6a4 4 0 00-4 4v2M12 7a4 4 0 100-8 4 4 0 000 8z" />
                 </svg>
@@ -188,6 +213,27 @@ export function AppShell() {
             <span className="hdr-section">Sistema</span>
             <span className="hdr-sep">/</span>
             <span className="hdr-title">Workspace</span>
+          </div>
+          <div className="theme-toggle" title="Tema de la interfaz">
+            <span className="theme-toggle__lbl">Tema</span>
+            <button
+              type="button"
+              className="theme-toggle__btn"
+              onClick={toggleTheme}
+              aria-pressed={theme === 'light'}
+              aria-label={theme === 'dark' ? 'Activar tema claro' : 'Activar tema oscuro'}
+            >
+              {theme === 'dark' ? (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <circle cx="12" cy="12" r="4" />
+                  <path d="M12 2v2M12 20v2M4.93 4.93l1.41 1.41M17.66 17.66l1.41 1.41M2 12h2M20 12h2M4.93 19.07l1.41-1.41M17.66 6.34l1.41-1.41" />
+                </svg>
+              ) : (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                  <path d="M21 12.79A9 9 0 1111.21 3 7 7 0 0021 12.79z" />
+                </svg>
+              )}
+            </button>
           </div>
         </header>
         <main id="content">

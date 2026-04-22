@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { api, getText, getToken, resolveAppUrl } from '../lib/api';
+import { api, getText, getToken, resolveAppUrl, postFormData, downloadGet } from '../lib/api';
 import { fetchCatalog } from '../lib/catalogApi';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
@@ -15,12 +16,25 @@ function formatUsd(n) {
   return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(n);
 }
 
+function parsePriceDraft(s) {
+  const p = parseFloat(String(s ?? '').replace(',', '.'));
+  return Number.isNaN(p) ? null : p;
+}
+
+/** Precio de lista (ref.) vs asumido en cotización. */
+function unitPricesDiffer(official, current) {
+  if (official == null || current == null) return false;
+  return Math.abs(Number(official) - Number(current)) > 0.005;
+}
+
 export function ProjectBudgetPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
   const { hasRole, user } = useAuth();
   const canWrite = hasRole('ADMIN', 'COMERCIAL');
   const isAdmin = hasRole('ADMIN');
+  /** Editar celdas, quitar línea y limpiar presupuesto: solo admin (COMERCIAL puede añadir desde catálogo). */
+  const canEditBudgetLines = isAdmin;
   const viewerMode = user?.role === 'VIEWER';
 
   const [project, setProject] = useState(null);
@@ -63,6 +77,11 @@ export function ProjectBudgetPage() {
   const [pdfPreviewUrl, setPdfPreviewUrl] = useState(null);
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
   const [pdfPreviewErr, setPdfPreviewErr] = useState(null);
+  const [budgetImportModal, setBudgetImportModal] = useState(false);
+  const [budgetImportPreview, setBudgetImportPreview] = useState(null);
+  const [budgetImportBusy, setBudgetImportBusy] = useState(false);
+  const budgetImportInputRef = useRef(null);
+  const [budgetLineMetaId, setBudgetLineMetaId] = useState(null);
 
   /** Alta rápida de catálogo (solo ADMIN; API /api/catalog/*) */
   const [catalogModal, setCatalogModal] = useState(null);
@@ -158,6 +177,22 @@ export function ProjectBudgetPage() {
     const t = setTimeout(() => setQDebounced(qInput), 200);
     return () => clearTimeout(t);
   }, [qInput]);
+
+  useEffect(() => {
+    if (budgetLineMetaId == null) {
+      return undefined;
+    }
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    const onKey = (e) => {
+      if (e.key === 'Escape') setBudgetLineMetaId(null);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.body.style.overflow = prev;
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [budgetLineMetaId]);
 
   const loadAll = useCallback(async () => {
     if (!projectId) return;
@@ -269,12 +304,13 @@ export function ProjectBudgetPage() {
   function setDraft(id, field, value) {
     draftsRef.current[id] = { ...getDraft(id), [field]: value };
     force();
-    if (!canWrite) return;
+    if (!canEditBudgetLines) return;
     if (flushTimers.current[id]) clearTimeout(flushTimers.current[id]);
     flushTimers.current[id] = setTimeout(() => flushRow(id), 300);
   }
 
   async function flushRow(id) {
+    if (!canEditBudgetLines) return;
     const d = draftsRef.current[id];
     const cur = itemsRef.current.find((x) => x.id === id);
     if (!d || !cur) return;
@@ -359,7 +395,7 @@ export function ProjectBudgetPage() {
   }
 
   async function clearBudget() {
-    if (!canWrite) return;
+    if (!canEditBudgetLines) return;
     setErr(null);
     try {
       const data = await api.del(`/api/projects/${projectId}/items`);
@@ -433,7 +469,7 @@ export function ProjectBudgetPage() {
   }
 
   async function removeItem(id) {
-    if (!canWrite) return;
+    if (!canEditBudgetLines) return;
     setErr(null);
     setDeletingId(id);
     try {
@@ -445,6 +481,77 @@ export function ProjectBudgetPage() {
       setErr(e.message);
     } finally {
       setDeletingId(null);
+    }
+  }
+
+  const downloadBudgetLines = useCallback(
+    async (format) => {
+      if (!projectId) return;
+      setErr(null);
+      try {
+        const blob = await downloadGet(
+          `/api/projects/${projectId}/items/export?format=${encodeURIComponent(format)}`
+        );
+        const ext = format === 'csv' ? 'csv' : 'xlsx';
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `presupuesto-lineas-${projectId}.${ext}`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+      } catch (e) {
+        setErr(e.message);
+      }
+    },
+    [projectId]
+  );
+
+  async function onBudgetImportFile(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !projectId) return;
+    setBudgetImportBusy(true);
+    setErr(null);
+    try {
+      const fd = new FormData();
+      fd.append('file', file);
+      const data = await postFormData(`/api/projects/${projectId}/items/import/preview`, fd);
+      setBudgetImportPreview(data);
+      setBudgetImportModal(true);
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setBudgetImportBusy(false);
+    }
+  }
+
+  async function applyBudgetImport() {
+    if (!budgetImportPreview?.results?.length || !projectId) return;
+    const toApply = budgetImportPreview.results
+      .filter((r) => (r.matchType === 'codigo' || r.matchType === 'descripcion') && r.catalogItem?.id)
+      .map((r) => {
+        const o = { catalogItemId: r.catalogItem.id, qty: Number(r.qty) };
+        if (r.unitPrice != null && Number.isFinite(Number(r.unitPrice)))
+          o.unitPrice = Number(r.unitPrice);
+        return o;
+      });
+    if (!toApply.length) {
+      setErr('No hay filas para importar: se requiere coincidencia exacta con el catálogo (código o descripción).');
+      return;
+    }
+    setBudgetImportBusy(true);
+    setErr(null);
+    try {
+      const data = await api.post(`/api/projects/${projectId}/items/import/apply`, { items: toApply });
+      setItems(data.items);
+      setTotals(data.totals);
+      if (data.projectStatus != null) setProjectStatus(data.projectStatus);
+      syncDraftFromItems(data.items);
+      setBudgetImportModal(false);
+      setBudgetImportPreview(null);
+    } catch (e3) {
+      setErr(e3.message);
+    } finally {
+      setBudgetImportBusy(false);
     }
   }
 
@@ -660,19 +767,19 @@ export function ProjectBudgetPage() {
         </div>
         <div className="page-header-actions">
           {canWrite && (
-            <>
-              <button type="button" className="btn btn-ghost" onClick={() => setModal('custom')}>
-                Pieza personalizada
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost"
-                style={{ color: 'var(--red)' }}
-                onClick={() => setModal('clear')}
-              >
-                Limpiar
-              </button>
-            </>
+            <button type="button" className="btn btn-ghost" onClick={() => setModal('custom')}>
+              Pieza personalizada
+            </button>
+          )}
+          {canEditBudgetLines && (
+            <button
+              type="button"
+              className="btn btn-ghost"
+              style={{ color: 'var(--red)' }}
+              onClick={() => setModal('clear')}
+            >
+              Limpiar
+            </button>
           )}
         </div>
       </div>
@@ -733,6 +840,47 @@ export function ProjectBudgetPage() {
           setProjectStatus(data.status);
         }}
       />
+
+      <div className="panel budget-io-panel">
+        <div className="panel-hdr">
+          <span className="panel-title">Exportar / importar líneas</span>
+        </div>
+        <p className="muted mono budget-io-panel__help">
+          <span className="mono" style={{ color: 'var(--cyan)' }}>Exportar:</span> solo identificación y cantidades (sin
+          precios ni subtotales), para compartir con proyectos. <span className="mono" style={{ color: 'var(--amber)' }}>Importar:</span> fila
+          1 = encabezados; hace falta cantidad y código o descripción. Opcional: precio unitario en el archivo para alinear
+          con el presupuesto. Match exacto con el catálogo (código o descripción); la vista previa detalla el resultado.
+        </p>
+        <div className="budget-io-actions">
+          <button type="button" className="btn btn-ghost mono" onClick={() => downloadBudgetLines('xlsx')}>
+            Descargar Excel
+          </button>
+          <button type="button" className="btn btn-ghost mono" onClick={() => downloadBudgetLines('csv')}>
+            Descargar CSV
+          </button>
+          {canWrite && (
+            <>
+              <input
+                ref={budgetImportInputRef}
+                type="file"
+                className="budget-io-file"
+                accept=".xlsx,.xls,.csv"
+                onChange={onBudgetImportFile}
+                title="Elegir archivo Excel o CSV"
+                aria-label="Elegir archivo Excel o CSV para importar"
+              />
+              <button
+                type="button"
+                className="btn btn-primary mono"
+                disabled={budgetImportBusy}
+                onClick={() => budgetImportInputRef.current?.click()}
+              >
+                {budgetImportBusy && !budgetImportModal ? 'Analizando…' : 'Importar lista…'}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
 
       <ProjectWorkNav />
 
@@ -855,19 +1003,36 @@ export function ProjectBudgetPage() {
 
         <div className="budget-panel budget-panel--table">
           <h2 className="budget-panel-title">Líneas del presupuesto</h2>
+          <p className="budget-table-hint mono muted" role="note">
+            En pantallas estrechas, desliza la tabla para ver importes y totales. Categoría y tipo: toca el icono
+            (i) en cada fila.
+          </p>
           <div className="table-wrap budget-table-wrap zgroup-scroll">
-            <table className="data-table">
+            <table className="data-table data-table--budget">
               <thead>
                 <tr>
-                  <th>Código</th>
-                  <th>Descripción</th>
-                  <th>Categoría</th>
-                  <th>Tipo</th>
+                  <th className="num budget-col-idx" scope="col" title="N.º de partida">
+                    #
+                  </th>
+                  <th className="budget-th-codigo">Código</th>
+                  <th className="budget-th-desc">Descripción</th>
+                  <th
+                    className="budget-col-meta"
+                    scope="col"
+                    title="Categoría y tipo (toca o pasa el cursor)"
+                    aria-label="Categoría y tipo de la partida"
+                  >
+                    <span className="budget-col-meta__hdr mono" aria-hidden="true">
+                      i
+                    </span>
+                  </th>
                   <th>Unidad</th>
-                  <th className="num">P. unit.</th>
+                  <th className="num" title="Asumido en totales. Si se corrige el precio de lista, arriba queda el ref. tachado.">
+                    P. unit.
+                  </th>
                   <th className="num">Cant.</th>
                   <th className="num">Subtotal</th>
-                  {canWrite && (
+                  {canEditBudgetLines && (
                     <th className="actions-col budget-actions-th" scope="col" title="Quitar línea" aria-label="Quitar">
                       <span className="budget-actions-th-icon" aria-hidden="true">
                         ×
@@ -879,41 +1044,126 @@ export function ProjectBudgetPage() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={canWrite ? 9 : 8} className="muted">
+                    <td colSpan={canEditBudgetLines ? 9 : 8} className="muted">
                       Agregue ítems desde el catálogo o una pieza personalizada.
                     </td>
                   </tr>
                 ) : (
-                  items.map((row) => {
+                  items.map((row, idx) => {
                     const dr = getDraft(row.id);
                     const catLabel = row.categoryNombre || '—';
+                    const nPart = idx + 1;
+                    const metaOpen = budgetLineMetaId === row.id;
+                    const tip = row.tipo || '—';
+                    const metaTitle = `Categoría: ${catLabel} · Tipo: ${tip}`;
                     return (
                       <tr
                         key={row.id}
                         className={deletingId === row.id ? 'budget-row-deleting' : ''}
                       >
-                        <td className="mono">{row.codigo}</td>
-                        <td>{row.descripcion}</td>
-                        <td>
-                          <span className="budget-badge budget-badge--cat mono" title={catLabel}>
-                            {catLabel}
-                          </span>
+                        <td className="num mono budget-col-idx" title={`Partida ${nPart}`}>
+                          {nPart}
                         </td>
-                        <td className="mono">{row.tipo}</td>
+                        <td className="mono budget-td-codigo">{row.codigo}</td>
+                        <td className="budget-td-desc">{row.descripcion}</td>
+                        <td className="budget-col-meta">
+                          <div className="budget-line-meta">
+                            <button
+                              type="button"
+                              className="budget-line-meta__btn"
+                              title={metaTitle}
+                              aria-label={metaTitle}
+                              aria-haspopup="dialog"
+                              aria-expanded={metaOpen}
+                              onClick={() =>
+                                setBudgetLineMetaId((id) => (id === row.id ? null : row.id))
+                              }
+                            >
+                              <svg
+                                className="budget-line-meta__icon"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                aria-hidden="true"
+                              >
+                                <circle cx="12" cy="12" r="9" opacity="0.35" />
+                                <path d="M12 10v4M12 8h.01" />
+                              </svg>
+                            </button>
+                            {metaOpen &&
+                              createPortal(
+                                <div
+                                  className="budget-line-meta__backdrop"
+                                  role="presentation"
+                                  onClick={() => setBudgetLineMetaId(null)}
+                                >
+                                  <div
+                                    className="budget-line-meta__modal"
+                                    role="dialog"
+                                    aria-label="Categoría y tipo"
+                                    tabIndex={-1}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    <p className="budget-line-meta__line">
+                                      <span className="budget-line-meta__k">Categoría</span>
+                                      <span className="mono budget-line-meta__v">{catLabel}</span>
+                                    </p>
+                                    <p className="budget-line-meta__line">
+                                      <span className="budget-line-meta__k">Tipo</span>
+                                      <span className="mono budget-line-meta__v">{tip}</span>
+                                    </p>
+                                    <button
+                                      type="button"
+                                      className="btn btn-primary budget-line-meta__dismiss"
+                                      onClick={() => setBudgetLineMetaId(null)}
+                                    >
+                                      Cerrar
+                                    </button>
+                                  </div>
+                                </div>,
+                                document.body
+                              )}
+                          </div>
+                        </td>
                         <td className="mono">{row.unidad}</td>
-                        <td className="num">
-                          {canWrite ? (
-                            <input
-                              className="form-input table-input mono"
-                              value={dr.unitPrice}
-                              onChange={(e) => setDraft(row.id, 'unitPrice', e.target.value)}
-                            />
-                          ) : (
-                            formatUsd(row.unitPrice)
-                          )}
+                        <td className="num budget-td-punit">
+                          {(() => {
+                            const cur = canEditBudgetLines
+                              ? parsePriceDraft(dr.unitPrice) ?? Number(row.unitPrice)
+                              : Number(row.unitPrice);
+                            const showListRef =
+                              row.officialUnitPrice != null && unitPricesDiffer(row.officialUnitPrice, cur);
+                            return (
+                              <>
+                                {showListRef && (
+                                  <div
+                                    className="budget-punit-official mono"
+                                    title="Precio de lista / referencia (catálogo o valor inicial al crear la línea)"
+                                  >
+                                    {formatUsd(row.officialUnitPrice)}
+                                  </div>
+                                )}
+                                {canEditBudgetLines ? (
+                                  <input
+                                    className="form-input table-input mono"
+                                    value={dr.unitPrice}
+                                    aria-label={showListRef ? 'Precio unitario asumido' : 'Precio unitario'}
+                                    onChange={(e) => setDraft(row.id, 'unitPrice', e.target.value)}
+                                  />
+                                ) : (
+                                  <span className="budget-punit-shown mono">{formatUsd(row.unitPrice)}</span>
+                                )}
+                              </>
+                            );
+                          })()}
                         </td>
                         <td className="num">
-                          {canWrite ? (
+                          {canEditBudgetLines ? (
                             <input
                               className="form-input table-input mono"
                               value={dr.qty}
@@ -924,7 +1174,7 @@ export function ProjectBudgetPage() {
                           )}
                         </td>
                         <td className="num mono">{formatUsd(row.subtotal)}</td>
-                        {canWrite && (
+                        {canEditBudgetLines && (
                           <td className="actions-cell budget-actions-cell">
                             <button
                               type="button"
@@ -953,10 +1203,26 @@ export function ProjectBudgetPage() {
             </table>
           </div>
 
-          <footer className="budget-footer mono">
-            <span>ACTIVOS: {formatUsd(totals.activos)}</span>
-            <span>CONSUMIBLES: {formatUsd(totals.consumibles)}</span>
-            <span className="budget-footer-total">TOTAL LISTA: {formatUsd(totals.lista)}</span>
+          <footer className="budget-footer budget-footer--stacked mono">
+            <div className="budget-footer__line">
+              <span className="budget-footer__partidas">
+                Partidas: <span className="mono budget-footer__partidas-num">{items.length}</span>
+              </span>
+            </div>
+            {items.length > 0 && (
+              <div className="budget-footer__line budget-footer__codes muted" aria-label="Listado de ítems">
+                {items
+                  .slice(0, 30)
+                  .map((row, i) => `#${i + 1} ${(row.codigo || '—').trim() || '—'}`)
+                  .join(' · ')}
+                {items.length > 30 ? ` · … (+${items.length - 30} más)` : ''}
+              </div>
+            )}
+            <div className="budget-footer__line budget-footer__totals">
+              <span>ACTIVOS: {formatUsd(totals.activos)}</span>
+              <span>CONSUMIBLES: {formatUsd(totals.consumibles)}</span>
+              <span className="budget-footer-total">TOTAL LISTA: {formatUsd(totals.lista)}</span>
+            </div>
           </footer>
         </div>
       </div>
@@ -1516,7 +1782,102 @@ export function ProjectBudgetPage() {
         </Modal>
       )}
 
-      {modal === 'clear' && (
+      {budgetImportModal && budgetImportPreview && (
+        <Modal
+          title="Vista previa de importación"
+          onClose={() => {
+            setBudgetImportModal(false);
+            setBudgetImportPreview(null);
+          }}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setBudgetImportModal(false);
+                  setBudgetImportPreview(null);
+                }}
+              >
+                Cerrar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary mono"
+                disabled={budgetImportBusy || (budgetImportPreview.summary?.aplicables ?? 0) < 1}
+                onClick={applyBudgetImport}
+              >
+                {budgetImportBusy ? 'Aplicando…' : 'Añadir al presupuesto'}
+              </button>
+            </>
+          }
+        >
+          {budgetImportPreview.summary && (
+            <p className="mono muted" style={{ marginBottom: 12, fontSize: 12, lineHeight: 1.5 }}>
+              Total filas: {budgetImportPreview.summary.total} · match por código:{' '}
+              {budgetImportPreview.summary.byCodigo} · por descripción: {budgetImportPreview.summary.byDescripcion} ·
+              sin coincidencia: {budgetImportPreview.summary.noMatch} · ambiguas: {budgetImportPreview.summary.ambiguous} ·
+              error formato: {budgetImportPreview.summary.parse} · listas para agregar: {budgetImportPreview.summary.aplicables}
+            </p>
+          )}
+          {budgetImportPreview.hint && (
+            <p className="mono" style={{ fontSize: 11, color: 'var(--amber)', marginBottom: 10 }}>
+              {budgetImportPreview.hint}
+            </p>
+          )}
+          <div className="zgroup-scroll" style={{ maxHeight: 380 }}>
+            <table className="data-table data-table--compact">
+              <thead>
+                <tr>
+                  <th className="num">#</th>
+                  <th>Cód. archivo</th>
+                  <th>Descripción archivo</th>
+                  <th className="num">Cant.</th>
+                  <th>Resultado</th>
+                  <th>Catálogo (si aplica)</th>
+                </tr>
+              </thead>
+              <tbody>
+                {budgetImportPreview.results.map((r, idx) => {
+                  const tag =
+                    r.matchType === 'codigo'
+                      ? { cls: 'budget-import-tag--ok', t: 'Código' }
+                      : r.matchType === 'descripcion'
+                        ? { cls: 'budget-import-tag--d', t: 'Descripción' }
+                        : r.matchType === 'ambiguous'
+                          ? { cls: 'budget-import-tag--wa', t: 'Ambiguo' }
+                          : r.matchType === 'parse'
+                            ? { cls: 'budget-import-tag--err', t: 'Error fila' }
+                            : { cls: 'budget-import-tag--err', t: 'Sin match' };
+                  return (
+                    <tr key={`${r.rowIndex}-${idx}`}>
+                      <td className="num mono">{r.rowIndex}</td>
+                      <td className="mono">{r.inputCodigo || '—'}</td>
+                      <td>{r.inputDescripcion || '—'}</td>
+                      <td className="num mono">{r.qty != null ? r.qty : '—'}</td>
+                      <td>
+                        <span className={`budget-import-tag ${tag.cls}`}>{tag.t}</span>
+                        <span className="muted mono" style={{ fontSize: 11, display: 'block', marginTop: 2 }}>
+                          {r.message}
+                        </span>
+                      </td>
+                      <td className="mono" style={{ fontSize: 11 }}>
+                        {r.catalogItem
+                          ? `${r.catalogItem.codigo} — ${(r.catalogItem.descripcion || '').slice(0, 60)}${
+                              (r.catalogItem.descripcion || '').length > 60 ? '…' : ''
+                            }`
+                          : '—'}
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Modal>
+      )}
+
+      {modal === 'clear' && canEditBudgetLines && (
         <Modal
           title="Limpiar presupuesto"
           onClose={() => setModal(null)}

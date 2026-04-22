@@ -186,7 +186,9 @@ CREATE TABLE project_items (
   descripcion     VARCHAR(300) NOT NULL,
   unidad          VARCHAR(30) NOT NULL DEFAULT 'UND',
   tipo            item_tipo NOT NULL DEFAULT 'ACTIVO',
-  unit_price      NUMERIC(12,2) NOT NULL DEFAULT 0,
+  unit_price        NUMERIC(12,2) NOT NULL DEFAULT 0,
+  -- Precio de lista / catálogo al incorporar la línea (trazabilidad). unit_price = precio asumido en cotización.
+  official_unit_price NUMERIC(12,2),
   qty             NUMERIC(10,3) NOT NULL DEFAULT 1,
   subtotal        NUMERIC(14,2) GENERATED ALWAYS AS (unit_price * qty) STORED,
   is_custom       BOOLEAN NOT NULL DEFAULT false,

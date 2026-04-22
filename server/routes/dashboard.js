@@ -11,25 +11,82 @@ router.get('/summary', async (req, res) => {
   const uid = req.user.id;
 
   try {
-    const { rows: cRows } = await pool.query(`SELECT COUNT(*)::int AS n FROM clients`);
-    const clientsTotal = cRows[0].n;
+    if (role === 'ADMIN') {
+      const { rows: cRows } = await pool.query(`SELECT COUNT(*)::int AS n FROM clients`);
+      const { rows: pRows } = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM projects p WHERE p.deleted_at IS NULL`
+      );
+      return res.json({
+        success: true,
+        data: {
+          scope: 'all',
+          clientsTotal: cRows[0].n,
+          projectsActive: pRows[0].n,
+        },
+      });
+    }
 
-    let projectsSql = `
-      SELECT COUNT(*)::int AS n FROM projects p
-      WHERE p.deleted_at IS NULL AND (
-        $1 = 'ADMIN' OR
-        ($1 = 'COMERCIAL' AND p.created_by = $2::uuid) OR
-        ($1 = 'VIEWER' AND p.assigned_viewer = $2::uuid)
-      )`;
-    const { rows: pRows } = await pool.query(projectsSql, [role, uid]);
-    const projectsActive = pRows[0].n;
+    if (role === 'COMERCIAL') {
+      const { rows: pRows } = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM projects p
+         WHERE p.deleted_at IS NULL AND p.created_by = $1::uuid`,
+        [uid]
+      );
+      const { rows: clRows } = await pool.query(
+        `SELECT COUNT(DISTINCT p.client_id)::int AS n FROM projects p
+         WHERE p.deleted_at IS NULL AND p.client_id IS NOT NULL AND p.created_by = $1::uuid`,
+        [uid]
+      );
+      const { rows: pipeRows } = await pool.query(
+        `SELECT COALESCE(SUM(pi.subtotal), 0)::numeric AS v
+         FROM project_items pi
+         INNER JOIN projects p ON p.id = pi.project_id
+         WHERE p.deleted_at IS NULL AND p.created_by = $1::uuid`,
+        [uid]
+      );
+      return res.json({
+        success: true,
+        data: {
+          scope: 'mine',
+          projectsActive: pRows[0].n,
+          clientsInMyProjects: clRows[0].n,
+          pipelineMy: Number(pipeRows[0]?.v || 0),
+        },
+      });
+    }
+
+    if (role === 'VIEWER') {
+      const { rows: pRows } = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM projects p
+         WHERE p.deleted_at IS NULL AND p.assigned_viewer = $1::uuid`,
+        [uid]
+      );
+      const { rows: clRows } = await pool.query(
+        `SELECT COUNT(DISTINCT p.client_id)::int AS n FROM projects p
+         WHERE p.deleted_at IS NULL AND p.client_id IS NOT NULL AND p.assigned_viewer = $1::uuid`,
+        [uid]
+      );
+      const { rows: pipeRows } = await pool.query(
+        `SELECT COALESCE(SUM(pi.subtotal), 0)::numeric AS v
+         FROM project_items pi
+         INNER JOIN projects p ON p.id = pi.project_id
+         WHERE p.deleted_at IS NULL AND p.assigned_viewer = $1::uuid`,
+        [uid]
+      );
+      return res.json({
+        success: true,
+        data: {
+          scope: 'assigned',
+          projectsActive: pRows[0].n,
+          clientsInMyProjects: clRows[0].n,
+          pipelineMy: Number(pipeRows[0]?.v || 0),
+        },
+      });
+    }
 
     return res.json({
       success: true,
-      data: {
-        clientsTotal,
-        projectsActive,
-      },
+      data: { scope: 'unknown', projectsActive: 0, clientsInMyProjects: 0, pipelineMy: 0 },
     });
   } catch (err) {
     console.error('[DASHBOARD] summary:', err);

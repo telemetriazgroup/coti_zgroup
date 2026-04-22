@@ -65,9 +65,10 @@ async function loadProject(req, res, id) {
   return p;
 }
 
+/** Nombre de archivo normalizado (minúsculas) para versiones y reemplazos. */
 function safeBasename(name) {
   const b = path.basename(name || 'file').replace(/[/\\]/g, '_');
-  return b.slice(0, 200) || 'file';
+  return b.slice(0, 200).toLowerCase() || 'file';
 }
 
 // ─── GET /api/projects/:id/plans ───────────────────────────────
@@ -76,18 +77,18 @@ router.get('/:id/plans', async (req, res) => {
     const project = await loadProject(req, res, req.params.id);
     if (!project) return;
 
-    const viewer = req.user.role === 'VIEWER';
-    const sql = viewer
+    const isAdmin = req.user.role === 'ADMIN';
+    const sql = isAdmin
       ? `SELECT p.*, u.email AS uploaded_by_email
          FROM project_plans p
          LEFT JOIN users u ON u.id = p.uploaded_by
-         WHERE p.project_id = $1 AND p.is_current = true
-         ORDER BY p.nombre_original ASC`
+         WHERE p.project_id = $1
+         ORDER BY p.nombre_original ASC, p.version DESC`
       : `SELECT p.*, u.email AS uploaded_by_email
          FROM project_plans p
          LEFT JOIN users u ON u.id = p.uploaded_by
-         WHERE p.project_id = $1
-         ORDER BY p.nombre_original ASC, p.version DESC`;
+         WHERE p.project_id = $1 AND p.is_current = true
+         ORDER BY p.nombre_original ASC`;
 
     const { rows } = await pool.query(sql, [req.params.id]);
     const plans = rows.map(mapPlan);
@@ -103,7 +104,7 @@ router.get('/:id/plans', async (req, res) => {
       data: {
         plans,
         count: countCurrent,
-        countVersions: viewer ? countCurrent : rows.length,
+        countVersions: rows.length,
       },
     });
   } catch (err) {
@@ -150,18 +151,22 @@ router.post('/:id/plans', requireRole('ADMIN', 'COMERCIAL'), runUpload, async (r
     try {
       await client.query('BEGIN');
 
+      const { rows: maxProjRow } = await client.query(
+        `SELECT COALESCE(MAX(version), 0) AS mv FROM project_plans WHERE project_id = $1`,
+        [req.params.id]
+      );
+      let versionSeq = Number(maxProjRow[0].mv) || 0;
+
       for (const file of files) {
         const nombreOriginal = safeBasename(file.originalname);
         const mimeType = file.mimetype || 'application/octet-stream';
 
-        const { rows: verRows } = await client.query(
-          `SELECT COALESCE(MAX(version), 0) AS mv FROM project_plans WHERE project_id = $1 AND nombre_original = $2`,
-          [req.params.id, nombreOriginal]
-        );
-        const nextVer = Number(verRows[0].mv) + 1;
+        versionSeq += 1;
+        const nextVer = versionSeq;
 
         await client.query(
-          `UPDATE project_plans SET is_current = false WHERE project_id = $1 AND nombre_original = $2`,
+          `UPDATE project_plans SET is_current = false
+           WHERE project_id = $1 AND LOWER(TRIM(nombre_original)) = $2`,
           [req.params.id, nombreOriginal]
         );
 
@@ -219,6 +224,62 @@ router.post('/:id/plans', requireRole('ADMIN', 'COMERCIAL'), runUpload, async (r
   }
 });
 
+// ─── GET /api/projects/:id/plans/:planId/file — proxy interno (evita firmas a host inaccesible) ─
+router.get('/:id/plans/:planId/file', async (req, res) => {
+  if (!storage.isStorageConfigured()) {
+    return res.status(503).json({
+      success: false,
+      error: { code: 'STORAGE_UNAVAILABLE', message: 'Almacenamiento no configurado' },
+    });
+  }
+
+  try {
+    const project = await loadProject(req, res, req.params.id);
+    if (!project) return;
+
+    const { rows } = await pool.query(`SELECT * FROM project_plans WHERE id = $1 AND project_id = $2`, [
+      req.params.planId,
+      req.params.id,
+    ]);
+    if (!rows[0]) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Plano no encontrado' } });
+    }
+    const plan = rows[0];
+
+    if (req.user.role !== 'ADMIN' && !plan.is_current) {
+      return res
+        .status(403)
+        .json({ success: false, error: { code: 'FORBIDDEN', message: 'Solo la versión actual' } });
+    }
+
+    const { body, contentType } = await storage.getObjectStream(plan.s3_key);
+    const ct = plan.mime_type || contentType;
+    res.setHeader('Content-Type', ct);
+    res.setHeader('Cache-Control', 'private, max-age=120');
+    const safeName = safeBasename(plan.nombre_original);
+    res.setHeader('Content-Disposition', `inline; filename*=UTF-8''${encodeURIComponent(safeName)}`);
+
+    if (body && typeof body.pipe === 'function') {
+      body.on('error', (err) => {
+        if (!res.headersSent) {
+          res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error leyendo archivo' } });
+        } else {
+          res.end();
+        }
+        console.error('[PLANS] file stream:', err);
+      });
+      body.pipe(res);
+    } else {
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
+  } catch (err) {
+    console.error('[PLANS] file:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
+  }
+});
+
 // ─── GET /api/projects/:id/plans/:planId/preview ───────────────
 router.get('/:id/plans/:planId/preview', async (req, res) => {
   if (!storage.isStorageConfigured()) {
@@ -241,8 +302,8 @@ router.get('/:id/plans/:planId/preview', async (req, res) => {
     }
     const plan = rows[0];
 
-    if (req.user.role === 'VIEWER' && !plan.is_current) {
-      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Solo versión actual' } });
+    if (req.user.role !== 'ADMIN' && !plan.is_current) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Solo la versión actual' } });
     }
 
     const url = await storage.getSignedGetUrl(plan.s3_key, 900);

@@ -11,6 +11,9 @@ function formatUsd(n) {
 export function DashboardPage() {
   const { user, hasRole } = useAuth();
   const isAdmin = hasRole('ADMIN');
+  const isCommercial = hasRole('COMERCIAL');
+  const isViewer = hasRole('VIEWER');
+  const scopedDash = isCommercial || isViewer;
   const [summary, setSummary] = useState(null);
   const [admin, setAdmin] = useState(null);
 
@@ -49,24 +52,58 @@ export function DashboardPage() {
     <section className="view-active">
       <div className="page-header">
         <h1 className="page-title">Dashboard</h1>
-        <p className="page-sub muted">Resumen según tu rol</p>
+        <p className="page-sub muted">
+          {isAdmin
+            ? 'Vista global del sistema'
+            : isCommercial
+              ? 'Tus proyectos y montos de lista'
+              : isViewer
+                ? 'Proyectos que te fueron asignados'
+                : 'Resumen según tu rol'}
+        </p>
       </div>
-      <div className="kpi-grid">
-        <div className="kpi-card">
-          <div className="kpi-label mono">Proyectos (visibles)</div>
-          <div className="kpi-value">{summary != null ? summary.projectsActive : '—'}</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-label mono">Clientes (CRM)</div>
-          <div className="kpi-value">{summary != null ? summary.clientsTotal : '—'}</div>
-        </div>
-        <div className="kpi-card">
-          <div className="kpi-label mono">Rol</div>
-          <div className="kpi-value" style={{ fontSize: 16 }}>
-            {user?.role || '—'}
+      {isAdmin && (
+        <div className="kpi-grid">
+          <div className="kpi-card">
+            <div className="kpi-label mono">Proyectos (todos)</div>
+            <div className="kpi-value">{summary != null ? summary.projectsActive : '—'}</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label mono">Clientes (CRM total)</div>
+            <div className="kpi-value">{summary != null ? summary.clientsTotal : '—'}</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label mono">Rol</div>
+            <div className="kpi-value" style={{ fontSize: 16 }}>
+              {user?.role || '—'}
+            </div>
           </div>
         </div>
-      </div>
+      )}
+      {scopedDash && (
+        <div className="kpi-grid">
+          <div className="kpi-card">
+            <div className="kpi-label mono">
+              {isViewer ? 'Proyectos (asignados)' : 'Proyectos (tuyos)'}
+            </div>
+            <div className="kpi-value">{summary != null ? summary.projectsActive : '—'}</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label mono">Clientes (en esos proyectos)</div>
+            <div className="kpi-value">{summary != null ? summary.clientsInMyProjects : '—'}</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label mono">Lista (presupuesto)</div>
+            <div className="kpi-value">{summary != null ? formatUsd(summary.pipelineMy) : '—'}</div>
+          </div>
+          <div className="kpi-card">
+            <div className="kpi-label mono">Rol</div>
+            <div className="kpi-value" style={{ fontSize: 16 }}>
+              {user?.role || '—'}
+            </div>
+          </div>
+        </div>
+      )}
 
       {isAdmin && admin && (
         <>
@@ -167,9 +204,23 @@ export function DashboardPage() {
           <span className="panel-title">Bienvenido</span>
         </div>
         <p className="muted" style={{ lineHeight: 1.6 }}>
-          Sesión: <strong className="mono">{user?.email}</strong>. Usa el menú para{' '}
-          <strong>Proyectos</strong>, <strong>Clientes</strong> y <strong>Mi ficha</strong>.
-          {isAdmin && ' El panel gerencial resume pipeline y desempeño por comercial.'}
+          Sesión: <strong className="mono">{user?.email}</strong>.{' '}
+          {isAdmin ? (
+            <>
+              Desde el menú administrás <strong>Clientes</strong>, <strong>Catálogo</strong>, <strong>Empleados</strong> y{' '}
+              <strong>Usuarios</strong>; el panel gerencial resume pipeline y desempeño por comercial.
+            </>
+          ) : isCommercial ? (
+            <>
+              Tu espacio de trabajo es <strong>Proyectos</strong> y este resumen. La administración de clientes, catálogo,
+              empleados y usuarios corresponde a <strong>ADMIN</strong>.
+            </>
+          ) : (
+            <>
+              Tenés acceso de lectura a los <strong>Proyectos</strong> que te asignen. Los demás módulos los gestiona{' '}
+              <strong>ADMIN</strong>.
+            </>
+          )}
         </p>
       </div>
     </section>

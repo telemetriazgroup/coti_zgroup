@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
-import { api, postFormDataWithProgress } from '../lib/api';
+import { api, getBlob, postFormDataWithProgress } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
 import { ProjectWorkNav } from '../components/ProjectWorkNav';
@@ -27,6 +27,7 @@ export function ProjectPlansPage() {
   const { projectId } = useParams();
   const { hasRole, user } = useAuth();
   const canWrite = hasRole('ADMIN', 'COMERCIAL');
+  const isAdmin = hasRole('ADMIN');
   const viewerMode = user?.role === 'VIEWER';
 
   const [project, setProject] = useState(null);
@@ -74,11 +75,28 @@ export function ProjectPlansPage() {
     return m;
   }, [plans]);
 
+  function closePreview() {
+    setPreview((prev) => {
+      if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl);
+      return null;
+    });
+  }
+
   async function openPreview(plan) {
     setErr(null);
     try {
-      const data = await api.get(`/api/projects/${projectId}/plans/${plan.id}/preview`);
-      setPreview({ ...data, plan });
+      const blob = await getBlob(`/api/projects/${projectId}/plans/${plan.id}/file`);
+      const blobUrl = URL.createObjectURL(blob);
+      setPreview((prev) => {
+        if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl);
+        return {
+          url: blobUrl,
+          blobUrl,
+          mimeType: plan.mimeType,
+          nombreOriginal: plan.nombreOriginal,
+          plan,
+        };
+      });
     } catch (e) {
       setErr(e.message);
     }
@@ -241,7 +259,14 @@ export function ProjectPlansPage() {
         <div className="plans-list">
           {Array.from(grouped.entries()).map(([nombre, versions]) => (
             <div key={nombre} className="plans-group">
-              <div className="plans-group__title mono">{nombre}</div>
+              <div className="plans-group__title mono">
+                {nombre}
+                {isAdmin && versions.length > 1 && (
+                  <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>
+                    ({versions.length} versiones)
+                  </span>
+                )}
+              </div>
               <ul className="plans-group__ul">
                 {versions.map((pl) => (
                   <li key={pl.id} className={`plans-row ${pl.isCurrent ? 'plans-row--current' : ''}`}>
@@ -283,14 +308,14 @@ export function ProjectPlansPage() {
         </div>
       )}
 
-      {!canWrite && (
+      {!isAdmin && (
         <p className="muted mono" style={{ marginTop: 16, fontSize: 12 }}>
-          Como VIEWER solo ves la versión actual de cada archivo.
+          Solo ves la versión actual de cada plano. El historial de versiones está disponible para administradores.
         </p>
       )}
 
       {preview && (
-        <Modal title={preview.nombreOriginal || preview.plan?.nombreOriginal} onClose={() => setPreview(null)}>
+        <Modal title={preview.nombreOriginal || preview.plan?.nombreOriginal} onClose={closePreview}>
           <div className="plans-preview">
             {isImage(preview.mimeType) && (
               <img src={preview.url} alt="" className="plans-preview__img" />
@@ -307,7 +332,7 @@ export function ProjectPlansPage() {
               </p>
             )}
             <p className="muted mono" style={{ fontSize: 11, marginTop: 8 }}>
-              Enlace firmado · caduca en ~15 min
+              Descarga a través del servidor (sesión autenticada; no requiere enlace a almacenamiento interno)
             </p>
           </div>
         </Modal>
