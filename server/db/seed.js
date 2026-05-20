@@ -114,6 +114,28 @@ async function seed() {
       console.log(`ℹ️  Admin ya existe: ${adminEmail}`);
     }
 
+    // ── 1b. SUPERUSUARIO ZGROUP ───────────────────────────────────
+    const superEmail = process.env.SUPERUSER_EMAIL || 'zgroup@zgroup.pe';
+    const superPassword = process.env.SUPERUSER_PASSWORD || process.env.ADMIN_PASSWORD || 'ZGroup2025!';
+
+    const { rows: existingSuper } = await client.query('SELECT id FROM users WHERE email = $1', [superEmail]);
+    if (existingSuper.length === 0) {
+      const superHash = await bcrypt.hash(superPassword, 12);
+      const { rows: superRows } = await client.query(
+        `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, 'SUPERUSER') RETURNING id`,
+        [superEmail, superHash]
+      );
+      await client.query(
+        `INSERT INTO employees (user_id, nombres, apellidos, cargo)
+         VALUES ($1, 'ZGROUP', 'Superusuario', 'Superusuario del Sistema')`,
+        [superRows[0].id]
+      );
+      console.log(`✅ Superusuario creado: ${superEmail} / ${superPassword}`);
+    } else {
+      await client.query(`UPDATE users SET role = 'SUPERUSER' WHERE email = $1`, [superEmail]);
+      console.log(`ℹ️  Superusuario ya existe: ${superEmail}`);
+    }
+
     // ── 2. DEMO COMERCIAL ─────────────────────────────────────────
     const comercialEmail = 'comercial@zgroup.pe';
     const { rows: existingComercial } = await client.query(
@@ -214,6 +236,7 @@ async function seed() {
     await client.query('COMMIT');
     console.log('\n✅ Seed completado exitosamente!');
     console.log('─────────────────────────────────────');
+    console.log('  Superuser:  zgroup@zgroup.pe');
     console.log('  Admin:      admin@zgroup.pe');
     console.log('  Comercial:  comercial@zgroup.pe');
     console.log('  Password:   ZGroup2025!');

@@ -10,6 +10,7 @@ import { ProjectWorkNav } from '../components/ProjectWorkNav';
 import { mergeFinanceParams } from '@shared/finance-engine.js';
 import { STATUS_LABEL } from '../lib/quotationStatus';
 import { QuotationStatusFlow } from '../components/QuotationStatusFlow';
+import { ProjectShareModal } from '../components/ProjectShareModal';
 
 function formatUsd(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -30,12 +31,13 @@ function unitPricesDiffer(official, current) {
 export function ProjectBudgetPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
-  const { hasRole, user } = useAuth();
-  const canWrite = hasRole('ADMIN', 'COMERCIAL');
-  const isAdmin = hasRole('ADMIN');
-  /** Editar celdas, quitar línea y limpiar presupuesto: solo admin (COMERCIAL puede añadir desde catálogo). */
-  const canEditBudgetLines = isAdmin;
+  const { hasRole, user, canManageCatalog, canShareProjects, isSuperuser } = useAuth();
   const viewerMode = user?.role === 'VIEWER';
+  const canWrite = hasRole('ADMIN', 'COMERCIAL', 'SUPERUSER');
+  const isAdmin = canManageCatalog();
+  const isCommercial = user?.role === 'COMERCIAL';
+  /** Editar celdas, quitar línea y limpiar presupuesto: comercial en propios/compartidos; catálogo solo admin. */
+  const canEditBudgetLines = canWrite && !viewerMode;
 
   const [project, setProject] = useState(null);
   const [projectStatus, setProjectStatus] = useState(null);
@@ -78,6 +80,8 @@ export function ProjectBudgetPage() {
   const [pdfPreviewLoading, setPdfPreviewLoading] = useState(false);
   const [pdfPreviewErr, setPdfPreviewErr] = useState(null);
   const [budgetImportModal, setBudgetImportModal] = useState(false);
+  const [shareOpen, setShareOpen] = useState(false);
+  const [shareCount, setShareCount] = useState(0);
   const [budgetImportPreview, setBudgetImportPreview] = useState(null);
   const [budgetImportBusy, setBudgetImportBusy] = useState(false);
   const budgetImportInputRef = useRef(null);
@@ -228,6 +232,23 @@ export function ProjectBudgetPage() {
       setLoading(false);
     }
   }, [projectId, canWrite]);
+
+  const canManageShare =
+    canShareProjects() && (isSuperuser() || project?.createdBy === user?.id);
+
+  const loadShareCount = useCallback(async () => {
+    if (!projectId || !canManageShare) return;
+    try {
+      const shares = await api.get(`/api/projects/${projectId}/shares`);
+      setShareCount(Array.isArray(shares) ? shares.length : 0);
+    } catch {
+      setShareCount(0);
+    }
+  }, [projectId, canManageShare]);
+
+  useEffect(() => {
+    loadShareCount();
+  }, [loadShareCount, project?.createdBy]);
 
   useEffect(() => {
     loadAll();
@@ -835,10 +856,21 @@ export function ProjectBudgetPage() {
         status={project?.status ?? projectStatus}
         canWrite={canWrite}
         viewerMode={viewerMode}
+        canShareProject={canManageShare}
+        shareCount={shareCount}
+        onShareClick={() => setShareOpen(true)}
         onStatusChange={(data) => {
           setProject(data);
           setProjectStatus(data.status);
         }}
+      />
+
+      <ProjectShareModal
+        projectId={projectId}
+        projectName={project?.nombre}
+        open={shareOpen}
+        onClose={() => setShareOpen(false)}
+        onSaved={loadShareCount}
       />
 
       <div className="panel budget-io-panel">
@@ -962,6 +994,25 @@ export function ProjectBudgetPage() {
                   + Ítem catálogo
                 </button>
                 <span className="budget-catalog-actions__hint muted mono">Admin · mismo catálogo global</span>
+              </div>
+            )}
+            {isCommercial && (
+              <div className="budget-catalog-actions">
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => navigate('/catalog', { state: { openRequests: 'create' } })}
+                >
+                  Solicitar ítem
+                </button>
+                <button
+                  type="button"
+                  className="btn btn-ghost"
+                  onClick={() => navigate('/catalog', { state: { openRequests: 'update' } })}
+                >
+                  Cambio precio/nombre
+                </button>
+                <span className="budget-catalog-actions__hint muted mono">Requiere aprobación del admin</span>
               </div>
             )}
           </div>

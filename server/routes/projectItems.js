@@ -6,6 +6,8 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
 const { canReadProject, canWriteProject } = require('../utils/projectAccess');
+const { isSuperuser } = require('../utils/userRoles');
+const { loadShareContext } = require('../utils/projectShare');
 const {
   parseBudgetImportBuffer,
   buildCatalogMatchMaps,
@@ -38,9 +40,10 @@ router.use(requireAuth);
 
 /** Lista ítems con nombre de categoría (LEFT JOIN). */
 const ITEMS_SELECT = `
-  SELECT pi.*, cc.nombre AS category_nombre
+  SELECT pi.*, cc.nombre AS category_nombre, u.email AS created_by_email
   FROM project_items pi
   LEFT JOIN catalog_categories cc ON cc.id = pi.category_id
+  LEFT JOIN users u ON u.id = pi.created_by
 `;
 
 function mapItem(row) {
@@ -60,6 +63,8 @@ function mapItem(row) {
     isCustom: row.is_custom,
     categoryId: row.category_id ?? null,
     categoryNombre: row.category_nombre ?? null,
+    createdBy: row.created_by ?? null,
+    createdByEmail: row.created_by_email ?? null,
     sortOrder: row.sort_order,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -88,19 +93,28 @@ async function loadProject(req, res, id) {
     return null;
   }
   const p = rows[0];
-  if (!canReadProject(req.user, p)) {
+  const shareCtx = await loadShareContext(req.user, p);
+  if (!canReadProject(req.user, p, shareCtx)) {
     res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     return null;
   }
-  if (p.deleted_at && req.user.role !== 'ADMIN') {
-    res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
-    return null;
+  if (p.deleted_at && !isSuperuser(req.user)) {
+    if (!(req.user.role === 'ADMIN' && p.created_by === req.user.id && req.query.includeDeleted === 'true')) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+      return null;
+    }
   }
-  if (p.deleted_at && req.user.role === 'ADMIN' && req.query.includeDeleted !== 'true') {
-    res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
-    return null;
-  }
+  p._shareCtx = shareCtx;
   return p;
+}
+
+function auditItemPayload(user, itemData) {
+  if (!itemData) return null;
+  return {
+    ...itemData,
+    actorId: user.id,
+    actorEmail: user.email || null,
+  };
 }
 
 async function touchProjectUpdated(projectId, client = pool) {
@@ -158,8 +172,8 @@ async function addCatalogItemToProject(client, { projectId, userId, catalogItemI
   const sortOrder = so[0].n;
   const { rows: ins } = await client.query(
     `INSERT INTO project_items
-      (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11)
+      (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12)
      RETURNING id`,
     [
       projectId,
@@ -173,6 +187,7 @@ async function addCatalogItemToProject(client, { projectId, userId, catalogItemI
       qty,
       sortOrder,
       cat.category_id,
+      userId,
     ]
   );
   const outRow = await fetchItemRow(client, ins[0].id);
@@ -240,7 +255,7 @@ router.post(
     try {
       const project = await loadProject(req, res, req.params.id);
       if (!project) return;
-      if (!canWriteProject(req.user, project)) {
+      if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
       }
       if (project.deleted_at) {
@@ -361,7 +376,7 @@ router.post(
     try {
       const project = await loadProject(req, res, req.params.id);
       if (!project) return;
-      if (!canWriteProject(req.user, project)) {
+      if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
       }
       if (project.deleted_at) {
@@ -473,7 +488,7 @@ const postItemValidation = [
 ];
 
 // ─── POST /api/projects/:id/items ──────────────────────────────
-router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation, async (req, res) => {
+router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postItemValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -511,7 +526,7 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
     const project = pr[0];
-    if (!canWriteProject(req.user, project)) {
+    if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
       await client.query('ROLLBACK');
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
@@ -577,8 +592,8 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
         const sortOrder = so[0].n;
         const { rows: ins } = await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11)
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12)
            RETURNING id`,
           [
             req.params.id,
@@ -592,6 +607,7 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
             qty,
             sortOrder,
             cat.category_id,
+            req.user.id,
           ]
         );
         outRow = await fetchItemRow(client, ins[0].id);
@@ -600,7 +616,7 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
           eventType: 'BUDGET_ITEM_ADD',
           actorId: req.user.id,
           prevData: null,
-          newData: mapItem(outRow),
+          newData: auditItemPayload(req.user, mapItem(outRow)),
           ip,
         });
       }
@@ -678,10 +694,10 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
         const sortOrder = so[0].n;
         const { rows: ins } = await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id)
-           VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, true, $9, $10)
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, created_by)
+           VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11)
            RETURNING id`,
-          [req.params.id, codigo, descripcion, unidad, tipo, unitPrice, unitPrice, qty, sortOrder, categoryId]
+          [req.params.id, codigo, descripcion, unidad, tipo, unitPrice, unitPrice, qty, sortOrder, categoryId, req.user.id]
         );
         outRow = await fetchItemRow(client, ins[0].id);
         logAuditEvent({
@@ -689,7 +705,7 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL'), postItemValidation,
           eventType: 'BUDGET_ITEM_ADD',
           actorId: req.user.id,
           prevData: null,
-          newData: mapItem(outRow),
+          newData: auditItemPayload(req.user, mapItem(outRow)),
           ip,
         });
       }
@@ -739,7 +755,7 @@ const putItemValidation = [
 // ─── PUT /api/projects/:id/items/:itemId ───────────────────────
 router.put(
   '/:id/items/:itemId',
-  requireRole('ADMIN'),
+  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
   putItemValidation,
   async (req, res) => {
     const errors = validationResult(req);
@@ -763,7 +779,7 @@ router.put(
     try {
       const project = await loadProject(req, res, req.params.id);
       if (!project) return;
-      if (!canWriteProject(req.user, project)) {
+      if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
       }
       if (project.deleted_at) {
@@ -823,12 +839,12 @@ router.put(
 );
 
 // ─── DELETE /api/projects/:id/items/:itemId ────────────────────
-router.delete('/:id/items/:itemId', requireRole('ADMIN'), async (req, res) => {
+router.delete('/:id/items/:itemId', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   const ip = getClientIp(req);
   try {
     const project = await loadProject(req, res, req.params.id);
     if (!project) return;
-    if (!canWriteProject(req.user, project)) {
+    if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     if (project.deleted_at) {
@@ -875,12 +891,12 @@ router.delete('/:id/items/:itemId', requireRole('ADMIN'), async (req, res) => {
 });
 
 // ─── DELETE /api/projects/:id/items — vaciar presupuesto ───────
-router.delete('/:id/items', requireRole('ADMIN'), async (req, res) => {
+router.delete('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   const ip = getClientIp(req);
   try {
     const project = await loadProject(req, res, req.params.id);
     if (!project) return;
-    if (!canWriteProject(req.user, project)) {
+    if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     if (project.deleted_at) {

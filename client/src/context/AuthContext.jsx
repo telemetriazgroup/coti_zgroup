@@ -1,6 +1,12 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api, clearToken, getToken, request, setToken } from '../lib/api';
+import {
+  isSuperuser as checkSuperuser,
+  isAdmin as checkAdmin,
+  canManageCatalog as checkCanManageCatalog,
+  canShareProjects as checkCanShareProjects,
+} from '../lib/userRoles';
 
 const AuthContext = createContext(null);
 
@@ -70,6 +76,10 @@ export function AuthProvider({ children }) {
       login,
       logout,
       hasRole: (...roles) => user && roles.includes(user.role),
+      isSuperuser: () => checkSuperuser(user),
+      isAdmin: () => checkAdmin(user),
+      canManageCatalog: () => checkCanManageCatalog(user),
+      canShareProjects: () => checkCanShareProjects(user),
     }),
     [user, ready, login, logout]
   );

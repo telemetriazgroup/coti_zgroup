@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
@@ -7,10 +7,10 @@ import { QuotationEstadosGuideContent } from '../components/QuotationEstadosGuid
 import { STATUS_LABEL } from '../lib/quotationStatus';
 
 export function ProjectsPage() {
-  const { hasRole, user } = useAuth();
-  const isAdmin = hasRole('ADMIN');
-  const canWrite = hasRole('ADMIN', 'COMERCIAL');
-  const colCount = isAdmin ? 6 : 5;
+  const { hasRole, user, isAdmin, isSuperuser, canShareProjects } = useAuth();
+  const canWrite = hasRole('ADMIN', 'COMERCIAL', 'SUPERUSER');
+  const showCreatorCol = isSuperuser() || isAdmin();
+  const colCount = showCreatorCol ? 7 : 6;
 
   const [list, setList] = useState([]);
   const [clients, setClients] = useState([]);
@@ -25,6 +25,12 @@ export function ProjectsPage() {
 
   const [formNew, setFormNew] = useState({ nombre: '', odooRef: '', clientId: '' });
   const [formViewer, setFormViewer] = useState({ assignedViewerId: '' });
+  const [formShare, setFormShare] = useState([]);
+  const [shareUsers, setShareUsers] = useState([]);
+  const [shareSelected, setShareSelected] = useState([]);
+  const [shareSearch, setShareSearch] = useState('');
+  const [shareSearchBusy, setShareSearchBusy] = useState(false);
+  const shareSearchTimer = useRef(null);
   const [cloneName, setCloneName] = useState('');
   const [guideOpen, setGuideOpen] = useState(false);
 
@@ -32,7 +38,7 @@ export function ProjectsPage() {
     setLoading(true);
     setErr(null);
     try {
-      const qs = isAdmin && includeDeleted ? '?includeDeleted=true' : '';
+      const qs = (isSuperuser() || isAdmin()) && includeDeleted ? '?includeDeleted=true' : '';
       const data = await api.get(`/api/projects${qs}`);
       setList(data);
     } catch (e) {
@@ -40,7 +46,7 @@ export function ProjectsPage() {
     } finally {
       setLoading(false);
     }
-  }, [isAdmin, includeDeleted]);
+  }, [isSuperuser, isAdmin, includeDeleted]);
 
   const loadMeta = useCallback(async () => {
     try {
@@ -121,6 +127,7 @@ export function ProjectsPage() {
   }
 
   async function openAudit(row) {
+    if (!isSuperuser()) return;
     setSel(row);
     setErr(null);
     try {
@@ -130,6 +137,103 @@ export function ProjectsPage() {
     } catch (e2) {
       setErr(e2.message);
     }
+  }
+
+  async function openShare(row) {
+    setSel(row);
+    setErr(null);
+    setShareSearch('');
+    try {
+      const [shares, users] = await Promise.all([
+        api.get(`/api/projects/${row.id}/shares`),
+        api.get('/api/users/shareable'),
+      ]);
+      const ids = (shares || []).map((s) => s.userId);
+      setFormShare(ids);
+      setShareSelected(
+        (shares || []).map((s) => ({
+          id: s.userId,
+          email: s.email,
+          role: s.role,
+          nombre: s.nombre,
+        }))
+      );
+      setShareUsers(users || []);
+      setModal('share');
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  }
+
+  useEffect(() => {
+    if (modal !== 'share') return undefined;
+    if (shareSearchTimer.current) clearTimeout(shareSearchTimer.current);
+    shareSearchTimer.current = setTimeout(async () => {
+      setShareSearchBusy(true);
+      try {
+        const qs = shareSearch.trim() ? `?q=${encodeURIComponent(shareSearch.trim())}` : '';
+        const users = await api.get(`/api/users/shareable${qs}`);
+        setShareUsers(users || []);
+      } catch {
+        /* ignore search errors */
+      } finally {
+        setShareSearchBusy(false);
+      }
+    }, 300);
+    return () => {
+      if (shareSearchTimer.current) clearTimeout(shareSearchTimer.current);
+    };
+  }, [modal, shareSearch]);
+
+  const shareListUsers = useMemo(() => {
+    const byId = new Map();
+    for (const u of shareSelected) byId.set(u.id, u);
+    for (const u of shareUsers) byId.set(u.id, u);
+    return [...byId.values()].sort((a, b) => a.email.localeCompare(b.email));
+  }, [shareSelected, shareUsers]);
+
+  function toggleShareUser(u) {
+    setFormShare((prev) => {
+      const on = prev.includes(u.id);
+      if (on) {
+        setShareSelected((sel) => sel.filter((x) => x.id !== u.id));
+        return prev.filter((id) => id !== u.id);
+      }
+      setShareSelected((sel) => (sel.some((x) => x.id === u.id) ? sel : [...sel, u]));
+      return [...prev, u.id];
+    });
+  }
+
+  async function saveShare(e) {
+    e.preventDefault();
+    if (!sel) return;
+    setErr(null);
+    try {
+      await api.put(`/api/projects/${sel.id}/shares`, { userIds: formShare });
+      setModal(null);
+      load();
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  }
+
+  function canManageRow(row) {
+    if (isSuperuser()) return true;
+    return isAdmin() && row.createdBy === user?.id;
+  }
+
+  function accessLabel(row) {
+    if (row.accessKind === 'own') return null;
+    if (row.accessKind === 'shared') {
+      const who = row.sharedByName || row.sharedByEmail || 'admin';
+      return `Compartido por ${who}`;
+    }
+    if (row.accessKind === 'team') {
+      const who = row.createdByName || row.createdByEmail || 'comercial';
+      return `Equipo: ${who}`;
+    }
+    if (isSuperuser()) return row.createdByName || row.createdByEmail || '—';
+    return null;
   }
 
   function openViewer(row) {
@@ -154,7 +258,7 @@ export function ProjectsPage() {
           </p>
         </div>
         <div className="page-header-actions">
-          {isAdmin && (
+          {(isSuperuser() || isAdmin()) && (
             <label className="chk mono" style={{ fontSize: 11 }}>
               <input
                 type="checkbox"
@@ -202,7 +306,8 @@ export function ProjectsPage() {
                 <th>Estado</th>
                 <th>Cliente</th>
                 <th>Odoo</th>
-                {isAdmin && <th>Owner</th>}
+                {showCreatorCol && <th>Creador</th>}
+                <th>Acceso</th>
                 <th className="actions-col">Acciones</th>
               </tr>
             </thead>
@@ -235,11 +340,31 @@ export function ProjectsPage() {
                     </td>
                     <td>{row.clientRazonSocial || '—'}</td>
                     <td className="mono">{row.odooRef || '—'}</td>
-                    {isAdmin && (
+                    {showCreatorCol && (
                       <td className="mono" style={{ fontSize: 11 }}>
-                        {row.createdBy === user?.id ? 'tú' : row.createdBy?.slice(0, 8) + '…'}
+                        {row.createdBy === user?.id
+                          ? 'tú'
+                          : row.createdByName || row.createdByEmail || row.createdBy?.slice(0, 8) + '…'}
                       </td>
                     )}
+                    <td className="mono" style={{ fontSize: 11 }}>
+                      {row.accessKind === 'own' && <span className="tag tag--ok">Propio</span>}
+                      {row.accessKind === 'shared' && (
+                        <span className="tag tag--amber" title={row.sharedByEmail || ''}>
+                          Compartido
+                        </span>
+                      )}
+                      {row.accessKind === 'team' && (
+                        <span className="tag" style={{ borderColor: 'var(--violet)', color: 'var(--violet)' }}>
+                          Equipo
+                        </span>
+                      )}
+                      {accessLabel(row) && row.accessKind !== 'own' && (
+                        <span className="muted" style={{ display: 'block', marginTop: 4 }}>
+                          {accessLabel(row)}
+                        </span>
+                      )}
+                    </td>
                     <td className="actions-cell">
                       <div className="proj-actions">
                         <Link
@@ -265,21 +390,38 @@ export function ProjectsPage() {
                           </span>
                           Planos
                         </Link>
-                        <button
-                          type="button"
-                          className="btn-action btn-action--muted"
-                          title="Historial de cambios"
-                          onClick={() => openAudit(row)}
-                        >
-                          <span className="btn-action__ic" aria-hidden>
-                            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                              <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
-                              <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
-                            </svg>
-                          </span>
-                          Auditoría
-                        </button>
-                        {canWrite && !row.deletedAt && (
+                        {isSuperuser() && (
+                          <button
+                            type="button"
+                            className="btn-action btn-action--muted"
+                            title="Historial de cambios (solo superusuario)"
+                            onClick={() => openAudit(row)}
+                          >
+                            <span className="btn-action__ic" aria-hidden>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z" />
+                                <path d="M14 2v6h6M16 13H8M16 17H8M10 9H8" />
+                              </svg>
+                            </span>
+                            Auditoría
+                          </button>
+                        )}
+                        {canShareProjects() && canManageRow(row) && !row.deletedAt && (
+                          <button
+                            type="button"
+                            className="btn-action btn-action--cyan"
+                            title="Compartir con otros usuarios"
+                            onClick={() => openShare(row)}
+                          >
+                            <span className="btn-action__ic" aria-hidden>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M4 12v8a2 2 0 002 2h12a2 2 0 002-2v-8M16 6l-4-4-4 4M12 2v13" />
+                              </svg>
+                            </span>
+                            Compartir
+                          </button>
+                        )}
+                        {canManageRow(row) && !row.deletedAt && (
                           <>
                             <button
                               type="button"
@@ -297,20 +439,6 @@ export function ProjectsPage() {
                             </button>
                             <button
                               type="button"
-                              className="btn-action btn-action--violet"
-                              title="Duplicar proyecto"
-                              onClick={() => openClone(row)}
-                            >
-                              <span className="btn-action__ic" aria-hidden>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <rect x="9" y="9" width="13" height="13" rx="2" />
-                                  <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
-                                </svg>
-                              </span>
-                              Clonar
-                            </button>
-                            <button
-                              type="button"
                               className="btn-action btn-action--danger"
                               title="Archivar proyecto"
                               onClick={() => softDelete(row)}
@@ -325,6 +453,22 @@ export function ProjectsPage() {
                               Archivar
                             </button>
                           </>
+                        )}
+                        {canWrite && !row.deletedAt && (
+                          <button
+                            type="button"
+                            className="btn-action btn-action--violet"
+                            title="Duplicar proyecto"
+                            onClick={() => openClone(row)}
+                          >
+                            <span className="btn-action__ic" aria-hidden>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <rect x="9" y="9" width="13" height="13" rx="2" />
+                                <path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />
+                              </svg>
+                            </span>
+                            Clonar
+                          </button>
                         )}
                       </div>
                     </td>
@@ -426,6 +570,75 @@ export function ProjectsPage() {
         </Modal>
       )}
 
+      {modal === 'share' && sel && (
+        <Modal
+          title="Compartir proyecto"
+          onClose={() => setModal(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+              <button type="submit" form="share-form" className="btn btn-primary">
+                Guardar
+              </button>
+            </>
+          }
+        >
+          <p className="muted mono" style={{ marginBottom: 12, fontSize: 12 }}>
+            Proyecto: <strong>{sel.nombre}</strong> — seleccione ADMIN o COMERCIAL con acceso de edición.
+          </p>
+          <form id="share-form" className="stack-form" onSubmit={saveShare}>
+            <label>
+              <span className="fg-lbl">Buscar usuario</span>
+              <input
+                type="search"
+                className="form-input"
+                placeholder="Email o nombre…"
+                value={shareSearch}
+                onChange={(e) => setShareSearch(e.target.value)}
+                autoFocus
+              />
+            </label>
+            {formShare.length > 0 && (
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 8 }}>
+                {shareSelected.map((u) => (
+                  <button
+                    key={u.id}
+                    type="button"
+                    className="tag mono"
+                    style={{ cursor: 'pointer' }}
+                    onClick={() => toggleShareUser(u)}
+                    title="Quitar"
+                  >
+                    {u.email} ×
+                  </button>
+                ))}
+              </div>
+            )}
+            <p className="muted mono" style={{ fontSize: 11, marginBottom: 4 }}>
+              {shareSearchBusy ? 'Buscando…' : `${formShare.length} seleccionado(s)`}
+            </p>
+            <div className="stack-form" style={{ maxHeight: 240, overflow: 'auto' }}>
+              {shareListUsers.length === 0 ? (
+                <p className="muted">No hay usuarios disponibles.</p>
+              ) : (
+                shareListUsers.map((u) => (
+                  <label key={u.id} className="chk mono" style={{ fontSize: 12 }}>
+                    <input
+                      type="checkbox"
+                      checked={formShare.includes(u.id)}
+                      onChange={() => toggleShareUser(u)}
+                    />
+                    {u.email} ({u.role}) {u.nombre ? `— ${u.nombre}` : ''}
+                  </label>
+                ))
+              )}
+            </div>
+          </form>
+        </Modal>
+      )}
+
       {modal === 'clone' && sel && (
         <Modal
           title="Clonar proyecto"
@@ -470,13 +683,14 @@ export function ProjectsPage() {
                 <tr>
                   <th>Fecha</th>
                   <th>Evento</th>
+                  <th>Actor</th>
                   <th>Detalle</th>
                 </tr>
               </thead>
               <tbody>
                 {auditRows.length === 0 ? (
                   <tr>
-                    <td colSpan={3} className="muted">
+                    <td colSpan={4} className="muted">
                       Sin eventos
                     </td>
                   </tr>
@@ -487,6 +701,9 @@ export function ProjectsPage() {
                         {new Date(a.createdAt).toLocaleString()}
                       </td>
                       <td className="mono">{a.eventType}</td>
+                      <td className="mono" style={{ fontSize: 11 }}>
+                        {a.actorName || a.actorEmail || a.actorId?.slice(0, 8) || '—'}
+                      </td>
                       <td className="mono audit-json">
                         <pre>{JSON.stringify({ prev: a.prevData, next: a.newData }, null, 0)}</pre>
                       </td>

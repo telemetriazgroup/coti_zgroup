@@ -11,7 +11,7 @@ router.get('/summary', async (req, res) => {
   const uid = req.user.id;
 
   try {
-    if (role === 'ADMIN') {
+    if (role === 'SUPERUSER') {
       const { rows: cRows } = await pool.query(`SELECT COUNT(*)::int AS n FROM clients`);
       const { rows: pRows } = await pool.query(
         `SELECT COUNT(*)::int AS n FROM projects p WHERE p.deleted_at IS NULL`
@@ -26,22 +26,52 @@ router.get('/summary', async (req, res) => {
       });
     }
 
-    if (role === 'COMERCIAL') {
+    if (role === 'ADMIN') {
+      const { rows: cRows } = await pool.query(`SELECT COUNT(*)::int AS n FROM clients`);
+      const adminTeam = `EXISTS (
+        SELECT 1 FROM users ucm WHERE ucm.id = p.created_by AND ucm.role = 'COMERCIAL' AND ucm.created_by = $1::uuid
+      ) OR EXISTS (
+        SELECT 1 FROM admin_commercial_assignments aca
+        WHERE aca.admin_id = $1::uuid AND aca.commercial_id = p.created_by
+      )`;
       const { rows: pRows } = await pool.query(
         `SELECT COUNT(*)::int AS n FROM projects p
-         WHERE p.deleted_at IS NULL AND p.created_by = $1::uuid`,
+         WHERE p.deleted_at IS NULL AND (
+           p.created_by = $1::uuid OR
+           EXISTS (SELECT 1 FROM project_shares ps WHERE ps.project_id = p.id AND ps.user_id = $1::uuid) OR
+           ${adminTeam}
+         )`,
+        [uid]
+      );
+      return res.json({
+        success: true,
+        data: {
+          scope: 'mine_and_shared',
+          clientsTotal: cRows[0].n,
+          projectsActive: pRows[0].n,
+        },
+      });
+    }
+
+    if (role === 'COMERCIAL') {
+      const projectScope = `p.deleted_at IS NULL AND (
+        p.created_by = $1::uuid OR
+        EXISTS (SELECT 1 FROM project_shares ps WHERE ps.project_id = p.id AND ps.user_id = $1::uuid)
+      )`;
+      const { rows: pRows } = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM projects p WHERE ${projectScope}`,
         [uid]
       );
       const { rows: clRows } = await pool.query(
         `SELECT COUNT(DISTINCT p.client_id)::int AS n FROM projects p
-         WHERE p.deleted_at IS NULL AND p.client_id IS NOT NULL AND p.created_by = $1::uuid`,
+         WHERE ${projectScope} AND p.client_id IS NOT NULL`,
         [uid]
       );
       const { rows: pipeRows } = await pool.query(
         `SELECT COALESCE(SUM(pi.subtotal), 0)::numeric AS v
          FROM project_items pi
          INNER JOIN projects p ON p.id = pi.project_id
-         WHERE p.deleted_at IS NULL AND p.created_by = $1::uuid`,
+         WHERE ${projectScope}`,
         [uid]
       );
       return res.json({
@@ -95,7 +125,7 @@ router.get('/summary', async (req, res) => {
 });
 
 // ─── GET /api/dashboard/admin — KPIs gerenciales (solo ADMIN) ──
-router.get('/admin', requireRole('ADMIN'), async (req, res) => {
+router.get('/admin', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const { rows: statusRows } = await pool.query(
       `SELECT status, COUNT(*)::int AS n FROM projects WHERE deleted_at IS NULL GROUP BY status ORDER BY status`

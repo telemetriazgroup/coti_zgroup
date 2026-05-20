@@ -7,6 +7,8 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
 const { canReadProject, canWriteProject } = require('../utils/projectAccess');
+const { loadShareContext } = require('../utils/projectShare');
+const { isSuperuser } = require('../utils/userRoles');
 const storage = require('../services/storage.service');
 
 const router = express.Router();
@@ -50,18 +52,18 @@ async function loadProject(req, res, id) {
     return null;
   }
   const p = rows[0];
-  if (!canReadProject(req.user, p)) {
+  const shareCtx = await loadShareContext(req.user, p);
+  if (!canReadProject(req.user, p, shareCtx)) {
     res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     return null;
   }
-  if (p.deleted_at && req.user.role !== 'ADMIN') {
-    res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
-    return null;
+  if (p.deleted_at && !isSuperuser(req.user)) {
+    if (!(req.user.role === 'ADMIN' && p.created_by === req.user.id)) {
+      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+      return null;
+    }
   }
-  if (p.deleted_at && req.user.role === 'ADMIN' && req.query.includeDeleted !== 'true') {
-    res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
-    return null;
-  }
+  p._shareCtx = shareCtx;
   return p;
 }
 
@@ -77,8 +79,8 @@ router.get('/:id/plans', async (req, res) => {
     const project = await loadProject(req, res, req.params.id);
     if (!project) return;
 
-    const isAdmin = req.user.role === 'ADMIN';
-    const sql = isAdmin
+    const isStaff = req.user.role === 'ADMIN' || req.user.role === 'SUPERUSER' || req.user.role === 'COMERCIAL';
+    const sql = isStaff
       ? `SELECT p.*, u.email AS uploaded_by_email
          FROM project_plans p
          LEFT JOIN users u ON u.id = p.uploaded_by
@@ -124,7 +126,7 @@ function runUpload(req, res, next) {
 }
 
 // ─── POST /api/projects/:id/plans ──────────────────────────────
-router.post('/:id/plans', requireRole('ADMIN', 'COMERCIAL'), runUpload, async (req, res) => {
+router.post('/:id/plans', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), runUpload, async (req, res) => {
   if (!storage.isStorageConfigured()) {
     return res.status(503).json({
       success: false,
@@ -135,7 +137,7 @@ router.post('/:id/plans', requireRole('ADMIN', 'COMERCIAL'), runUpload, async (r
   try {
     const project = await loadProject(req, res, req.params.id);
     if (!project) return;
-    if (!canWriteProject(req.user, project)) {
+    if (!canWriteProject(req.user, project, project._shareCtx)) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
 
@@ -318,7 +320,7 @@ router.get('/:id/plans/:planId/preview', async (req, res) => {
 });
 
 // ─── DELETE /api/projects/:id/plans/:planId ──────────────────
-router.delete('/:id/plans/:planId', requireRole('ADMIN', 'COMERCIAL'), async (req, res) => {
+router.delete('/:id/plans/:planId', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   if (!storage.isStorageConfigured()) {
     return res.status(503).json({
       success: false,
@@ -329,7 +331,7 @@ router.delete('/:id/plans/:planId', requireRole('ADMIN', 'COMERCIAL'), async (re
   try {
     const project = await loadProject(req, res, req.params.id);
     if (!project) return;
-    if (!canWriteProject(req.user, project)) {
+    if (!canWriteProject(req.user, project, project._shareCtx)) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
 

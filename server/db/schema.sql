@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ─── ENUM TYPES ────────────────────────────────────────────────
 
-CREATE TYPE user_role AS ENUM ('ADMIN', 'COMERCIAL', 'VIEWER');
+CREATE TYPE user_role AS ENUM ('SUPERUSER', 'ADMIN', 'COMERCIAL', 'VIEWER');
 
 CREATE TYPE project_status AS ENUM (
   'BORRADOR',
@@ -42,7 +42,9 @@ CREATE TYPE audit_event AS ENUM (
   'BUDGET_SNAPSHOT',
   'PLAN_UPLOAD',
   'PLAN_DELETE',
-  'CLIENT_ASSIGN'
+  'CLIENT_ASSIGN',
+  'PROJECT_SHARE',
+  'PROJECT_UNSHARE'
 );
 
 -- ─── USERS ─────────────────────────────────────────────────────
@@ -53,12 +55,28 @@ CREATE TABLE users (
   password_hash VARCHAR(255) NOT NULL,
   role        user_role NOT NULL DEFAULT 'COMERCIAL',
   active      BOOLEAN NOT NULL DEFAULT true,
+  created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_users_email ON users(email);
 CREATE INDEX idx_users_role ON users(role);
+CREATE INDEX idx_users_created_by ON users(created_by);
+
+-- ─── ADMIN ↔ COMERCIAL (asignación por superusuario) ───────────
+
+CREATE TABLE admin_commercial_assignments (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  admin_id      UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  commercial_id UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assigned_by   UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (admin_id, commercial_id)
+);
+
+CREATE INDEX idx_admin_commercial_admin ON admin_commercial_assignments(admin_id);
+CREATE INDEX idx_admin_commercial_com ON admin_commercial_assignments(commercial_id);
 
 -- ─── EMPLOYEES ─────────────────────────────────────────────────
 
@@ -143,6 +161,20 @@ CREATE INDEX idx_projects_status ON projects(status);
 CREATE INDEX idx_projects_deleted_at ON projects(deleted_at);
 CREATE INDEX idx_projects_assigned_viewer ON projects(assigned_viewer);
 
+-- ─── PROJECT SHARES (ADMIN → ADMIN/COMERCIAL) ─────────────────
+
+CREATE TABLE project_shares (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  shared_by   UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (project_id, user_id)
+);
+
+CREATE INDEX idx_project_shares_project ON project_shares(project_id);
+CREATE INDEX idx_project_shares_user ON project_shares(user_id);
+
 -- ─── CATALOG CATEGORIES ────────────────────────────────────────
 
 CREATE TABLE catalog_categories (
@@ -176,6 +208,58 @@ CREATE INDEX idx_catalog_items_tipo ON catalog_items(tipo);
 CREATE INDEX idx_catalog_items_active ON catalog_items(active);
 CREATE UNIQUE INDEX idx_catalog_items_category_codigo ON catalog_items(category_id, codigo);
 
+-- ─── CATALOG ITEM REQUESTS (aprobación comercial → admin) ───────
+
+CREATE TYPE catalog_request_kind AS ENUM ('CREATE', 'UPDATE');
+CREATE TYPE catalog_request_status AS ENUM ('PENDING', 'APPROVED', 'REJECTED');
+
+CREATE TABLE catalog_item_requests (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  kind             catalog_request_kind NOT NULL,
+  status           catalog_request_status NOT NULL DEFAULT 'PENDING',
+  requested_by     UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  reviewed_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+  catalog_item_id  UUID REFERENCES catalog_items(id) ON DELETE SET NULL,
+  category_id      UUID NOT NULL REFERENCES catalog_categories(id) ON DELETE RESTRICT,
+  codigo           VARCHAR(50) NOT NULL,
+  descripcion      VARCHAR(300) NOT NULL,
+  unidad           VARCHAR(30) NOT NULL DEFAULT 'UND',
+  tipo             item_tipo NOT NULL DEFAULT 'ACTIVO',
+  unit_price       NUMERIC(12,2) NOT NULL DEFAULT 0,
+  prev_descripcion VARCHAR(300),
+  prev_unit_price  NUMERIC(12,2),
+  request_notes    TEXT,
+  review_notes     TEXT,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  reviewed_at      TIMESTAMPTZ,
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_catalog_requests_status ON catalog_item_requests(status);
+CREATE INDEX idx_catalog_requests_requested_by ON catalog_item_requests(requested_by);
+CREATE INDEX idx_catalog_requests_pending ON catalog_item_requests(status) WHERE status = 'PENDING';
+
+-- ─── CATALOG CHANGE LOG ────────────────────────────────────────
+
+CREATE TYPE catalog_entity_type AS ENUM ('CATEGORY', 'ITEM');
+
+CREATE TABLE catalog_change_log (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  entity_type    catalog_entity_type NOT NULL,
+  entity_id      UUID NOT NULL,
+  entity_label   VARCHAR(300),
+  field_name     VARCHAR(50) NOT NULL,
+  old_value      TEXT,
+  new_value      TEXT,
+  change_source  VARCHAR(30) NOT NULL DEFAULT 'DIRECT',
+  actor_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+  request_id     UUID REFERENCES catalog_item_requests(id) ON DELETE SET NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_catalog_change_entity ON catalog_change_log(entity_type, entity_id);
+CREATE INDEX idx_catalog_change_created ON catalog_change_log(created_at DESC);
+
 -- ─── PROJECT ITEMS ─────────────────────────────────────────────
 
 CREATE TABLE project_items (
@@ -194,11 +278,13 @@ CREATE TABLE project_items (
   is_custom       BOOLEAN NOT NULL DEFAULT false,
   category_id     UUID REFERENCES catalog_categories(id) ON DELETE SET NULL,
   sort_order      INTEGER NOT NULL DEFAULT 0,
+  created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_project_items_project_id ON project_items(project_id);
+CREATE INDEX idx_project_items_created_by ON project_items(created_by);
 CREATE INDEX idx_project_items_tipo ON project_items(tipo);
 CREATE INDEX idx_project_items_category_id ON project_items(category_id);
 

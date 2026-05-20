@@ -4,78 +4,56 @@ const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
-const { canReadProject, canWriteProject } = require('../utils/projectAccess');
+const { canReadProject, canWriteProject, canManageProject, canCloneProject } = require('../utils/projectAccess');
+const { loadProjectAccessContext } = require('../utils/projectShare');
+const { isSuperuser } = require('../utils/userRoles');
+const { mapProject, PROJECT_SELECT, projectVisibilityWhere } = require('../utils/projectHelpers');
 const { isValidStatusTransition } = require('../utils/projectStatusTransitions');
 
 const router = express.Router();
 router.use(requireAuth);
 
-function mapProject(row) {
-  return {
-    id: row.id,
-    nombre: row.nombre,
-    odooRef: row.odoo_ref,
-    clientId: row.client_id,
-    clientRazonSocial: row.client_razon_social,
-    status: row.status,
-    createdBy: row.created_by,
-    assignedViewer: row.assigned_viewer,
-    currency: row.currency,
-    tc: row.tc != null ? Number(row.tc) : null,
-    financeParams: row.finance_params,
-    deletedAt: row.deleted_at,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-  };
-}
-
 // ─── GET /api/projects — listado filtrado por rol ───────────────
 router.get('/', async (req, res) => {
-  const includeDeleted = req.query.includeDeleted === 'true' && req.user.role === 'ADMIN';
+  const includeDeleted =
+    req.query.includeDeleted === 'true' &&
+    (req.user.role === 'SUPERUSER' || req.user.role === 'ADMIN');
 
   try {
-    const role = req.user.role;
     const uid = req.user.id;
+    const role = req.user.role;
 
-    let sql = `
-      SELECT p.*, c.razon_social AS client_razon_social
-      FROM projects p
-      LEFT JOIN clients c ON c.id = p.client_id
-      WHERE (
-        p.deleted_at IS NULL OR ($1 = 'ADMIN' AND $2 = true)
-      )
-      AND (
-        $1 = 'ADMIN' OR
-        ($1 = 'COMERCIAL' AND p.created_by = $3::uuid) OR
-        ($1 = 'VIEWER' AND p.assigned_viewer = $3::uuid)
-      )
+    const sql = `
+      ${PROJECT_SELECT}
+      WHERE ${projectVisibilityWhere('$2', '$1', '$3')}
       ORDER BY p.updated_at DESC`;
 
-    const { rows } = await pool.query(sql, [role, includeDeleted, uid]);
-    return res.json({ success: true, data: rows.map(mapProject) });
+    const { rows } = await pool.query(sql, [uid, role, includeDeleted]);
+    return res.json({ success: true, data: rows.map((r) => mapProject(r, uid)) });
   } catch (err) {
     console.error('[PROJECTS] list:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
 
-// ─── GET /api/projects/:id/audit ───────────────────────────────
-router.get('/:id/audit', async (req, res) => {
+// ─── GET /api/projects/:id/audit — solo SUPERUSER ───────────────
+router.get('/:id/audit', requireRole('SUPERUSER'), async (req, res) => {
   try {
     const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
     if (!pr[0]) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
-    if (!canReadProject(req.user, pr[0])) {
-      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
-    }
 
     const { rows } = await pool.query(
-      `SELECT id, project_id, event_type, actor_id, prev_data, new_data, ip_address, created_at
-       FROM project_audit_log
-       WHERE project_id = $1
-       ORDER BY created_at DESC
-       LIMIT 200`,
+      `SELECT a.id, a.project_id, a.event_type, a.actor_id, a.prev_data, a.new_data, a.ip_address, a.created_at,
+              u.email AS actor_email,
+              TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS actor_name
+       FROM project_audit_log a
+       LEFT JOIN users u ON u.id = a.actor_id
+       LEFT JOIN employees e ON e.user_id = a.actor_id
+       WHERE a.project_id = $1
+       ORDER BY a.created_at DESC
+       LIMIT 500`,
       [req.params.id]
     );
 
@@ -86,6 +64,8 @@ router.get('/:id/audit', async (req, res) => {
         projectId: r.project_id,
         eventType: r.event_type,
         actorId: r.actor_id,
+        actorEmail: r.actor_email,
+        actorName: r.actor_name,
         prevData: r.prev_data,
         newData: r.new_data,
         ipAddress: r.ip_address,
@@ -98,6 +78,137 @@ router.get('/:id/audit', async (req, res) => {
   }
 });
 
+// ─── GET /api/projects/:id/shares ───────────────────────────────
+router.get('/:id/shares', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+  try {
+    const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
+    if (!pr[0]) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+    }
+    if (!canManageProject(req.user, pr[0])) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+    }
+
+    const { rows } = await pool.query(
+      `SELECT ps.user_id, ps.shared_by, ps.created_at,
+              u.email, u.role,
+              TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre
+       FROM project_shares ps
+       JOIN users u ON u.id = ps.user_id
+       LEFT JOIN employees e ON e.user_id = ps.user_id
+       WHERE ps.project_id = $1
+       ORDER BY u.email`,
+      [req.params.id]
+    );
+
+    return res.json({
+      success: true,
+      data: rows.map((r) => ({
+        userId: r.user_id,
+        email: r.email,
+        role: r.role,
+        nombre: r.nombre || r.email,
+        sharedBy: r.shared_by,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (err) {
+    console.error('[PROJECTS] shares get:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── PUT /api/projects/:id/shares — reemplaza colaboradores ─────
+router.put(
+  '/:id/shares',
+  requireRole('ADMIN', 'SUPERUSER'),
+  [body('userIds').isArray()],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
+      });
+    }
+
+    const userIds = [...new Set((req.body.userIds || []).filter(Boolean))];
+
+    try {
+      const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
+      if (!pr[0]) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+      }
+      if (!canManageProject(req.user, pr[0])) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Solo el dueño puede compartir' } });
+      }
+      if (pr[0].deleted_at) {
+        return res.status(400).json({ success: false, error: { code: 'DELETED', message: 'Proyecto archivado' } });
+      }
+
+      if (userIds.includes(pr[0].created_by)) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'INVALID_SHARE', message: 'No se comparte con el dueño del proyecto' },
+        });
+      }
+
+      if (userIds.length) {
+        const { rows: valid } = await pool.query(
+          `SELECT id FROM users WHERE id = ANY($1::uuid[]) AND active = true AND role IN ('ADMIN', 'COMERCIAL')`,
+          [userIds]
+        );
+        if (valid.length !== userIds.length) {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'INVALID_USERS', message: 'Solo usuarios ADMIN o COMERCIAL activos' },
+          });
+        }
+      }
+
+      const { rows: prevShares } = await pool.query(
+        `SELECT user_id FROM project_shares WHERE project_id = $1`,
+        [req.params.id]
+      );
+      const prevIds = prevShares.map((r) => r.user_id);
+
+      await pool.query(`DELETE FROM project_shares WHERE project_id = $1`, [req.params.id]);
+
+      for (const uid of userIds) {
+        await pool.query(
+          `INSERT INTO project_shares (project_id, user_id, shared_by) VALUES ($1, $2, $3)`,
+          [req.params.id, uid, req.user.id]
+        );
+      }
+
+      const ip = getClientIp(req);
+      logAuditEvent({
+        projectId: req.params.id,
+        eventType: 'PROJECT_SHARE',
+        actorId: req.user.id,
+        prevData: { userIds: prevIds },
+        newData: { userIds },
+        ip,
+      });
+
+      const { rows: shares } = await pool.query(
+        `SELECT ps.user_id, u.email, u.role
+         FROM project_shares ps JOIN users u ON u.id = ps.user_id
+         WHERE ps.project_id = $1 ORDER BY u.email`,
+        [req.params.id]
+      );
+
+      return res.json({
+        success: true,
+        data: shares.map((s) => ({ userId: s.user_id, email: s.email, role: s.role })),
+      });
+    } catch (err) {
+      console.error('[PROJECTS] shares put:', err);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
+  }
+);
+
 const cloneValidation = [
   body('nombre').optional().isString(),
   body('clientId').optional({ nullable: true }).isUUID(),
@@ -108,7 +219,7 @@ const cloneValidation = [
 // ─── POST /api/projects/:id/clone ──────────────────────────────
 router.post(
   '/:id/clone',
-  requireRole('ADMIN', 'COMERCIAL'),
+  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
   cloneValidation,
   async (req, res) => {
     const errors = validationResult(req);
@@ -126,7 +237,8 @@ router.post(
       if (!src) {
         return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
       }
-      if (!canWriteProject(req.user, src)) {
+      const shareCtx = await loadProjectAccessContext(req.user, src);
+      if (!canCloneProject(req.user, src, shareCtx)) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
       }
       if (src.deleted_at) {
@@ -241,12 +353,11 @@ router.post(
       });
 
       const { rows: full } = await pool.query(
-        `SELECT p.*, c.razon_social AS client_razon_social FROM projects p
-         LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
-        [newId]
+        `${PROJECT_SELECT} WHERE p.id = $3`,
+        [req.user.id, req.user.role, newId]
       );
 
-      return res.status(201).json({ success: true, data: mapProject(full[0]) });
+      return res.status(201).json({ success: true, data: mapProject(full[0], req.user.id) });
     } catch (err) {
       await client.query('ROLLBACK');
       console.error('[PROJECTS] clone:', err);
@@ -260,7 +371,7 @@ router.post(
 // ─── PATCH /api/projects/:id/viewer — asignar VIEWER ─────────────
 router.patch(
   '/:id/viewer',
-  requireRole('ADMIN', 'COMERCIAL'),
+  requireRole('ADMIN', 'SUPERUSER'),
   [body('assignedViewerId').optional({ nullable: true }).isUUID()],
   async (req, res) => {
     const errors = validationResult(req);
@@ -278,7 +389,7 @@ router.patch(
       if (!pr[0]) {
         return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
       }
-      if (!canWriteProject(req.user, pr[0])) {
+      if (!canManageProject(req.user, pr[0])) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
       }
 
@@ -311,12 +422,8 @@ router.patch(
         ip,
       });
 
-      const { rows: full } = await pool.query(
-        `SELECT p.*, c.razon_social AS client_razon_social FROM projects p
-         LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
-        [req.params.id]
-      );
-      return res.json({ success: true, data: mapProject(full[0]) });
+      const { rows: full } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [req.user.id, req.user.role, req.params.id]);
+      return res.json({ success: true, data: mapProject(full[0], req.user.id) });
     } catch (err) {
       console.error('[PROJECTS] viewer:', err);
       return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
@@ -349,7 +456,7 @@ const createValidation = [
 ];
 
 // ─── POST /api/projects ────────────────────────────────────────
-router.post('/', requireRole('ADMIN', 'COMERCIAL'), createValidation, async (req, res) => {
+router.post('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), createValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -389,16 +496,12 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL'), createValidation, async (req
       ip,
     });
 
-    const { rows: full } = await pool.query(
-      `SELECT p.*, c.razon_social AS client_razon_social FROM projects p
-       LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
-      [rows[0].id]
-    );
+    const { rows: full } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [req.user.id, req.user.role, rows[0].id]);
     if (!full[0]) {
       console.error('[PROJECTS] create: fila no encontrada tras INSERT', rows[0]?.id);
       return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
     }
-    return res.status(201).json({ success: true, data: mapProject(full[0]) });
+    return res.status(201).json({ success: true, data: mapProject(full[0], req.user.id) });
   } catch (err) {
     const code = err && err.code;
     console.error('[PROJECTS] create:', code || err.message, err.detail || '');
@@ -443,7 +546,7 @@ const updateValidation = [
 ];
 
 // ─── PUT /api/projects/:id ─────────────────────────────────────
-router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), updateValidation, async (req, res) => {
+router.put('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), updateValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -457,7 +560,8 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), updateValidation, async (r
     if (!pr[0]) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
-    if (!canWriteProject(req.user, pr[0])) {
+    const shareCtx = await loadProjectAccessContext(req.user, pr[0]);
+    if (!canWriteProject(req.user, pr[0], shareCtx)) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     if (pr[0].deleted_at) {
@@ -479,7 +583,7 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), updateValidation, async (r
       }
     }
 
-    const prevSnapshot = mapProject(pr[0]);
+    const prevSnapshot = mapProject(pr[0], req.user.id);
 
     const fields = [];
     const vals = [];
@@ -524,12 +628,8 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), updateValidation, async (r
     }
 
     if (fields.length === 0) {
-      const { rows: full } = await pool.query(
-        `SELECT p.*, c.razon_social AS client_razon_social FROM projects p
-         LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
-        [req.params.id]
-      );
-      return res.json({ success: true, data: mapProject(full[0]) });
+      const { rows: full } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [req.user.id, req.user.role, req.params.id]);
+      return res.json({ success: true, data: mapProject(full[0], req.user.id) });
     }
 
     vals.push(req.params.id);
@@ -542,16 +642,12 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), updateValidation, async (r
       eventType: 'PROJECT_UPDATE',
       actorId: req.user.id,
       prevData: prevSnapshot,
-      newData: mapProject(newRows[0]),
+      newData: mapProject(newRows[0], req.user.id),
       ip,
     });
 
-    const { rows: full } = await pool.query(
-      `SELECT p.*, c.razon_social AS client_razon_social FROM projects p
-       LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
-      [req.params.id]
-    );
-    return res.json({ success: true, data: mapProject(full[0]) });
+    const { rows: full } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [req.user.id, req.user.role, req.params.id]);
+    return res.json({ success: true, data: mapProject(full[0], req.user.id) });
   } catch (err) {
     console.error('[PROJECTS] update:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
@@ -559,13 +655,13 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), updateValidation, async (r
 });
 
 // ─── DELETE /api/projects/:id — soft delete ───────────────────
-router.delete('/:id', requireRole('ADMIN', 'COMERCIAL'), async (req, res) => {
+router.delete('/:id', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
     if (!pr[0]) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
-    if (!canWriteProject(req.user, pr[0])) {
+    if (!canManageProject(req.user, pr[0])) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     if (pr[0].deleted_at) {
@@ -579,7 +675,7 @@ router.delete('/:id', requireRole('ADMIN', 'COMERCIAL'), async (req, res) => {
       projectId: req.params.id,
       eventType: 'PROJECT_DELETE',
       actorId: req.user.id,
-      prevData: mapProject(pr[0]),
+      prevData: mapProject(pr[0], req.user.id),
       newData: { deletedAt: new Date().toISOString() },
       ip,
     });
@@ -594,25 +690,23 @@ router.delete('/:id', requireRole('ADMIN', 'COMERCIAL'), async (req, res) => {
 // ─── GET /api/projects/:id ─────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT p.*, c.razon_social AS client_razon_social FROM projects p
-       LEFT JOIN clients c ON c.id = p.client_id WHERE p.id = $1`,
-      [req.params.id]
-    );
+    const { rows } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [req.user.id, req.user.role, req.params.id]);
     if (!rows[0]) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
-    if (!canReadProject(req.user, rows[0])) {
+    const shareCtx = await loadProjectAccessContext(req.user, rows[0]);
+    if (!canReadProject(req.user, rows[0], shareCtx)) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
-    if (rows[0].deleted_at && req.user.role !== 'ADMIN') {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
-    }
-    if (rows[0].deleted_at && req.user.role === 'ADMIN' && req.query.includeDeleted !== 'true') {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+    if (rows[0].deleted_at && !isSuperuser(req.user)) {
+      const isOwnerAdmin =
+        req.user.role === 'ADMIN' && rows[0].created_by === req.user.id && req.query.includeDeleted === 'true';
+      if (!isOwnerAdmin) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+      }
     }
 
-    return res.json({ success: true, data: mapProject(rows[0]) });
+    return res.json({ success: true, data: mapProject(rows[0], req.user.id) });
   } catch (err) {
     console.error('[PROJECTS] get:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });

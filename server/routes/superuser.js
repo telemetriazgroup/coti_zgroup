@@ -1,0 +1,125 @@
+const express = require('express');
+const multer = require('multer');
+const { pool } = require('../config/db');
+const { requireAuth, requireRole } = require('../middleware/auth');
+const { exportSystemData, importSystemData } = require('../lib/systemExport');
+const { invalidateCatalogCache } = require('../lib/catalogRedis');
+
+const router = express.Router();
+router.use(requireAuth);
+router.use(requireRole('SUPERUSER'));
+
+const upload = multer({
+  storage: multer.memoryStorage(),
+  limits: { fileSize: 50 * 1024 * 1024 },
+});
+
+router.get('/export', async (req, res) => {
+  try {
+    const data = await exportSystemData();
+    const filename = `zgroup-export-${new Date().toISOString().slice(0, 10)}.json`;
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[SUPERUSER] export:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error al exportar' } });
+  }
+});
+
+router.get('/audit', async (req, res) => {
+  const limit = Math.min(1000, Math.max(1, parseInt(req.query.limit || '500', 10) || 500));
+  const projectId = req.query.projectId || null;
+
+  try {
+    let sql = `
+      SELECT a.id, a.project_id, a.event_type, a.actor_id, a.prev_data, a.new_data, a.ip_address, a.created_at,
+             u.email AS actor_email,
+             TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS actor_name,
+             p.nombre AS project_nombre,
+             cu.email AS project_creator_email
+      FROM project_audit_log a
+      LEFT JOIN users u ON u.id = a.actor_id
+      LEFT JOIN employees e ON e.user_id = a.actor_id
+      LEFT JOIN projects p ON p.id = a.project_id
+      LEFT JOIN users cu ON cu.id = p.created_by
+      WHERE 1=1`;
+    const params = [];
+    if (projectId) {
+      params.push(projectId);
+      sql += ` AND a.project_id = $${params.length}`;
+    }
+    params.push(limit);
+    sql += ` ORDER BY a.created_at DESC LIMIT $${params.length}`;
+
+    const { rows } = await pool.query(sql, params);
+    return res.json({
+      success: true,
+      data: rows.map((r) => ({
+        id: r.id,
+        projectId: r.project_id,
+        projectNombre: r.project_nombre,
+        projectCreatorEmail: r.project_creator_email,
+        eventType: r.event_type,
+        actorId: r.actor_id,
+        actorEmail: r.actor_email,
+        actorName: r.actor_name,
+        prevData: r.prev_data,
+        newData: r.new_data,
+        ipAddress: r.ip_address,
+        createdAt: r.created_at,
+      })),
+    });
+  } catch (err) {
+    console.error('[SUPERUSER] audit:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+router.post('/import/preview', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer) {
+      return res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'Archivo requerido' } });
+    }
+    const parsed = JSON.parse(req.file.buffer.toString('utf8'));
+    const mods = parsed.modules || {};
+    return res.json({
+      success: true,
+      data: {
+        version: parsed.version,
+        exportedAt: parsed.exportedAt,
+        counts: {
+          users: (mods.users || []).length,
+          employees: (mods.employees || []).length,
+          clients: (mods.clients || []).length,
+          catalogCategories: (mods.catalogCategories || []).length,
+          catalogItems: (mods.catalogItems || []).length,
+          projects: (mods.projects || []).length,
+          projectItems: (mods.projectItems || []).length,
+          projectShares: (mods.projectShares || []).length,
+          projectAuditLog: (mods.projectAuditLog || []).length,
+        },
+      },
+    });
+  } catch (err) {
+    return res.status(400).json({ success: false, error: { code: 'INVALID_JSON', message: err.message } });
+  }
+});
+
+router.post('/import/apply', upload.single('file'), async (req, res) => {
+  try {
+    if (!req.file?.buffer) {
+      return res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'Archivo requerido' } });
+    }
+    const mode = req.body.mode === 'replace' ? 'replace' : 'merge';
+    const parsed = JSON.parse(req.file.buffer.toString('utf8'));
+    const stats = await importSystemData(parsed, { mode });
+    await invalidateCatalogCache().catch(() => {});
+    return res.json({ success: true, data: { mode, stats } });
+  } catch (err) {
+    console.error('[SUPERUSER] import:', err);
+    return res.status(400).json({ success: false, error: { code: 'IMPORT_FAILED', message: err.message } });
+  }
+});
+
+module.exports = router;

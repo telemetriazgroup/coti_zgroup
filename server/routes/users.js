@@ -4,6 +4,7 @@ const bcrypt = require('bcrypt');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { canCreateRole, allowedCreateRoles } = require('../lib/userCreation');
 const {
   parseImportBuffer,
   validateImportRows,
@@ -11,6 +12,31 @@ const {
   fetchAllUsersForExport,
   applyUserImport,
 } = require('../lib/usersExcel');
+
+async function userManagedBy(actor, targetId) {
+  if (actor.id === targetId) return true;
+  if (actor.role === 'SUPERUSER') return true;
+  if (actor.role === 'ADMIN') {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM users u WHERE u.id = $1 AND (
+        u.created_by = $2 OR u.id = $2 OR EXISTS (
+          SELECT 1 FROM admin_commercial_assignments a
+          WHERE a.admin_id = $2 AND a.commercial_id = u.id
+        )
+      )`,
+      [targetId, actor.id]
+    );
+    return rows.length > 0;
+  }
+  if (actor.role === 'COMERCIAL') {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM users WHERE id = $1 AND created_by = $2`,
+      [targetId, actor.id]
+    );
+    return rows.length > 0;
+  }
+  return false;
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -31,11 +57,19 @@ const router = express.Router();
 router.use(requireAuth);
 
 // ─── GET /api/users/viewers — VIEWER activos (asignación a proyectos) ───
-router.get('/viewers', requireRole('ADMIN', 'COMERCIAL'), async (req, res) => {
+router.get('/viewers', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   try {
-    const { rows } = await pool.query(
-      `SELECT id, email FROM users WHERE role = 'VIEWER' AND active = true ORDER BY email`
-    );
+    let sql = `SELECT id, email FROM users WHERE role = 'VIEWER' AND active = true`;
+    const params = [];
+    if (req.user.role === 'COMERCIAL') {
+      params.push(req.user.id);
+      sql += ` AND created_by = $1::uuid`;
+    } else if (req.user.role === 'ADMIN') {
+      params.push(req.user.id);
+      sql += ` AND (created_by = $1::uuid OR created_by IS NULL)`;
+    }
+    sql += ` ORDER BY email`;
+    const { rows } = await pool.query(sql, params);
     return res.json({ success: true, data: rows });
   } catch (err) {
     console.error('[USERS] viewers:', err);
@@ -43,17 +77,103 @@ router.get('/viewers', requireRole('ADMIN', 'COMERCIAL'), async (req, res) => {
   }
 });
 
-// ─── GET /api/users — Lista todos los usuarios (ADMIN) ──────────
-router.get('/', requireRole('ADMIN'), async (req, res) => {
+// ─── GET /api/users/managed-commercials — equipo del ADMIN ─────
+router.get('/managed-commercials', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
   try {
+    const adminId = req.user.role === 'SUPERUSER' && req.query.adminId ? req.query.adminId : req.user.id;
+    if (req.user.role === 'ADMIN' && adminId !== req.user.id) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+    }
     const { rows } = await pool.query(
-      `SELECT u.id, u.email, u.role, u.active, u.created_at,
-              e.nombres, e.apellidos, e.cargo, e.telefono, e.foto_url
+      `SELECT u.id, u.email, u.active, u.created_by,
+              TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre,
+              (u.created_by = $1::uuid) AS created_by_me,
+              EXISTS (
+                SELECT 1 FROM admin_commercial_assignments a
+                WHERE a.admin_id = $1::uuid AND a.commercial_id = u.id
+              ) AS assigned_by_super
        FROM users u
        LEFT JOIN employees e ON e.user_id = u.id
-       ORDER BY u.created_at ASC`
+       WHERE u.role = 'COMERCIAL' AND u.active = true AND (
+         u.created_by = $1::uuid OR
+         EXISTS (
+           SELECT 1 FROM admin_commercial_assignments a
+           WHERE a.admin_id = $1::uuid AND a.commercial_id = u.id
+         )
+       )
+       ORDER BY u.email`,
+      [adminId]
     );
+    return res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('[USERS] managed-commercials:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
 
+// ─── GET /api/users/shareable — buscar usuarios para compartir proyecto ───
+router.get('/shareable', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+  try {
+    const q = (req.query.q || '').trim().toLowerCase();
+    let sql = `
+      SELECT u.id, u.email, u.role,
+             TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre
+      FROM users u
+      LEFT JOIN employees e ON e.user_id = u.id
+      WHERE u.active = true AND u.role IN ('ADMIN', 'COMERCIAL') AND u.id != $1`;
+    const params = [req.user.id];
+    if (q) {
+      params.push(`%${q}%`);
+      sql += ` AND (
+        LOWER(u.email) LIKE $2 OR
+        LOWER(COALESCE(e.nombres, '')) LIKE $2 OR
+        LOWER(COALESCE(e.apellidos, '')) LIKE $2 OR
+        LOWER(TRIM(CONCAT(COALESCE(e.nombres, ''), ' ', COALESCE(e.apellidos, '')))) LIKE $2
+      )`;
+    }
+    sql += ` ORDER BY u.email LIMIT 50`;
+    const { rows } = await pool.query(sql, params);
+    return res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('[USERS] shareable:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/users/allowed-roles — roles que puede crear el usuario actual ───
+router.get('/allowed-roles', requireAuth, async (req, res) => {
+  return res.json({ success: true, data: allowedCreateRoles(req.user.role) });
+});
+
+// ─── GET /api/users — Lista usuarios según rol ──────────
+router.get('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
+  try {
+    let sql = `
+      SELECT u.id, u.email, u.role, u.active, u.created_by, u.created_at,
+              e.nombres, e.apellidos, e.cargo, e.telefono, e.foto_url,
+              cb.email AS created_by_email
+       FROM users u
+       LEFT JOIN employees e ON e.user_id = u.id
+       LEFT JOIN users cb ON cb.id = u.created_by`;
+    const params = [];
+
+    if (req.user.role === 'ADMIN') {
+      sql += `
+       WHERE u.id = $1 OR u.created_by = $1 OR (
+         u.role = 'COMERCIAL' AND EXISTS (
+           SELECT 1 FROM admin_commercial_assignments a
+           WHERE a.admin_id = $1 AND a.commercial_id = u.id
+         )
+       )`;
+      params.push(req.user.id);
+    } else if (req.user.role === 'COMERCIAL') {
+      sql += ` WHERE u.created_by = $1`;
+      params.push(req.user.id);
+    }
+
+    sql += ` ORDER BY u.created_at ASC`;
+
+    const { rows } = await pool.query(sql, params);
     return res.json({ success: true, data: rows });
   } catch (err) {
     console.error('[USERS] List error:', err);
@@ -62,7 +182,7 @@ router.get('/', requireRole('ADMIN'), async (req, res) => {
 });
 
 // ─── GET /api/users/export — Excel (ADMIN) ─────────────────────
-router.get('/export', requireRole('ADMIN'), async (req, res) => {
+router.get('/export', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const rows = await fetchAllUsersForExport();
     const buf = buildUsersXlsx(rows);
@@ -76,7 +196,7 @@ router.get('/export', requireRole('ADMIN'), async (req, res) => {
 });
 
 // ─── POST /api/users/import/preview — ADMIN ───────────────────
-router.post('/import/preview', requireRole('ADMIN'), upload.single('file'), async (req, res) => {
+router.post('/import/preview', requireRole('ADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer) {
       return res.status(400).json({
@@ -106,7 +226,7 @@ router.post('/import/preview', requireRole('ADMIN'), upload.single('file'), asyn
 });
 
 // ─── POST /api/users/import/apply — mismo archivo otra vez (ADMIN)
-router.post('/import/apply', requireRole('ADMIN'), upload.single('file'), async (req, res) => {
+router.post('/import/apply', requireRole('ADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer) {
       return res.status(400).json({
@@ -144,9 +264,33 @@ router.post('/import/apply', requireRole('ADMIN'), upload.single('file'), async 
 
 // ─── GET /api/users/:id — Ver usuario ──────────────────────────
 router.get('/:id', async (req, res) => {
-  // ADMIN puede ver cualquiera; otros solo a sí mismos
-  if (req.user.role !== 'ADMIN' && req.user.id !== req.params.id) {
-    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+  if (req.user.id !== req.params.id) {
+    if (req.user.role === 'SUPERUSER') {
+      /* ok */
+    } else if (req.user.role === 'ADMIN') {
+      const { rows: ok } = await pool.query(
+        `SELECT 1 FROM users u WHERE u.id = $1 AND (
+          u.created_by = $2 OR u.id = $2 OR EXISTS (
+            SELECT 1 FROM admin_commercial_assignments a
+            WHERE a.admin_id = $2 AND a.commercial_id = u.id
+          )
+        )`,
+        [req.params.id, req.user.id]
+      );
+      if (!ok.length) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      }
+    } else if (req.user.role === 'COMERCIAL') {
+      const { rows: ok } = await pool.query(
+        `SELECT 1 FROM users WHERE id = $1 AND created_by = $2`,
+        [req.params.id, req.user.id]
+      );
+      if (!ok.length) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      }
+    } else {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+    }
   }
 
   try {
@@ -173,7 +317,7 @@ router.get('/:id', async (req, res) => {
 const createValidation = [
   body('email').isEmail().withMessage('Email inválido'),
   body('password').isLength({ min: 8 }).withMessage('Contraseña mínimo 8 caracteres'),
-  body('role').isIn(['ADMIN', 'COMERCIAL', 'VIEWER']).withMessage('Rol inválido'),
+  body('role').isIn(['SUPERUSER', 'ADMIN', 'COMERCIAL', 'VIEWER']).withMessage('Rol inválido'),
   body('nombres')
     .if((_, { req }) => ['ADMIN', 'COMERCIAL'].includes(req.body.role))
     .notEmpty()
@@ -184,7 +328,7 @@ const createValidation = [
     .withMessage('Apellidos requeridos'),
 ];
 
-router.post('/', requireRole('ADMIN'), createValidation, async (req, res) => {
+router.post('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), createValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -194,6 +338,16 @@ router.post('/', requireRole('ADMIN'), createValidation, async (req, res) => {
   }
 
   const { email, password, role, nombres, apellidos, cargo, telefono, dni, fechaIngreso } = req.body;
+
+  if (!canCreateRole(req.user.role, role)) {
+    return res.status(403).json({
+      success: false,
+      error: {
+        code: 'FORBIDDEN',
+        message: `No puede crear usuarios con rol ${role}. Permitidos: ${allowedCreateRoles(req.user.role).join(', ')}`,
+      },
+    });
+  }
 
   try {
     // Verificar email único
@@ -215,13 +369,13 @@ router.post('/', requireRole('ADMIN'), createValidation, async (req, res) => {
       await client.query('BEGIN');
 
       const { rows: userRows } = await client.query(
-        `INSERT INTO users (email, password_hash, role) VALUES ($1, $2, $3) RETURNING id`,
-        [email.toLowerCase().trim(), passwordHash, role]
+        `INSERT INTO users (email, password_hash, role, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
+        [email.toLowerCase().trim(), passwordHash, role, req.user.id]
       );
       const userId = userRows[0].id;
 
       // Solo ADMIN y COMERCIAL tienen registro de empleado
-      if (role !== 'VIEWER') {
+      if (role !== 'VIEWER' && role !== 'SUPERUSER') {
         await client.query(
           `INSERT INTO employees (user_id, nombres, apellidos, cargo, telefono, dni, fecha_ingreso)
            VALUES ($1, $2, $3, $4, $5, $6, $7)`,
@@ -250,23 +404,24 @@ router.post('/', requireRole('ADMIN'), createValidation, async (req, res) => {
 
 // ─── PUT /api/users/:id — Editar usuario ────────────────────────
 router.put('/:id', async (req, res) => {
-  // ADMIN puede editar cualquiera; otros solo a sí mismos (sin cambiar rol)
-  if (req.user.role !== 'ADMIN' && req.user.id !== req.params.id) {
+  const isSelf = req.user.id === req.params.id;
+  const canManage = await userManagedBy(req.user, req.params.id);
+  if (!isSelf && !canManage) {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
   }
 
   const { nombres, apellidos, cargo, telefono, dni, fechaIngreso, notas, password, role, active } = req.body;
+  const isElevated = ['ADMIN', 'SUPERUSER'].includes(req.user.role);
 
   try {
-    if (active === false && req.params.id === req.user.id) {
+    if (active === false && isSelf) {
       return res.status(400).json({
         success: false,
         error: { code: 'SELF_DEACTIVATE', message: 'No puedes desactivar tu propio usuario' },
       });
     }
 
-    // Actualizar datos de usuario si aplica
-    if (password || (role && req.user.role === 'ADMIN') || active !== undefined) {
+    if (password || (role && isElevated) || (active !== undefined && (isElevated || req.user.role === 'COMERCIAL'))) {
       const updates = [];
       const params = [];
       let idx = 1;
@@ -275,21 +430,24 @@ router.put('/:id', async (req, res) => {
         updates.push(`password_hash = $${idx++}`);
         params.push(await bcrypt.hash(password, 12));
       }
-      if (role && req.user.role === 'ADMIN') {
+      if (role && isElevated && !isSelf) {
+        if (!canCreateRole(req.user.role, role)) {
+          return res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'No puede asignar ese rol' },
+          });
+        }
         updates.push(`role = $${idx++}`);
         params.push(role);
       }
-      if (active !== undefined && req.user.role === 'ADMIN') {
+      if (active !== undefined && (isElevated || (req.user.role === 'COMERCIAL' && canManage && !isSelf))) {
         updates.push(`active = $${idx++}`);
         params.push(active);
       }
 
       if (updates.length > 0) {
         params.push(req.params.id);
-        await pool.query(
-          `UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}`,
-          params
-        );
+        await pool.query(`UPDATE users SET ${updates.join(', ')} WHERE id = $${idx}`, params);
       }
     }
 
@@ -317,7 +475,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // ─── DELETE /api/users/:id — Desactivar usuario (ADMIN) ─────────
-router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
+router.delete('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   if (req.params.id === req.user.id) {
     return res.status(400).json({
       success: false,
@@ -326,6 +484,26 @@ router.delete('/:id', requireRole('ADMIN'), async (req, res) => {
   }
 
   try {
+    if (req.user.role === 'COMERCIAL') {
+      const { rows } = await pool.query(
+        `SELECT id FROM users WHERE id = $1 AND created_by = $2 AND role = 'VIEWER'`,
+        [req.params.id, req.user.id]
+      );
+      if (!rows.length) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      }
+    } else if (req.user.role === 'ADMIN') {
+      const { rows } = await pool.query(
+        `SELECT id FROM users WHERE id = $1 AND (created_by = $2 OR id IN (
+          SELECT commercial_id FROM admin_commercial_assignments WHERE admin_id = $2
+        ))`,
+        [req.params.id, req.user.id]
+      );
+      if (!rows.length && req.params.id !== req.user.id) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      }
+    }
+
     await pool.query('UPDATE users SET active = false WHERE id = $1', [req.params.id]);
     return res.json({ success: true, data: { message: 'Usuario desactivado' } });
   } catch (err) {

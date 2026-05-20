@@ -5,6 +5,7 @@ const { Queue, Worker } = require('bullmq');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { canReadProject } = require('../utils/projectAccess');
+const { loadShareContext } = require('../utils/projectShare');
 const { processPdfJob } = require('../workers/pdf.worker');
 const jobStore = require('../lib/pdfJobsStore');
 const pdfService = require('../services/pdf.service');
@@ -94,7 +95,7 @@ async function loadProjectRow(id) {
 // ─── GET /api/export/pdf/preview-html — HTML mismo layout que el PDF (sin Puppeteer) ─
 router.get(
   '/pdf/preview-html',
-  requireRole('ADMIN', 'COMERCIAL'),
+  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
   query('projectId').isUUID(),
   query('kind').isIn(['GERENCIA', 'CLIENTE']),
   async (req, res) => {
@@ -111,7 +112,8 @@ router.get(
     if (!row) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
-    if (!canReadProject(req.user, row)) {
+    const shareCtx = await loadShareContext(req.user, row);
+    if (!canReadProject(req.user, row, shareCtx)) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     if (row.deleted_at) {
@@ -140,7 +142,7 @@ router.get(
 // ─── POST /api/export/pdf ──────────────────────────────────────
 router.post(
   '/pdf',
-  requireRole('ADMIN', 'COMERCIAL'),
+  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
   body('projectId').isUUID(),
   body('kind').isIn(['GERENCIA', 'CLIENTE']),
   async (req, res) => {
@@ -157,7 +159,8 @@ router.post(
     if (!row) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
-    if (!canReadProject(req.user, row)) {
+    const shareCtx = await loadShareContext(req.user, row);
+    if (!canReadProject(req.user, row, shareCtx)) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     if (row.deleted_at) {
@@ -253,7 +256,8 @@ router.get('/pdf/download/:jobId', async (req, res) => {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
   }
   const row = await loadProjectRow(own.projectId);
-  if (!row || !canReadProject(req.user, row)) {
+  const shareCtx = row ? await loadShareContext(req.user, row) : {};
+  if (!row || !canReadProject(req.user, row, shareCtx)) {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
   }
 

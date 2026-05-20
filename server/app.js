@@ -15,8 +15,11 @@ const projectItemRoutes = require('./routes/projectItems');
 const projectRoutes = require('./routes/projects');
 const dashboardRoutes = require('./routes/dashboard');
 const catalogRoutes = require('./routes/catalog');
+const catalogRequestRoutes = require('./routes/catalogRequests');
 const planRoutes = require('./routes/plans');
 const exportRoutes = require('./routes/export');
+const superuserRoutes = require('./routes/superuser');
+const adminAssignmentsRoutes = require('./routes/adminAssignments');
 
 const app = express();
 
@@ -137,8 +140,11 @@ web.use('/api/projects', projectItemRoutes);
 web.use('/api/projects', planRoutes);
 web.use('/api/projects', projectRoutes);
 web.use('/api/dashboard', dashboardRoutes);
+web.use('/api/catalog/requests', catalogRequestRoutes);
 web.use('/api/catalog', catalogRoutes);
 web.use('/api/export', exportRoutes);
+web.use('/api/superuser', superuserRoutes);
+web.use('/api/admin-assignments', adminAssignmentsRoutes);
 
 web.get('/api/health', (req, res) => {
   res.json({

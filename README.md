@@ -2,6 +2,13 @@
 
 Sistema web de cotizaciones técnicas para refrigeración industrial (ZGROUP, Perú). **Backend:** Node.js + Express + PostgreSQL. **Frontend:** React 18 + Vite, con paleta y tipografías fijas en `.cursorrules` (misma línea visual que el HTML de referencia).
 
+
+ADMIN_EMAIL=admin@zgroup.pe
+# SUPERUSER_EMAIL=zgroup@zgroup.pe
+# SUPERUSER_PASSWORD=ZGroup2025!
+# ADMIN_PASSWORD=ZGroup2025!
+
+
 ## Referencia de interfaz y lógica financiera
 
 El prototipo **`zgroup-cotizaciones-v10-final.html`** (raíz del repo) es la referencia visual y funcional para:

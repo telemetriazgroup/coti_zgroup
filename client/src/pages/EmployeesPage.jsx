@@ -590,7 +590,7 @@ function EmployeesAdmin() {
 
 export function EmployeesPage() {
   const { hasRole } = useAuth();
-  if (hasRole('ADMIN')) {
+  if (hasRole('ADMIN', 'SUPERUSER')) {
     return <EmployeesAdmin />;
   }
   return <MyEmployeeCard />;

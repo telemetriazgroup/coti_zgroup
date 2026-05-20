@@ -1,8 +1,11 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation } from 'react-router-dom';
 import { api, getBlob, postFormData } from '../lib/api';
 import { fetchCatalog } from '../lib/catalogApi';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
+import { CatalogRequestsPanel } from '../components/CatalogRequestsPanel';
+import { CatalogHistoryModal } from '../components/CatalogHistoryModal';
 
 const ISSUE_LABELS = {
   FALTA_CATEGORIA: 'Falta categoría',
@@ -18,9 +21,14 @@ const ISSUE_LABELS = {
 };
 
 export function CatalogPage() {
-  const { hasRole } = useAuth();
-  const isAdmin = hasRole('ADMIN');
+  const location = useLocation();
+  const { canManageCatalog, hasRole } = useAuth();
+  const isAdmin = canManageCatalog();
+  const isCommercial = hasRole('COMERCIAL');
+  const showRequests = isAdmin || isCommercial;
 
+  const [pageView, setPageView] = useState('catalog');
+  const [pendingCount, setPendingCount] = useState(0);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [fromCache, setFromCache] = useState(false);
@@ -53,6 +61,17 @@ export function CatalogPage() {
   const [importPreview, setImportPreview] = useState(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importApplying, setImportApplying] = useState(false);
+  const [requestAutoOpen, setRequestAutoOpen] = useState(null);
+  const [historyTarget, setHistoryTarget] = useState(null);
+
+  useEffect(() => {
+    const open = location.state?.openRequests;
+    if (open === 'create' || open === 'update') {
+      setPageView('requests');
+      setRequestAutoOpen(open);
+      window.history.replaceState({}, document.title);
+    }
+  }, [location.state]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -72,6 +91,20 @@ export function CatalogPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadPendingCount = useCallback(async () => {
+    if (!isAdmin) return;
+    try {
+      const data = await api.get('/api/catalog/requests/pending-count');
+      setPendingCount(data?.count ?? 0);
+    } catch {
+      /* ignore */
+    }
+  }, [isAdmin]);
+
+  useEffect(() => {
+    loadPendingCount();
+  }, [loadPendingCount, pageView]);
 
   const sortedCats = useMemo(
     () => [...categories].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
@@ -289,25 +322,71 @@ export function CatalogPage() {
         <div>
           <h1 className="page-title">Catálogo</h1>
           <p className="page-sub muted">
-            {isAdmin ? 'Administración de categorías e ítems' : 'Consulta de precios y descripciones'}
+            {pageView === 'requests'
+              ? isAdmin
+                ? 'Aprobar solicitudes de ítems del equipo comercial'
+                : 'Solicitar altas o cambios de nombre/precio en el catálogo'
+              : isAdmin
+                ? 'Administración de categorías e ítems'
+                : 'Consulta de precios y descripciones'}
           </p>
         </div>
-        {isAdmin && (
-          <div className="page-header-actions">
-            <label className="chk mono" style={{ fontSize: 11 }}>
-              <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
-              Ver inactivos
-            </label>
-            <button type="button" className="btn btn-primary" onClick={openNewCategory}>
-              Categoría
-            </button>
-            <button type="button" className="btn btn-primary" onClick={openNewItem}>
-              Ítem
-            </button>
-          </div>
-        )}
+        <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
+          {showRequests && (
+            <>
+              <button
+                type="button"
+                className={`btn btn-ghost${pageView === 'catalog' ? ' active' : ''}`}
+                onClick={() => setPageView('catalog')}
+              >
+                Catálogo
+              </button>
+              <button
+                type="button"
+                className={`btn btn-ghost${pageView === 'requests' ? ' active' : ''}`}
+                onClick={() => setPageView('requests')}
+              >
+                Solicitudes
+                {isAdmin && pendingCount > 0 && (
+                  <span className="tag" style={{ marginLeft: 6, borderColor: 'var(--amber)', color: 'var(--amber)' }}>
+                    {pendingCount}
+                  </span>
+                )}
+              </button>
+            </>
+          )}
+          {isAdmin && pageView === 'catalog' && (
+            <>
+              <label className="chk mono" style={{ fontSize: 11 }}>
+                <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
+                Ver inactivos
+              </label>
+              <button type="button" className="btn btn-primary" onClick={openNewCategory}>
+                Categoría
+              </button>
+              <button type="button" className="btn btn-primary" onClick={openNewItem}>
+                Ítem
+              </button>
+            </>
+          )}
+        </div>
       </div>
 
+      {pageView === 'requests' && showRequests ? (
+        <CatalogRequestsPanel
+          categories={categories}
+          catalogItems={items}
+          canReview={isAdmin}
+          isCommercial={isCommercial}
+          autoOpen={requestAutoOpen}
+          onAutoOpenHandled={() => setRequestAutoOpen(null)}
+          onChanged={() => {
+            loadPendingCount();
+            load();
+          }}
+        />
+      ) : (
+        <>
       {fromCache && (
         <div className="banner banner--warning mono" style={{ marginBottom: 12 }}>
           Mostrando datos en caché local (sin conexión o error de red). Los datos pueden estar desactualizados.
@@ -390,10 +469,23 @@ export function CatalogPage() {
                       Editar
                     </button>
                     {c.active && (
-                      <button type="button" className="btn-link btn-link--danger mono" onClick={() => deactivateCategory(c)}>
+                      <button type="button" className="btn-link mono" onClick={() => deactivateCategory(c)}>
                         Desactivar
                       </button>
                     )}
+                    <button
+                      type="button"
+                      className="btn-link mono"
+                      onClick={() =>
+                        setHistoryTarget({
+                          entityType: 'CATEGORY',
+                          entityId: c.id,
+                          title: `Historial — ${c.nombre}`,
+                        })
+                      }
+                    >
+                      Historial
+                    </button>
                   </span>
                 )}
               </li>
@@ -473,6 +565,19 @@ export function CatalogPage() {
                         <td>
                           <button type="button" className="btn-link mono" onClick={() => openEditItem(row)}>
                             Editar
+                          </button>
+                          <button
+                            type="button"
+                            className="btn-link mono"
+                            onClick={() =>
+                              setHistoryTarget({
+                                entityType: 'ITEM',
+                                entityId: row.id,
+                                title: `Historial — ${row.codigo}`,
+                              })
+                            }
+                          >
+                            Historial
                           </button>
                           {row.active && (
                             <button type="button" className="btn-link btn-link--danger mono" onClick={() => deactivateItem(row)}>
@@ -720,6 +825,16 @@ export function CatalogPage() {
           </form>
         </Modal>
       )}
+        </>
+      )}
+
+      <CatalogHistoryModal
+        open={!!historyTarget}
+        entityType={historyTarget?.entityType}
+        entityId={historyTarget?.entityId}
+        title={historyTarget?.title}
+        onClose={() => setHistoryTarget(null)}
+      />
     </section>
   );
 }

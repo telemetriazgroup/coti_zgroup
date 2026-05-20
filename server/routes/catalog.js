@@ -6,6 +6,13 @@ const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { getCached, setCached, invalidateCatalogCache } = require('../lib/catalogRedis');
 const { buildCatalogXlsx, parseImportBuffer, validateImportRows, applyImportRows } = require('../lib/catalogExcel');
+const {
+  logCatalogChanges,
+  logItemCreate,
+  itemUpdateChanges,
+  categoryUpdateChanges,
+  fetchCatalogHistory,
+} = require('../lib/catalogChangeLog');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -97,7 +104,7 @@ router.get('/export', async (req, res) => {
 });
 
 // ─── POST /api/catalog/import/preview — ADMIN ───────────────────
-router.post('/import/preview', requireRole('ADMIN'), upload.single('file'), async (req, res) => {
+router.post('/import/preview', requireRole('ADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({
@@ -127,7 +134,7 @@ router.post('/import/preview', requireRole('ADMIN'), upload.single('file'), asyn
 });
 
 // ─── POST /api/catalog/import/apply — ADMIN ─────────────────────
-router.post('/import/apply', requireRole('ADMIN'), async (req, res) => {
+router.post('/import/apply', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const incoming = req.body?.rows;
     if (!Array.isArray(incoming) || incoming.length === 0) {
@@ -200,7 +207,7 @@ const reorderValidation = [
 ];
 
 // ─── PATCH /api/catalog/categories/reorder — ADMIN ───────────────
-router.patch('/categories/reorder', requireRole('ADMIN'), reorderValidation, async (req, res) => {
+router.patch('/categories/reorder', requireRole('ADMIN', 'SUPERUSER'), reorderValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -239,7 +246,7 @@ const catBody = [
 ];
 
 // ─── POST /api/catalog/categories — ADMIN ───────────────────────
-router.post('/categories', requireRole('ADMIN'), catBody, async (req, res) => {
+router.post('/categories', requireRole('ADMIN', 'SUPERUSER'), catBody, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -261,6 +268,14 @@ router.post('/categories', requireRole('ADMIN'), catBody, async (req, res) => {
       `INSERT INTO catalog_categories (nombre, sort_order, active) VALUES ($1, $2, COALESCE($3, true)) RETURNING *`,
       [nombre.trim(), so, active]
     );
+    await logCatalogChanges({
+      entityType: 'CATEGORY',
+      entityId: rows[0].id,
+      entityLabel: rows[0].nombre,
+      actorId: req.user.id,
+      changeSource: 'DIRECT',
+      changes: [{ field: 'nombre', oldValue: null, newValue: rows[0].nombre }],
+    });
     await invalidateCatalogCache();
     return res.status(201).json({ success: true, data: mapCategory(rows[0]) });
   } catch (err) {
@@ -277,7 +292,7 @@ const catPutValidators = [
 ];
 
 // ─── PUT /api/catalog/categories/:id — ADMIN ───────────────────
-router.put('/categories/:id', requireRole('ADMIN'), catPutValidators, async (req, res) => {
+router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidators, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -288,6 +303,11 @@ router.put('/categories/:id', requireRole('ADMIN'), catPutValidators, async (req
 
   const { nombre, sortOrder, active } = req.body;
   try {
+    const { rows: before } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
+    if (!before[0]) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Categoría no encontrada' } });
+    }
+
     const fields = [];
     const vals = [];
     let i = 1;
@@ -317,6 +337,18 @@ router.put('/categories/:id', requireRole('ADMIN'), catPutValidators, async (req
     if (!rows[0]) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Categoría no encontrada' } });
     }
+    const after = rows[0];
+    const changes = categoryUpdateChanges(before[0], after);
+    if (changes.length) {
+      await logCatalogChanges({
+        entityType: 'CATEGORY',
+        entityId: after.id,
+        entityLabel: after.nombre,
+        actorId: req.user.id,
+        changeSource: 'DIRECT',
+        changes,
+      });
+    }
     await invalidateCatalogCache();
     return res.json({ success: true, data: mapCategory(rows[0]) });
   } catch (err) {
@@ -326,7 +358,7 @@ router.put('/categories/:id', requireRole('ADMIN'), catPutValidators, async (req
 });
 
 // ─── DELETE /api/catalog/categories/:id — desactivar — ADMIN ───
-router.delete('/categories/:id', requireRole('ADMIN'), [param('id').isUUID()], async (req, res) => {
+router.delete('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -336,6 +368,7 @@ router.delete('/categories/:id', requireRole('ADMIN'), [param('id').isUUID()], a
   }
 
   try {
+    const { rows: before } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
     const client = await pool.connect();
     try {
       await client.query('BEGIN');
@@ -347,6 +380,16 @@ router.delete('/categories/:id', requireRole('ADMIN'), [param('id').isUUID()], a
       throw e;
     } finally {
       client.release();
+    }
+    if (before[0]?.active) {
+      await logCatalogChanges({
+        entityType: 'CATEGORY',
+        entityId: req.params.id,
+        entityLabel: before[0].nombre,
+        actorId: req.user.id,
+        changeSource: 'DIRECT',
+        changes: [{ field: 'active', oldValue: 'true', newValue: 'false' }],
+      });
     }
     await invalidateCatalogCache();
     return res.json({ success: true, data: { message: 'Categoría desactivada' } });
@@ -368,7 +411,7 @@ const itemBody = [
 ];
 
 // ─── POST /api/catalog/items — ADMIN ───────────────────────────
-router.post('/items', requireRole('ADMIN'), itemBody, async (req, res) => {
+router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -414,6 +457,7 @@ router.post('/items', requireRole('ADMIN'), itemBody, async (req, res) => {
         req.user.id,
       ]
     );
+    await logItemCreate(rows[0], req.user.id, 'DIRECT', null);
     await invalidateCatalogCache();
     return res.status(201).json({ success: true, data: mapItem(rows[0]) });
   } catch (err) {
@@ -429,7 +473,7 @@ router.post('/items', requireRole('ADMIN'), itemBody, async (req, res) => {
 });
 
 // ─── PUT /api/catalog/items/:id — ADMIN ────────────────────────
-router.put('/items/:id', requireRole('ADMIN'), [param('id').isUUID()], async (req, res) => {
+router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
   const verr = validationResult(req);
   if (!verr.isEmpty()) {
     return res.status(400).json({
@@ -511,6 +555,17 @@ router.put('/items/:id', requireRole('ADMIN'), [param('id').isUUID()], async (re
       `UPDATE catalog_items SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
       vals
     );
+    const changes = itemUpdateChanges(cur[0], rows[0]);
+    if (changes.length) {
+      await logCatalogChanges({
+        entityType: 'ITEM',
+        entityId: rows[0].id,
+        entityLabel: rows[0].codigo,
+        actorId: req.user.id,
+        changeSource: 'DIRECT',
+        changes,
+      });
+    }
     await invalidateCatalogCache();
     return res.json({ success: true, data: mapItem(rows[0]) });
   } catch (err) {
@@ -526,7 +581,7 @@ router.put('/items/:id', requireRole('ADMIN'), [param('id').isUUID()], async (re
 });
 
 // ─── DELETE /api/catalog/items/:id — desactivar — ADMIN ────────
-router.delete('/items/:id', requireRole('ADMIN'), [param('id').isUUID()], async (req, res) => {
+router.delete('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -536,11 +591,47 @@ router.delete('/items/:id', requireRole('ADMIN'), [param('id').isUUID()], async 
   }
 
   try {
+    const { rows: before } = await pool.query(`SELECT * FROM catalog_items WHERE id = $1`, [req.params.id]);
+    if (!before[0]) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
+    }
     await pool.query(`UPDATE catalog_items SET active = false WHERE id = $1`, [req.params.id]);
+    if (before[0].active) {
+      await logCatalogChanges({
+        entityType: 'ITEM',
+        entityId: req.params.id,
+        entityLabel: before[0].codigo,
+        actorId: req.user.id,
+        changeSource: 'DIRECT',
+        changes: [{ field: 'active', oldValue: 'true', newValue: 'false' }],
+      });
+    }
     await invalidateCatalogCache();
     return res.json({ success: true, data: { message: 'Ítem desactivado' } });
   } catch (err) {
     console.error('[CATALOG] delete item:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/catalog/categories/:id/history — ADMIN ────────────
+router.get('/categories/:id/history', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+  try {
+    const data = await fetchCatalogHistory('CATEGORY', req.params.id);
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[CATALOG] category history:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/catalog/items/:id/history — ADMIN ─────────────────
+router.get('/items/:id/history', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+  try {
+    const data = await fetchCatalogHistory('ITEM', req.params.id);
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[CATALOG] item history:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });

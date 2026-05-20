@@ -9,11 +9,10 @@ function formatUsd(n) {
 }
 
 export function DashboardPage() {
-  const { user, hasRole } = useAuth();
-  const isAdmin = hasRole('ADMIN');
-  const isCommercial = hasRole('COMERCIAL');
-  const isViewer = hasRole('VIEWER');
-  const scopedDash = isCommercial || isViewer;
+  const { user, hasRole, isAdmin, isSuperuser } = useAuth();
+  const isAdminUser = isAdmin();
+  const isSuper = isSuperuser();
+  const scopedDash = hasRole('COMERCIAL', 'VIEWER');
   const [summary, setSummary] = useState(null);
   const [admin, setAdmin] = useState(null);
 
@@ -33,7 +32,7 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdminUser && !isSuper) return;
     let alive = true;
     (async () => {
       try {
@@ -46,23 +45,25 @@ export function DashboardPage() {
     return () => {
       alive = false;
     };
-  }, [isAdmin]);
+  }, [isAdminUser, isSuper]);
 
   return (
     <section className="view-active">
       <div className="page-header">
         <h1 className="page-title">Dashboard</h1>
         <p className="page-sub muted">
-          {isAdmin
+          {isSuper
+            ? 'Vista global del sistema (superusuario)'
+            : isAdminUser
             ? 'Vista global del sistema'
-            : isCommercial
+            : hasRole('COMERCIAL')
               ? 'Tus proyectos y montos de lista'
-              : isViewer
+              : hasRole('VIEWER')
                 ? 'Proyectos que te fueron asignados'
                 : 'Resumen según tu rol'}
         </p>
       </div>
-      {isAdmin && (
+      {(isAdminUser || isSuper) && (
         <div className="kpi-grid">
           <div className="kpi-card">
             <div className="kpi-label mono">Proyectos (todos)</div>
@@ -84,7 +85,7 @@ export function DashboardPage() {
         <div className="kpi-grid">
           <div className="kpi-card">
             <div className="kpi-label mono">
-              {isViewer ? 'Proyectos (asignados)' : 'Proyectos (tuyos)'}
+              {hasRole('VIEWER') ? 'Proyectos (asignados)' : 'Proyectos (tuyos)'}
             </div>
             <div className="kpi-value">{summary != null ? summary.projectsActive : '—'}</div>
           </div>
@@ -105,7 +106,7 @@ export function DashboardPage() {
         </div>
       )}
 
-      {isAdmin && admin && (
+      {(isAdminUser || isSuper) && admin && (
         <>
           <h2 className="budget-panel-title" style={{ marginTop: 24 }}>
             Panel gerencial (ADMIN)
@@ -205,15 +206,19 @@ export function DashboardPage() {
         </div>
         <p className="muted" style={{ lineHeight: 1.6 }}>
           Sesión: <strong className="mono">{user?.email}</strong>.{' '}
-          {isAdmin ? (
+          {isSuper ? (
+            <>
+              Como superusuario ves todos los proyectos y creadores, la auditoría global y el backup del sistema en{' '}
+              <strong>Sistema / Backup</strong>.
+            </>
+          ) : isAdminUser ? (
             <>
               Desde el menú administrás <strong>Clientes</strong>, <strong>Catálogo</strong>, <strong>Empleados</strong> y{' '}
-              <strong>Usuarios</strong>; el panel gerencial resume pipeline y desempeño por comercial.
+              <strong>Usuarios</strong>; podés compartir proyectos con otros ADMIN o COMERCIAL.
             </>
-          ) : isCommercial ? (
+          ) : hasRole('COMERCIAL') ? (
             <>
-              Tu espacio de trabajo es <strong>Proyectos</strong> y este resumen. La administración de clientes, catálogo,
-              empleados y usuarios corresponde a <strong>ADMIN</strong>.
+              Tu espacio de trabajo es <strong>Proyectos</strong> (propios o compartidos) y el catálogo en solo lectura.
             </>
           ) : (
             <>

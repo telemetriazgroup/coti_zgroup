@@ -1,5 +1,4 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { Navigate } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api, getBlob, postFormData } from '../lib/api';
 import { Modal } from '../components/Modal';
@@ -10,21 +9,22 @@ const ISSUE_LABELS = {
   EMAIL_DUP_LOTE: 'Email repetido en el archivo',
   EMAIL_EN_BD: 'Email ya registrado',
   PASSWORD_INVALIDO: 'Contraseña obligatoria (mín. 8 caracteres)',
-  ROL_INVALIDO: 'Rol inválido (ADMIN, COMERCIAL, VIEWER)',
+  ROL_INVALIDO: 'Rol inválido',
   FALTA_NOMBRES: 'Nombres obligatorios para este rol',
   FALTA_APELLIDOS: 'Apellidos obligatorios para este rol',
 };
 
-const ROLES = [
-  { value: 'ADMIN', label: 'ADMIN' },
-  { value: 'COMERCIAL', label: 'COMERCIAL' },
-  { value: 'VIEWER', label: 'VIEWER' },
-];
+const ROLE_LABELS = {
+  SUPERUSER: 'SUPERUSER',
+  ADMIN: 'ADMIN',
+  COMERCIAL: 'COMERCIAL',
+  VIEWER: 'VIEWER',
+};
 
 const emptyCreate = {
   email: '',
   password: '',
-  role: 'COMERCIAL',
+  role: 'VIEWER',
   nombres: '',
   apellidos: '',
   cargo: '',
@@ -34,7 +34,12 @@ const emptyCreate = {
 
 export function UsersPage() {
   const { hasRole, user: me } = useAuth();
+  const canImportExport = hasRole('ADMIN', 'SUPERUSER');
+  const canAssignRoles = hasRole('ADMIN', 'SUPERUSER');
+  const isCommercialOnly = me?.role === 'COMERCIAL';
+
   const [list, setList] = useState([]);
+  const [allowedRoles, setAllowedRoles] = useState(['VIEWER']);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [modal, setModal] = useState(null);
@@ -52,8 +57,12 @@ export function UsersPage() {
     setLoading(true);
     setErr(null);
     try {
-      const data = await api.get('/api/users');
+      const [data, roles] = await Promise.all([
+        api.get('/api/users'),
+        api.get('/api/users/allowed-roles'),
+      ]);
       setList(data);
+      if (Array.isArray(roles) && roles.length) setAllowedRoles(roles);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -65,12 +74,8 @@ export function UsersPage() {
     load();
   }, [load]);
 
-  if (!hasRole('ADMIN')) {
-    return <Navigate to="/dashboard" replace />;
-  }
-
   function openCreate() {
-    setCreateForm(emptyCreate);
+    setCreateForm({ ...emptyCreate, role: allowedRoles[0] || 'VIEWER' });
     setModal('create');
   }
 
@@ -223,27 +228,35 @@ export function UsersPage() {
       <div className="page-header page-header--row">
         <div>
           <h1 className="page-title">Usuarios</h1>
-          <p className="page-sub muted">Alta, roles y desactivación (solo ADMIN)</p>
+          <p className="page-sub muted">
+            {isCommercialOnly
+              ? 'Alta de usuarios VIEWER para asignar a proyectos'
+              : 'Alta, roles y desactivación según su jerarquía'}
+          </p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
-          <button type="button" className="btn btn-ghost mono" onClick={downloadExcel} disabled={loading}>
-            Descargar Excel
-          </button>
-          <button
-            type="button"
-            className="btn btn-ghost mono"
-            disabled={loading || importBusy}
-            onClick={() => fileInputRef.current?.click()}
-          >
-            {importBusy ? 'Leyendo…' : 'Importar Excel…'}
-          </button>
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-            style={{ display: 'none' }}
-            onChange={onImportFile}
-          />
+          {canImportExport && (
+            <>
+              <button type="button" className="btn btn-ghost mono" onClick={downloadExcel} disabled={loading}>
+                Descargar Excel
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost mono"
+                disabled={loading || importBusy}
+                onClick={() => fileInputRef.current?.click()}
+              >
+                {importBusy ? 'Leyendo…' : 'Importar Excel…'}
+              </button>
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept=".xlsx,.xls,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                style={{ display: 'none' }}
+                onChange={onImportFile}
+              />
+            </>
+          )}
           <button type="button" className="btn btn-primary" onClick={openCreate}>
             Nuevo usuario
           </button>
@@ -437,9 +450,9 @@ export function UsersPage() {
                 value={createForm.role}
                 onChange={(e) => setCreateForm((f) => ({ ...f, role: e.target.value }))}
               >
-                {ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
+                {allowedRoles.map((r) => (
+                  <option key={r} value={r}>
+                    {ROLE_LABELS[r] || r}
                   </option>
                 ))}
               </select>
@@ -540,30 +553,39 @@ export function UsersPage() {
                 onChange={(e) => setEditForm((f) => ({ ...f, password: e.target.value }))}
               />
             </label>
-            <label>
-              <span className="fg-lbl">Rol</span>
-              <select
-                className="form-input"
-                value={editForm.role}
-                onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
-              >
-                {ROLES.map((r) => (
-                  <option key={r.value} value={r.value}>
-                    {r.label}
-                  </option>
-                ))}
-              </select>
-            </label>
-            <label className="chk-row">
-              <input
-                type="checkbox"
-                checked={editForm.active}
-                onChange={(e) => setEditForm((f) => ({ ...f, active: e.target.checked }))}
-                disabled={editForm.id === me?.id}
-              />
-              <span>Usuario activo</span>
-            </label>
-            {editForm.role !== 'VIEWER' && (
+            {canAssignRoles && editForm.id !== me?.id && (
+              <label>
+                <span className="fg-lbl">Rol</span>
+                <select
+                  className="form-input"
+                  value={editForm.role}
+                  onChange={(e) => setEditForm((f) => ({ ...f, role: e.target.value }))}
+                >
+                  {(allowedRoles.includes(editForm.role) ? allowedRoles : [...allowedRoles, editForm.role]).map((r) => (
+                    <option key={r} value={r}>
+                      {ROLE_LABELS[r] || r}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            {(canAssignRoles || isCommercialOnly) && editForm.id !== me?.id && (
+              <label className="chk-row">
+                <input
+                  type="checkbox"
+                  checked={editForm.active}
+                  onChange={(e) => setEditForm((f) => ({ ...f, active: e.target.checked }))}
+                />
+                <span>Usuario activo</span>
+              </label>
+            )}
+            {canAssignRoles && editForm.id === me?.id && (
+              <label className="chk-row">
+                <input type="checkbox" checked={editForm.active} disabled />
+                <span>Usuario activo</span>
+              </label>
+            )}
+            {canAssignRoles && editForm.role !== 'VIEWER' && (
               <>
                 <label>
                   <span className="fg-lbl">Nombres</span>

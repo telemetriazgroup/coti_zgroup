@@ -12,6 +12,8 @@ import { CatalogPage } from './pages/CatalogPage';
 import { ProjectBudgetPage } from './pages/ProjectBudgetPage';
 import { ProjectPlansPage } from './pages/ProjectPlansPage';
 import { UserGuidePage } from './pages/UserGuidePage';
+import { SuperuserPage } from './pages/SuperuserPage';
+import { AdminAssignmentsPage } from './pages/AdminAssignmentsPage';
 
 function RequireAuth() {
   const { user, ready } = useAuth();
@@ -28,7 +30,7 @@ function RequireAuth() {
 }
 
 function RequireAdmin() {
-  const { user, ready } = useAuth();
+  const { user, ready, isAdmin } = useAuth();
   if (!ready) {
     return (
       <div className="boot-screen">
@@ -38,7 +40,37 @@ function RequireAdmin() {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
-  if (user.role !== 'ADMIN') return <Navigate to="/dashboard" replace />;
+  if (!isAdmin()) return <Navigate to="/dashboard" replace />;
+  return <Outlet />;
+}
+
+function RequireSuperuser() {
+  const { user, ready, isSuperuser } = useAuth();
+  if (!ready) {
+    return (
+      <div className="boot-screen">
+        <div className="boot-spinner" />
+        <p className="boot-text mono">Cargando…</p>
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isSuperuser()) return <Navigate to="/dashboard" replace />;
+  return <Outlet />;
+}
+
+function RequireUserManager() {
+  const { user, ready, hasRole } = useAuth();
+  if (!ready) {
+    return (
+      <div className="boot-screen">
+        <div className="boot-spinner" />
+        <p className="boot-text mono">Cargando…</p>
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (!hasRole('ADMIN', 'SUPERUSER', 'COMERCIAL')) return <Navigate to="/dashboard" replace />;
   return <Outlet />;
 }
 
@@ -53,11 +85,17 @@ export function App() {
           <Route path="projects" element={<ProjectsPage />} />
           <Route path="projects/:projectId/presupuesto" element={<ProjectBudgetPage />} />
           <Route path="projects/:projectId/planos" element={<ProjectPlansPage />} />
+          <Route path="catalog" element={<CatalogPage />} />
           <Route path="guia" element={<UserGuidePage />} />
+          <Route element={<RequireSuperuser />}>
+            <Route path="superusuario" element={<SuperuserPage />} />
+            <Route path="superusuario/asignaciones" element={<AdminAssignmentsPage />} />
+          </Route>
           <Route element={<RequireAdmin />}>
             <Route path="clients" element={<ClientsPage />} />
-            <Route path="catalog" element={<CatalogPage />} />
             <Route path="employees" element={<EmployeesPage />} />
+          </Route>
+          <Route element={<RequireUserManager />}>
             <Route path="users" element={<UsersPage />} />
           </Route>
         </Route>

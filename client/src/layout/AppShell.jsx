@@ -1,6 +1,7 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { NavLink, Outlet } from 'react-router-dom';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
+import { api } from '../lib/api';
 
 const LS_SIDEBAR = 'zgroup_sidebar_open';
 const LS_THEME = 'zgroup-theme';
@@ -11,7 +12,11 @@ function readSidebarOpenDesktop() {
 }
 
 export function AppShell() {
-  const { user, logout, hasRole } = useAuth();
+  const location = useLocation();
+  const { user, logout, hasRole, isAdmin, isSuperuser } = useAuth();
+  const prevFocusRef = useRef(false);
+
+  const isProjectFocus = /^\/projects\/[^/]+\/(presupuesto|planos)$/.test(location.pathname);
 
   const [isMobile, setIsMobile] = useState(() =>
     typeof window !== 'undefined' ? window.matchMedia('(max-width: 900px)').matches : false
@@ -27,6 +32,14 @@ export function AppShell() {
     if (typeof document === 'undefined') return 'dark';
     return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   });
+  const [catalogPending, setCatalogPending] = useState(0);
+
+  useEffect(() => {
+    if (!isAdmin()) return;
+    api.get('/api/catalog/requests/pending-count')
+      .then((d) => setCatalogPending(d?.count ?? 0))
+      .catch(() => setCatalogPending(0));
+  }, [isAdmin, user?.id]);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev) => {
@@ -58,6 +71,25 @@ export function AppShell() {
     return () => mq.removeEventListener('change', sync);
   }, []);
 
+  useEffect(() => {
+    if (isProjectFocus) {
+      setSidebarOpen(false);
+      prevFocusRef.current = true;
+      return;
+    }
+    if (prevFocusRef.current && !isMobile) {
+      setSidebarOpen(readSidebarOpenDesktop());
+    }
+    prevFocusRef.current = false;
+  }, [isProjectFocus, isMobile]);
+
+  const openSidebarForModules = useCallback(() => {
+    setSidebarOpen(true);
+    if (typeof window !== 'undefined' && !window.matchMedia('(max-width: 900px)').matches) {
+      localStorage.setItem(LS_SIDEBAR, '1');
+    }
+  }, []);
+
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => {
       const next = !prev;
@@ -77,10 +109,27 @@ export function AppShell() {
   const initials =
     `${user?.nombres?.[0] || ''}${user?.apellidos?.[0] || ''}`.toUpperCase() || user?.email?.[0]?.toUpperCase() || '?';
 
-  const navClass = 'app-layout' + (sidebarOpen ? ' app-layout--sidebar-open' : '');
+  const navClass =
+    'app-layout' +
+    (sidebarOpen ? ' app-layout--sidebar-open' : '') +
+    (isProjectFocus ? ' app-layout--project-focus' : '');
 
   return (
     <div className={navClass}>
+      {isProjectFocus && !sidebarOpen && (
+        <button
+          type="button"
+          className="sidebar-reveal-btn mono"
+          onClick={openSidebarForModules}
+          title="Mostrar menú de módulos"
+          aria-label="Mostrar menú de módulos"
+        >
+          <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
+            <path d="M4 6h16M4 12h16M4 18h16" />
+          </svg>
+          Módulos
+        </button>
+      )}
       {isMobile && sidebarOpen ? (
         <button
           type="button"
@@ -138,28 +187,60 @@ export function AppShell() {
             </svg>
             Proyectos
           </NavLink>
-          {hasRole('ADMIN') && (
+          {(isAdmin() || hasRole('COMERCIAL')) && (
+            <NavLink to="/catalog" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
+                <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+              </svg>
+              Catálogo
+              {catalogPending > 0 && isAdmin() && (
+                <span className="tag" style={{ marginLeft: 'auto', fontSize: 10, borderColor: 'var(--amber)', color: 'var(--amber)' }}>
+                  {catalogPending}
+                </span>
+              )}
+            </NavLink>
+          )}
+          {isSuperuser() && (
             <>
-              <div className="sb-section">Administración</div>
-              <NavLink to="/clients" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+              <div className="sb-section">Superusuario</div>
+              <NavLink to="/superusuario" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
                 <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z" />
+                  <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
                 </svg>
-                Clientes
+                Sistema / Backup
               </NavLink>
-              <NavLink to="/catalog" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+              <NavLink
+                to="/superusuario/asignaciones"
+                className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
+                onClick={closeSidebarMobile}
+              >
                 <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
-                  <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
+                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
                 </svg>
-                Catálogo
+                Asignar comerciales
               </NavLink>
-              <NavLink to="/employees" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
-                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" />
-                </svg>
-                Empleados
-              </NavLink>
+            </>
+          )}
+          {(isAdmin() || hasRole('COMERCIAL')) && (
+            <>
+              <div className="sb-section">{isAdmin() ? 'Administración' : 'Gestión'}</div>
+              {isAdmin() && (
+                <>
+                  <NavLink to="/clients" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+                    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z" />
+                    </svg>
+                    Clientes
+                  </NavLink>
+                  <NavLink to="/employees" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+                    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" />
+                    </svg>
+                    Empleados
+                  </NavLink>
+                </>
+              )}
               <NavLink
                 to="/users"
                 className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}

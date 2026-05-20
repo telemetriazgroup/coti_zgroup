@@ -24,17 +24,30 @@ async function initSchema() {
   const fs = require('fs');
   const path = require('path');
   const schemaPath = path.join(__dirname, '../db/schema.sql');
+  const migrationsDir = path.join(__dirname, '../db/migrations');
 
   try {
     const sql = fs.readFileSync(schemaPath, 'utf8');
     await pool.query(sql);
     console.log('[DB] Schema initialized');
   } catch (err) {
-    // Ignorar errores de "already exists" — son normales en re-runs
     if (!err.message.includes('already exists')) {
       console.error('[DB] Schema init error:', err.message);
       throw err;
     }
+  }
+
+  try {
+    if (fs.existsSync(migrationsDir)) {
+      const files = fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort();
+      for (const file of files) {
+        const migSql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+        await pool.query(migSql);
+      }
+      if (files.length) console.log(`[DB] Migrations applied (${files.length})`);
+    }
+  } catch (err) {
+    console.warn('[DB] Migration warning:', err.message);
   }
 }
 

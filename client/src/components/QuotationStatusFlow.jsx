@@ -51,6 +51,9 @@ export function QuotationStatusFlow({
   canWrite,
   viewerMode,
   onStatusChange,
+  canShareProject,
+  onShareClick,
+  shareCount,
 }) {
   const [busy, setBusy] = useState(false);
   const [localErr, setLocalErr] = useState(null);
@@ -90,14 +93,28 @@ export function QuotationStatusFlow({
     <div className="status-flow">
       <div className="status-flow__hdr">
         <span className="status-flow__title mono">Estado de la cotización</span>
-        <button
-          type="button"
-          className="btn btn-ghost mono"
-          style={{ fontSize: 11, padding: '6px 12px' }}
-          onClick={() => setHelpOpen(true)}
-        >
-          Guía de ayuda
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {canShareProject && (
+            <button
+              type="button"
+              className="btn btn-ghost mono"
+              style={{ fontSize: 11, padding: '6px 12px' }}
+              onClick={onShareClick}
+              title="Compartir proyecto con otros usuarios"
+            >
+              Compartir
+              {shareCount > 0 ? ` (${shareCount})` : ''}
+            </button>
+          )}
+          <button
+            type="button"
+            className="btn btn-ghost mono"
+            style={{ fontSize: 11, padding: '6px 12px' }}
+            onClick={() => setHelpOpen(true)}
+          >
+            Guía de ayuda
+          </button>
+        </div>
       </div>
 
       <div className="status-flow__track" aria-label="Flujo de estados">
