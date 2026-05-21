@@ -11,6 +11,9 @@ import { mergeFinanceParams } from '@shared/finance-engine.js';
 import { STATUS_LABEL } from '../lib/quotationStatus';
 import { QuotationStatusFlow } from '../components/QuotationStatusFlow';
 import { ProjectShareModal } from '../components/ProjectShareModal';
+import { SearchableSelect } from '../components/SearchableSelect';
+import { fetchCategoryNextCodigo } from '../lib/catalogCodigoApi';
+import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
 
 function formatUsd(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -86,10 +89,11 @@ export function ProjectBudgetPage() {
   const [budgetImportBusy, setBudgetImportBusy] = useState(false);
   const budgetImportInputRef = useRef(null);
   const [budgetLineMetaId, setBudgetLineMetaId] = useState(null);
+  const [budgetLineQ, setBudgetLineQ] = useState('');
 
   /** Alta rápida de catálogo (solo ADMIN; API /api/catalog/*) */
   const [catalogModal, setCatalogModal] = useState(null);
-  const [catForm, setCatForm] = useState({ nombre: '', sortOrder: '', active: true });
+  const [catForm, setCatForm] = useState({ nombre: '', sortOrder: '', codigoPrefix: '', active: true });
   const [itemForm, setItemForm] = useState({
     categoryId: '',
     codigo: '',
@@ -100,6 +104,7 @@ export function ProjectBudgetPage() {
     sortOrder: '',
     active: true,
   });
+  const [itemCodigoHint, setItemCodigoHint] = useState(null);
 
   const refreshCatalog = useCallback(async () => {
     setErr(null);
@@ -312,8 +317,31 @@ export function ProjectBudgetPage() {
           (it.descripcion && it.descripcion.toLowerCase().includes(qq))
       );
     }
-    return list;
+    return [...list].sort((a, b) => Number(b.unitPrice || 0) - Number(a.unitPrice || 0));
   }, [catItems, filterCat, qDebounced, filterTipo]);
+
+  const displayBudgetItems = useMemo(() => {
+    let list = [...items].sort((a, b) => Number(b.subtotal || 0) - Number(a.subtotal || 0));
+    const qq = budgetLineQ.trim().toLowerCase();
+    if (qq) {
+      list = list.filter(
+        (row) =>
+          (row.codigo && row.codigo.toLowerCase().includes(qq)) ||
+          (row.descripcion && row.descripcion.toLowerCase().includes(qq))
+      );
+    }
+    return list;
+  }, [items, budgetLineQ]);
+
+  const projectSelectOptions = useMemo(
+    () =>
+      accessibleProjects.map((p) => ({
+        value: p.id,
+        label: `${p.nombre}${p.clientRazonSocial ? ` — ${p.clientRazonSocial}` : ''}`,
+        searchText: [p.nombre, p.clientRazonSocial, p.odooRef].filter(Boolean).join(' '),
+      })),
+    [accessibleProjects]
+  );
 
   const [, bump] = useState(0);
   const force = useCallback(() => bump((n) => n + 1), []);
@@ -588,7 +616,7 @@ export function ProjectBudgetPage() {
   }, [categories]);
 
   function openBudgetCatalogCategory() {
-    setCatForm({ nombre: '', sortOrder: '', active: true });
+    setCatForm({ nombre: '', sortOrder: '', codigoPrefix: '', active: true });
     setCatalogModal('category');
   }
 
@@ -604,7 +632,33 @@ export function ProjectBudgetPage() {
       sortOrder: '',
       active: true,
     });
+    setItemCodigoHint(null);
     setCatalogModal('item');
+    if (filterCat || firstCat) {
+      fetchCategoryNextCodigo(filterCat || firstCat)
+        .then((data) => {
+          if (data?.suggestedCodigo) {
+            setItemForm((f) => ({ ...f, codigo: data.suggestedCodigo }));
+            setItemCodigoHint({ minCodigo: data.suggestedCodigo, prefix: data.prefix });
+          }
+        })
+        .catch(() => {});
+    }
+  }
+
+  async function onBudgetItemCategoryChange(categoryId) {
+    setItemForm((f) => ({ ...f, categoryId }));
+    try {
+      const data = await fetchCategoryNextCodigo(categoryId);
+      if (data?.suggestedCodigo) {
+        setItemForm((f) => ({ ...f, categoryId, codigo: data.suggestedCodigo }));
+        setItemCodigoHint({ minCodigo: data.suggestedCodigo, prefix: data.prefix });
+      } else {
+        setItemCodigoHint(null);
+      }
+    } catch {
+      setItemCodigoHint(null);
+    }
   }
 
   async function saveBudgetCatalogCategory(e) {
@@ -615,6 +669,7 @@ export function ProjectBudgetPage() {
       const body = {
         nombre: catForm.nombre.trim(),
         sortOrder: catForm.sortOrder === '' ? undefined : parseInt(catForm.sortOrder, 10),
+        codigoPrefix: catForm.codigoPrefix.trim() || null,
         active: catForm.active,
       };
       const created = await api.post('/api/catalog/categories', body);
@@ -809,19 +864,15 @@ export function ProjectBudgetPage() {
         <label className="budget-project-bar__lbl mono muted" htmlFor="budget-project-sel">
           Proyecto
         </label>
-        <select
+        <SearchableSelect
           id="budget-project-sel"
           className="form-input budget-project-sel mono"
           value={projectId}
-          onChange={(e) => navigate(`/projects/${e.target.value}/presupuesto`)}
-        >
-          {accessibleProjects.map((p) => (
-            <option key={p.id} value={p.id}>
-              {p.nombre}
-              {p.clientRazonSocial ? ` — ${p.clientRazonSocial}` : ''}
-            </option>
-          ))}
-        </select>
+          onChange={(id) => navigate(`/projects/${id}/presupuesto`)}
+          options={projectSelectOptions}
+          placeholder="Buscar proyecto…"
+          emptyLabel="Sin proyectos coincidentes"
+        />
         {canWrite && (
           <div className="budget-project-bar__actions">
             <button
@@ -1053,7 +1104,19 @@ export function ProjectBudgetPage() {
         </aside>
 
         <div className="budget-panel budget-panel--table">
-          <h2 className="budget-panel-title">Líneas del presupuesto</h2>
+          <div className="budget-panel-title-row">
+            <h2 className="budget-panel-title">Líneas del presupuesto</h2>
+            {items.length > 0 && (
+              <input
+                type="search"
+                className="form-input mono budget-line-search"
+                placeholder="Buscar en líneas agregadas…"
+                value={budgetLineQ}
+                onChange={(e) => setBudgetLineQ(e.target.value)}
+                aria-label="Buscar líneas del presupuesto"
+              />
+            )}
+          </div>
           <p className="budget-table-hint mono muted" role="note">
             En pantallas estrechas, desliza la tabla para ver importes y totales. Categoría y tipo: toca el icono
             (i) en cada fila.
@@ -1099,18 +1162,32 @@ export function ProjectBudgetPage() {
                       Agregue ítems desde el catálogo o una pieza personalizada.
                     </td>
                   </tr>
+                ) : displayBudgetItems.length === 0 ? (
+                  <tr>
+                    <td colSpan={canEditBudgetLines ? 9 : 8} className="muted">
+                      Ninguna línea coincide con la búsqueda.
+                    </td>
+                  </tr>
                 ) : (
-                  items.map((row, idx) => {
+                  displayBudgetItems.map((row, idx) => {
                     const dr = getDraft(row.id);
                     const catLabel = row.categoryNombre || '—';
                     const nPart = idx + 1;
                     const metaOpen = budgetLineMetaId === row.id;
                     const tip = row.tipo || '—';
                     const metaTitle = `Categoría: ${catLabel} · Tipo: ${tip}`;
+                    const rowTipoClass =
+                      row.tipo === 'ACTIVO'
+                        ? ' budget-row--activo'
+                        : row.tipo === 'CONSUMIBLE'
+                          ? ' budget-row--consumible'
+                          : '';
                     return (
                       <tr
                         key={row.id}
-                        className={deletingId === row.id ? 'budget-row-deleting' : ''}
+                        className={
+                          (deletingId === row.id ? 'budget-row-deleting' : '') + rowTipoClass
+                        }
                       >
                         <td className="num mono budget-col-idx" title={`Partida ${nPart}`}>
                           {nPart}
@@ -1257,16 +1334,21 @@ export function ProjectBudgetPage() {
           <footer className="budget-footer budget-footer--stacked mono">
             <div className="budget-footer__line">
               <span className="budget-footer__partidas">
-                Partidas: <span className="mono budget-footer__partidas-num">{items.length}</span>
+                Partidas:{' '}
+                <span className="mono budget-footer__partidas-num">
+                  {budgetLineQ.trim() ? `${displayBudgetItems.length} / ${items.length}` : items.length}
+                </span>
               </span>
             </div>
             {items.length > 0 && (
               <div className="budget-footer__line budget-footer__codes muted" aria-label="Listado de ítems">
-                {items
+                {(budgetLineQ.trim() ? displayBudgetItems : items)
                   .slice(0, 30)
                   .map((row, i) => `#${i + 1} ${(row.codigo || '—').trim() || '—'}`)
                   .join(' · ')}
-                {items.length > 30 ? ` · … (+${items.length - 30} más)` : ''}
+                {(budgetLineQ.trim() ? displayBudgetItems : items).length > 30
+                  ? ` · … (+${(budgetLineQ.trim() ? displayBudgetItems : items).length - 30} más)`
+                  : ''}
               </div>
             )}
             <div className="budget-footer__line budget-footer__totals">
@@ -1710,6 +1792,18 @@ export function ProjectBudgetPage() {
               />
             </label>
             <label>
+              <span className="fg-lbl">Prefijo código (ej. SF)</span>
+              <input
+                className="form-input mono"
+                placeholder="SF"
+                maxLength={12}
+                value={catForm.codigoPrefix}
+                onChange={(e) =>
+                  setCatForm((f) => ({ ...f, codigoPrefix: e.target.value.toUpperCase().replace(/\s/g, '') }))
+                }
+              />
+            </label>
+            <label>
               <span className="fg-lbl">Orden (opcional)</span>
               <input
                 type="number"
@@ -1753,12 +1847,13 @@ export function ProjectBudgetPage() {
                 className="form-input"
                 required
                 value={itemForm.categoryId}
-                onChange={(e) => setItemForm((f) => ({ ...f, categoryId: e.target.value }))}
+                onChange={(e) => onBudgetItemCategoryChange(e.target.value)}
               >
                 <option value="">—</option>
                 {sortedCats.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nombre}
+                    {c.codigoPrefix ? ` (${c.codigoPrefix}-)` : ''}
                   </option>
                 ))}
               </select>
@@ -1769,8 +1864,13 @@ export function ProjectBudgetPage() {
                 className="form-input mono"
                 required
                 value={itemForm.codigo}
-                onChange={(e) => setItemForm((f) => ({ ...f, codigo: e.target.value }))}
+                onChange={(e) => setItemForm((f) => ({ ...f, codigo: e.target.value.toUpperCase() }))}
               />
+              {itemCodigoHint?.prefix && (
+                <span className="muted mono" style={{ fontSize: 11 }}>
+                  Formato {itemCodigoHint.prefix}-####. Mínimo sugerido: {itemCodigoHint.minCodigo}.
+                </span>
+              )}
             </label>
             <label>
               <span className="fg-lbl">Descripción *</span>
@@ -1783,10 +1883,9 @@ export function ProjectBudgetPage() {
             </label>
             <label>
               <span className="fg-lbl">Unidad</span>
-              <input
-                className="form-input mono"
+              <MeasureUnitSelect
                 value={itemForm.unidad}
-                onChange={(e) => setItemForm((f) => ({ ...f, unidad: e.target.value }))}
+                onChange={(v) => setItemForm((f) => ({ ...f, unidad: v }))}
               />
             </label>
             <label>
@@ -2003,10 +2102,9 @@ export function ProjectBudgetPage() {
             </label>
             <label>
               <span className="fg-lbl">Unidad</span>
-              <input
-                className="form-input mono"
+              <MeasureUnitSelect
                 value={customForm.unidad}
-                onChange={(e) => setCustomForm((f) => ({ ...f, unidad: e.target.value }))}
+                onChange={(v) => setCustomForm((f) => ({ ...f, unidad: v }))}
               />
             </label>
             <label>

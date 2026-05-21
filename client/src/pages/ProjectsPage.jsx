@@ -5,6 +5,11 @@ import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
 import { QuotationEstadosGuideContent } from '../components/QuotationEstadosGuideContent';
 import { STATUS_LABEL } from '../lib/quotationStatus';
+import {
+  ProjectFiltersBar,
+  useProjectListFilters,
+  extractProjectCreators,
+} from '../components/ProjectFiltersBar';
 
 export function ProjectsPage() {
   const { hasRole, user, isAdmin, isSuperuser, canShareProjects } = useAuth();
@@ -33,20 +38,34 @@ export function ProjectsPage() {
   const shareSearchTimer = useRef(null);
   const [cloneName, setCloneName] = useState('');
   const [guideOpen, setGuideOpen] = useState(false);
+  const [creators, setCreators] = useState([]);
+
+  const { filters, setFilters, query } = useProjectListFilters({
+    includeDeleted,
+    isAdmin: isAdmin(),
+    isSuperuser: isSuperuser(),
+  });
 
   const load = useCallback(async () => {
     setLoading(true);
     setErr(null);
     try {
-      const qs = (isSuperuser() || isAdmin()) && includeDeleted ? '?includeDeleted=true' : '';
-      const data = await api.get(`/api/projects${qs}`);
+      const data = await api.get(`/api/projects${query}`);
       setList(data);
     } catch (e) {
       setErr(e.message);
     } finally {
       setLoading(false);
     }
-  }, [isSuperuser, isAdmin, includeDeleted]);
+  }, [query]);
+
+  useEffect(() => {
+    if (!showCreatorCol) return;
+    api
+      .get('/api/projects' + ((isSuperuser() || isAdmin()) && includeDeleted ? '?includeDeleted=true' : ''))
+      .then((data) => setCreators(extractProjectCreators(data)))
+      .catch(() => setCreators([]));
+  }, [showCreatorCol, isSuperuser, isAdmin, includeDeleted]);
 
   const loadMeta = useCallback(async () => {
     try {
@@ -296,6 +315,14 @@ export function ProjectsPage() {
           {err}
         </div>
       )}
+
+      <ProjectFiltersBar
+        filters={filters}
+        setFilters={setFilters}
+        clients={clients}
+        creators={creators}
+        showCreatorFilter={showCreatorCol}
+      />
 
       <div className="panel panel--flush">
         <div className="table-wrap">

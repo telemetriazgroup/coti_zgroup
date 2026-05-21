@@ -1,5 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
+import { fetchCategoryNextCodigo } from '../lib/catalogCodigoApi';
+import { MeasureUnitSelect } from './MeasureUnitSelect';
 import { Modal } from './Modal';
 
 const STATUS_LABEL = {
@@ -56,6 +58,7 @@ export function CatalogRequestsPanel({
   const [updateForm, setUpdateForm] = useState(emptyUpdate);
   const [reviewForm, setReviewForm] = useState(null);
   const [busy, setBusy] = useState(false);
+  const [createCodigoHint, setCreateCodigoHint] = useState(null);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -84,6 +87,30 @@ export function CatalogRequestsPanel({
       onAutoOpenHandled?.();
     }
   }, [autoOpen, onAutoOpenHandled]);
+
+  useEffect(() => {
+    if (modal !== 'create' || !createForm.categoryId) {
+      if (modal !== 'create') setCreateCodigoHint(null);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchCategoryNextCodigo(createForm.categoryId)
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.suggestedCodigo) {
+          setCreateForm((f) => ({ ...f, codigo: data.suggestedCodigo }));
+          setCreateCodigoHint({ minCodigo: data.suggestedCodigo, prefix: data.prefix });
+        } else {
+          setCreateCodigoHint(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setCreateCodigoHint(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modal, createForm.categoryId]);
 
   function openReview(row) {
     setSel(row);
@@ -380,8 +407,13 @@ export function CatalogRequestsPanel({
                 className="form-input mono"
                 required
                 value={createForm.codigo}
-                onChange={(e) => setCreateForm((f) => ({ ...f, codigo: e.target.value }))}
+                onChange={(e) => setCreateForm((f) => ({ ...f, codigo: e.target.value.toUpperCase() }))}
               />
+              {createCodigoHint?.prefix && (
+                <span className="muted mono" style={{ fontSize: 11 }}>
+                  Formato {createCodigoHint.prefix}-####. Mínimo sugerido: {createCodigoHint.minCodigo}.
+                </span>
+              )}
             </label>
             <label>
               <span className="fg-lbl">Descripción / nombre *</span>
@@ -406,10 +438,9 @@ export function CatalogRequestsPanel({
             </label>
             <label>
               <span className="fg-lbl">Unidad</span>
-              <input
-                className="form-input mono"
+              <MeasureUnitSelect
                 value={createForm.unidad}
-                onChange={(e) => setCreateForm((f) => ({ ...f, unidad: e.target.value }))}
+                onChange={(v) => setCreateForm((f) => ({ ...f, unidad: v }))}
               />
             </label>
             <label>
@@ -580,10 +611,9 @@ export function CatalogRequestsPanel({
             </label>
             <label>
               <span className="fg-lbl">Unidad</span>
-              <input
-                className="form-input mono"
+              <MeasureUnitSelect
                 value={reviewForm.unidad}
-                onChange={(e) => setReviewForm((f) => ({ ...f, unidad: e.target.value }))}
+                onChange={(v) => setReviewForm((f) => ({ ...f, unidad: v }))}
               />
             </label>
             <label>

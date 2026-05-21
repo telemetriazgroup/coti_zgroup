@@ -180,6 +180,8 @@ CREATE INDEX idx_project_shares_user ON project_shares(user_id);
 CREATE TABLE catalog_categories (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   nombre      VARCHAR(100) NOT NULL,
+  codigo_prefix VARCHAR(20),
+  next_seq    INTEGER NOT NULL DEFAULT 1,
   sort_order  INTEGER NOT NULL DEFAULT 0,
   active      BOOLEAN NOT NULL DEFAULT true,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -207,6 +209,22 @@ CREATE INDEX idx_catalog_items_category ON catalog_items(category_id);
 CREATE INDEX idx_catalog_items_tipo ON catalog_items(tipo);
 CREATE INDEX idx_catalog_items_active ON catalog_items(active);
 CREATE UNIQUE INDEX idx_catalog_items_category_codigo ON catalog_items(category_id, codigo);
+
+-- ─── MEASURE UNITS (sufijos: UND, GLN, …) ─────────────────────
+
+CREATE TABLE measure_units (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  suffix      VARCHAR(30) NOT NULL,
+  nombre      VARCHAR(100) NOT NULL,
+  sort_order  INTEGER NOT NULL DEFAULT 0,
+  active      BOOLEAN NOT NULL DEFAULT true,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT measure_units_suffix_unique UNIQUE (suffix)
+);
+
+CREATE INDEX idx_measure_units_active ON measure_units(active);
+CREATE INDEX idx_measure_units_sort ON measure_units(sort_order);
 
 -- ─── CATALOG ITEM REQUESTS (aprobación comercial → admin) ───────
 

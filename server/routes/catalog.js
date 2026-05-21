@@ -13,6 +13,17 @@ const {
   categoryUpdateChanges,
   fetchCatalogHistory,
 } = require('../lib/catalogChangeLog');
+const {
+  normalizePrefix,
+  suggestNextCodigo,
+  validateCategoryCodigo,
+  afterItemCodigoSaved,
+  syncCategoryNextSeq,
+} = require('../lib/catalogCodigo');
+const {
+  previewPrefixRegularization,
+  applyPrefixRegularization,
+} = require('../lib/catalogPrefixRegularize');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -35,6 +46,8 @@ function mapCategory(row) {
   return {
     id: row.id,
     nombre: row.nombre,
+    codigoPrefix: row.codigo_prefix || null,
+    nextSeq: row.next_seq != null ? Number(row.next_seq) : 1,
     sortOrder: row.sort_order,
     active: row.active,
     createdAt: row.created_at,
@@ -241,6 +254,7 @@ router.patch('/categories/reorder', requireRole('ADMIN', 'SUPERUSER'), reorderVa
 
 const catBody = [
   body('nombre').notEmpty().withMessage('Nombre requerido'),
+  body('codigoPrefix').optional().isString(),
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
 ];
@@ -255,7 +269,8 @@ router.post('/categories', requireRole('ADMIN', 'SUPERUSER'), catBody, async (re
     });
   }
 
-  const { nombre, sortOrder, active } = req.body;
+  const { nombre, codigoPrefix, sortOrder, active } = req.body;
+  const prefix = normalizePrefix(codigoPrefix);
 
   try {
     let so = sortOrder;
@@ -265,9 +280,14 @@ router.post('/categories', requireRole('ADMIN', 'SUPERUSER'), catBody, async (re
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO catalog_categories (nombre, sort_order, active) VALUES ($1, $2, COALESCE($3, true)) RETURNING *`,
-      [nombre.trim(), so, active]
+      `INSERT INTO catalog_categories (nombre, codigo_prefix, sort_order, active) VALUES ($1, $2, $3, COALESCE($4, true)) RETURNING *`,
+      [nombre.trim(), prefix, so, active]
     );
+    if (prefix) {
+      await syncCategoryNextSeq(rows[0].id, prefix);
+      const { rows: refreshed } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [rows[0].id]);
+      rows[0] = refreshed[0];
+    }
     await logCatalogChanges({
       entityType: 'CATEGORY',
       entityId: rows[0].id,
@@ -287,6 +307,7 @@ router.post('/categories', requireRole('ADMIN', 'SUPERUSER'), catBody, async (re
 const catPutValidators = [
   param('id').isUUID(),
   body('nombre').optional().isString(),
+  body('codigoPrefix').optional().isString(),
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
 ];
@@ -301,7 +322,7 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
     });
   }
 
-  const { nombre, sortOrder, active } = req.body;
+  const { nombre, codigoPrefix, sortOrder, active } = req.body;
   try {
     const { rows: before } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
     if (!before[0]) {
@@ -314,6 +335,10 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
     if (nombre !== undefined && String(nombre).trim() !== '') {
       fields.push(`nombre = $${i++}`);
       vals.push(String(nombre).trim());
+    }
+    if (codigoPrefix !== undefined) {
+      fields.push(`codigo_prefix = $${i++}`);
+      vals.push(normalizePrefix(codigoPrefix));
     }
     if (sortOrder !== undefined) {
       fields.push(`sort_order = $${i++}`);
@@ -348,6 +373,12 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
         changeSource: 'DIRECT',
         changes,
       });
+    }
+    if (codigoPrefix !== undefined && after.codigo_prefix) {
+      await syncCategoryNextSeq(after.id, after.codigo_prefix);
+      const { rows: refreshed } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [after.id]);
+      await invalidateCatalogCache();
+      return res.json({ success: true, data: mapCategory(refreshed[0]) });
     }
     await invalidateCatalogCache();
     return res.json({ success: true, data: mapCategory(rows[0]) });
@@ -423,12 +454,24 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
   const { categoryId, codigo, descripcion, unidad, tipo, unitPrice, sortOrder, active } = req.body;
 
   try {
-    const { rows: cat } = await pool.query(`SELECT id FROM catalog_categories WHERE id = $1`, [categoryId]);
-    if (!cat.length) {
+    const { rows: catRows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [categoryId]);
+    if (!catRows.length) {
       return res.status(400).json({
         success: false,
         error: { code: 'INVALID_CATEGORY', message: 'Categoría no existe' },
       });
+    }
+    const cat = catRows[0];
+    if (cat.codigo_prefix) {
+      const v = await validateCategoryCodigo({
+        codigo: codigo.trim(),
+        prefix: cat.codigo_prefix,
+        categoryId,
+        isNew: true,
+      });
+      if (!v.ok) {
+        return res.status(400).json({ success: false, error: { code: v.code, message: v.message } });
+      }
     }
 
     let so = sortOrder;
@@ -458,6 +501,9 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
       ]
     );
     await logItemCreate(rows[0], req.user.id, 'DIRECT', null);
+    if (cat.codigo_prefix) {
+      await afterItemCodigoSaved(categoryId, cat.codigo_prefix, rows[0].codigo);
+    }
     await invalidateCatalogCache();
     return res.status(201).json({ success: true, data: mapItem(rows[0]) });
   } catch (err) {
@@ -550,6 +596,24 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
       });
     }
 
+    const targetCatId = categoryId !== undefined ? categoryId : cur[0].category_id;
+    const targetCodigo = codigo !== undefined ? codigo.trim() : cur[0].codigo;
+    const { rows: catRows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [targetCatId]);
+    const cat = catRows[0];
+    if (cat?.codigo_prefix && (codigo !== undefined || categoryId !== undefined)) {
+      const v = await validateCategoryCodigo({
+        codigo: targetCodigo,
+        prefix: cat.codigo_prefix,
+        categoryId: targetCatId,
+        excludeItemId: req.params.id,
+        previousCodigo: cur[0].codigo,
+        isNew: false,
+      });
+      if (!v.ok) {
+        return res.status(400).json({ success: false, error: { code: v.code, message: v.message } });
+      }
+    }
+
     vals.push(req.params.id);
     const { rows } = await pool.query(
       `UPDATE catalog_items SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
@@ -565,6 +629,10 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
         changeSource: 'DIRECT',
         changes,
       });
+    }
+    const { rows: catAfter } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [rows[0].category_id]);
+    if (catAfter[0]?.codigo_prefix) {
+      await afterItemCodigoSaved(rows[0].category_id, catAfter[0].codigo_prefix, rows[0].codigo);
     }
     await invalidateCatalogCache();
     return res.json({ success: true, data: mapItem(rows[0]) });
@@ -613,6 +681,95 @@ router.delete('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUU
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
+
+// ─── GET /api/catalog/categories/:id/next-codigo — sugerencia ───
+router.get('/categories/:id/next-codigo', requireRole('ADMIN', 'SUPERUSER', 'COMERCIAL'), [param('id').isUUID()], async (req, res) => {
+  try {
+    const { rows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
+    if (!rows[0]) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Categoría no encontrada' } });
+    }
+    const suggestion = await suggestNextCodigo(rows[0]);
+    return res.json({ success: true, data: suggestion });
+  } catch (err) {
+    console.error('[CATALOG] next-codigo:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/catalog/categories/:id/regularize-codigos ────────
+router.post(
+  '/categories/:id/regularize-codigos',
+  requireRole('ADMIN', 'SUPERUSER'),
+  [param('id').isUUID()],
+  async (req, res) => {
+    try {
+      const { rows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
+      if (!rows[0]) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Categoría no encontrada' } });
+      }
+      if (!rows[0].codigo_prefix) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'NO_PREFIX', message: 'La categoría no tiene prefijo configurado' },
+        });
+      }
+      const next = await syncCategoryNextSeq(rows[0].id, rows[0].codigo_prefix);
+      const suggestion = await suggestNextCodigo(rows[0]);
+      return res.json({
+        success: true,
+        data: { nextSeq: next, suggestedCodigo: suggestion.suggestedCodigo, maxSeq: suggestion.maxSeq },
+      });
+    } catch (err) {
+      console.error('[CATALOG] regularize:', err);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
+  }
+);
+
+// ─── Prefijos — regularización masiva (SUPERUSER) ───────────────
+router.get('/prefix-regularization/preview', requireRole('SUPERUSER'), async (req, res) => {
+  try {
+    const data = await previewPrefixRegularization();
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[CATALOG] prefix preview:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+router.post(
+  '/prefix-regularization/apply',
+  requireRole('SUPERUSER'),
+  [
+    body('confirm').custom((v) => v === true || v === 'true').withMessage('Debe confirmar la operación'),
+    body('fixInvalidCodigos').optional().isBoolean(),
+    body('categoryIds').optional().isArray(),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
+      });
+    }
+    try {
+      const result = await applyPrefixRegularization(
+        {
+          fixInvalidCodigos: req.body.fixInvalidCodigos !== false,
+          categoryIds: req.body.categoryIds,
+        },
+        req.user.id
+      );
+      await invalidateCatalogCache();
+      return res.json({ success: true, data: result });
+    } catch (err) {
+      console.error('[CATALOG] prefix apply:', err);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
+  }
+);
 
 // ─── GET /api/catalog/categories/:id/history — ADMIN ────────────
 router.get('/categories/:id/history', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {

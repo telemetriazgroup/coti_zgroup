@@ -14,6 +14,7 @@ import { ProjectPlansPage } from './pages/ProjectPlansPage';
 import { UserGuidePage } from './pages/UserGuidePage';
 import { SuperuserPage } from './pages/SuperuserPage';
 import { AdminAssignmentsPage } from './pages/AdminAssignmentsPage';
+import { MeasuresPage } from './pages/MeasuresPage';
 
 function RequireAuth() {
   const { user, ready } = useAuth();
@@ -94,6 +95,7 @@ export function App() {
           <Route element={<RequireAdmin />}>
             <Route path="clients" element={<ClientsPage />} />
             <Route path="employees" element={<EmployeesPage />} />
+            <Route path="measures" element={<MeasuresPage />} />
           </Route>
           <Route element={<RequireUserManager />}>
             <Route path="users" element={<UsersPage />} />

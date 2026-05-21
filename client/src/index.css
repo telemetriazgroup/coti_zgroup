@@ -2105,9 +2105,6 @@ select.form-input {
 .budget-panel--table .data-table tbody tr {
   transition: background 0.15s ease;
 }
-.budget-panel--table .data-table tbody tr:hover {
-  background: var(--table-row-hover);
-}
 .budget-actions-th {
   width: 44px;
   text-align: center;
@@ -3327,4 +3324,107 @@ select.form-input {
 .catalog-history-chain__meta {
   font-size: 10px;
   line-height: 1.4;
+}
+
+/* ─── Searchable select (combobox) ─── */
+.searchable-select {
+  position: relative;
+  width: 100%;
+}
+.searchable-select__list {
+  position: absolute;
+  z-index: 40;
+  left: 0;
+  right: 0;
+  top: calc(100% + 4px);
+  max-height: 280px;
+  overflow: auto;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
+  background: var(--card);
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.35);
+}
+.searchable-select__opt {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--text);
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 12px;
+  cursor: pointer;
+}
+.searchable-select__opt:hover,
+.searchable-select__opt--active {
+  background: rgba(0, 229, 255, 0.1);
+  color: var(--cyan);
+}
+.searchable-select__empty {
+  padding: 10px 12px;
+  font-size: 12px;
+}
+
+/* ─── Filtros módulo proyectos ─── */
+.projects-filters__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 12px;
+  align-items: end;
+}
+
+/* ─── Presupuesto: filas por tipo ─── */
+.budget-panel-title-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+.budget-panel-title-row .budget-panel-title {
+  margin: 0;
+}
+.budget-line-search {
+  min-width: 220px;
+  max-width: 320px;
+  flex: 1 1 200px;
+}
+.budget-panel--table .data-table tbody tr.budget-row--activo td {
+  background: rgba(0, 229, 255, 0.06);
+}
+.budget-panel--table .data-table tbody tr.budget-row--activo:hover td {
+  background: rgba(0, 229, 255, 0.12);
+}
+.budget-panel--table .data-table tbody tr.budget-row--consumible td {
+  background: rgba(255, 215, 0, 0.05);
+}
+.budget-panel--table .data-table tbody tr.budget-row--consumible:hover td {
+  background: rgba(255, 215, 0, 0.1);
+}
+[data-theme='light'] .data-table--budget tbody tr:nth-child(even) td {
+  background: transparent;
+}
+[data-theme='light'] .data-table--budget tbody tr:hover td {
+  background: var(--table-row-hover);
+}
+[data-theme='light'] .budget-panel--table .data-table tbody tr.budget-row--activo td {
+  background: rgba(0, 160, 180, 0.1);
+}
+[data-theme='light'] .budget-panel--table .data-table tbody tr.budget-row--activo:hover td {
+  background: rgba(0, 160, 180, 0.16);
+}
+[data-theme='light'] .budget-panel--table .data-table tbody tr.budget-row--consumible td {
+  background: rgba(180, 140, 0, 0.08);
+}
+[data-theme='light'] .budget-panel--table .data-table tbody tr.budget-row--consumible:hover td {
+  background: rgba(180, 140, 0, 0.14);
+}
+.budget-panel--table .data-table tbody tr.budget-row--activo.budget-row-deleting,
+.budget-panel--table .data-table tbody tr.budget-row--consumible.budget-row-deleting {
+  opacity: 0.35;
 }

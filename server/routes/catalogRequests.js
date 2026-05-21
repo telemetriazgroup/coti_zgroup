@@ -5,6 +5,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { isManagedCommercial } = require('../lib/adminTeam');
 const { invalidateCatalogCache } = require('../lib/catalogRedis');
 const { logItemCreate, itemUpdateChanges, logCatalogChanges } = require('../lib/catalogChangeLog');
+const { validateCategoryCodigo, afterItemCodigoSaved } = require('../lib/catalogCodigo');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -170,7 +171,7 @@ router.post('/', requireRole('COMERCIAL'), createBody, async (req, res) => {
         });
       }
       const { rows: cat } = await pool.query(
-        `SELECT id FROM catalog_categories WHERE id = $1 AND active = true`,
+        `SELECT * FROM catalog_categories WHERE id = $1 AND active = true`,
         [categoryId]
       );
       if (!cat.length) {
@@ -178,6 +179,20 @@ router.post('/', requireRole('COMERCIAL'), createBody, async (req, res) => {
           success: false,
           error: { code: 'INVALID_CATEGORY', message: 'Categoría no encontrada' },
         });
+      }
+      if (cat[0].codigo_prefix) {
+        const val = await validateCategoryCodigo({
+          codigo: codigo.trim(),
+          prefix: cat[0].codigo_prefix,
+          categoryId,
+          isNew: true,
+        });
+        if (!val.ok) {
+          return res.status(400).json({
+            success: false,
+            error: { code: val.code, message: val.message },
+          });
+        }
       }
       const { rows: dup } = await pool.query(
         `SELECT id FROM catalog_items WHERE category_id = $1 AND LOWER(codigo) = LOWER($2) AND active = true`,
@@ -373,6 +388,25 @@ router.put(
         await client.query('BEGIN');
 
         if (row.kind === 'CREATE') {
+          const { rows: catRows } = await client.query(`SELECT * FROM catalog_categories WHERE id = $1`, [categoryId]);
+          if (catRows[0]?.codigo_prefix) {
+            const val = await validateCategoryCodigo(
+              {
+                codigo,
+                prefix: catRows[0].codigo_prefix,
+                categoryId,
+                isNew: true,
+              },
+              client
+            );
+            if (!val.ok) {
+              await client.query('ROLLBACK');
+              return res.status(400).json({
+                success: false,
+                error: { code: val.code, message: val.message },
+              });
+            }
+          }
           const { rows: dup } = await client.query(
             `SELECT id FROM catalog_items WHERE category_id = $1 AND LOWER(codigo) = LOWER($2) AND active = true`,
             [categoryId, codigo]
@@ -391,6 +425,9 @@ router.put(
           );
           catalogItemId = ins[0].id;
           await logItemCreate(ins[0], req.user.id, 'REQUEST_APPROVED', row.id, client);
+          if (catRows[0]?.codigo_prefix) {
+            await afterItemCodigoSaved(categoryId, catRows[0].codigo_prefix, codigo, client);
+          }
         } else {
           const { rows: itemBefore } = await client.query(`SELECT * FROM catalog_items WHERE id = $1`, [
             row.catalog_item_id,

@@ -6,6 +6,9 @@ import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
 import { CatalogRequestsPanel } from '../components/CatalogRequestsPanel';
 import { CatalogHistoryModal } from '../components/CatalogHistoryModal';
+import { CatalogPrefixRegularizePanel } from '../components/CatalogPrefixRegularizePanel';
+import { fetchCategoryNextCodigo, regularizeCategoryCodigos } from '../lib/catalogCodigoApi';
+import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
 
 const ISSUE_LABELS = {
   FALTA_CATEGORIA: 'Falta categoría',
@@ -22,9 +25,10 @@ const ISSUE_LABELS = {
 
 export function CatalogPage() {
   const location = useLocation();
-  const { canManageCatalog, hasRole } = useAuth();
+  const { canManageCatalog, hasRole, isSuperuser } = useAuth();
   const isAdmin = canManageCatalog();
   const isCommercial = hasRole('COMERCIAL');
+  const superuser = isSuperuser();
   const showRequests = isAdmin || isCommercial;
 
   const [pageView, setPageView] = useState('catalog');
@@ -42,7 +46,7 @@ export function CatalogPage() {
 
   const [modalCat, setModalCat] = useState(null);
   const [modalItem, setModalItem] = useState(null);
-  const [catForm, setCatForm] = useState({ nombre: '', sortOrder: '', active: true });
+  const [catForm, setCatForm] = useState({ nombre: '', sortOrder: '', codigoPrefix: '', active: true });
   const [itemForm, setItemForm] = useState({
     categoryId: '',
     codigo: '',
@@ -53,6 +57,8 @@ export function CatalogPage() {
     sortOrder: '',
     active: true,
   });
+  const [itemCodigoHint, setItemCodigoHint] = useState(null);
+  const [regularizeBusy, setRegularizeBusy] = useState(false);
 
   const [dragId, setDragId] = useState(null);
 
@@ -106,6 +112,44 @@ export function CatalogPage() {
     loadPendingCount();
   }, [loadPendingCount, pageView]);
 
+  useEffect(() => {
+    if (modalItem !== 'new' || !itemForm.categoryId) {
+      if (modalItem !== 'edit') setItemCodigoHint(null);
+      return undefined;
+    }
+    let cancelled = false;
+    fetchCategoryNextCodigo(itemForm.categoryId)
+      .then((data) => {
+        if (cancelled) return;
+        if (data?.suggestedCodigo) {
+          setItemForm((f) => ({ ...f, codigo: data.suggestedCodigo }));
+          setItemCodigoHint({ minCodigo: data.suggestedCodigo, prefix: data.prefix });
+        } else {
+          setItemCodigoHint(null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) setItemCodigoHint(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [modalItem, itemForm.categoryId]);
+
+  useEffect(() => {
+    if (modalItem !== 'edit' || !itemForm.categoryId || !itemForm._id) return;
+    let cancelled = false;
+    fetchCategoryNextCodigo(itemForm.categoryId)
+      .then((data) => {
+        if (cancelled || !data?.prefix) return;
+        setItemCodigoHint({ minCodigo: data.suggestedCodigo, prefix: data.prefix, edit: true });
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [modalItem, itemForm.categoryId, itemForm._id]);
+
   const sortedCats = useMemo(
     () => [...categories].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
     [categories]
@@ -127,7 +171,7 @@ export function CatalogPage() {
   }, [items, filterCat, q, filterTipo]);
 
   function openNewCategory() {
-    setCatForm({ nombre: '', sortOrder: '', active: true });
+    setCatForm({ nombre: '', sortOrder: '', codigoPrefix: '', active: true });
     setModalCat('new');
   }
 
@@ -135,6 +179,7 @@ export function CatalogPage() {
     setCatForm({
       nombre: c.nombre,
       sortOrder: String(c.sortOrder ?? 0),
+      codigoPrefix: c.codigoPrefix || '',
       active: c.active,
       _id: c.id,
     });
@@ -148,6 +193,7 @@ export function CatalogPage() {
       const body = {
         nombre: catForm.nombre.trim(),
         sortOrder: catForm.sortOrder === '' ? undefined : parseInt(catForm.sortOrder, 10),
+        codigoPrefix: catForm.codigoPrefix.trim() || null,
         active: catForm.active,
       };
       if (modalCat === 'new') {
@@ -159,6 +205,35 @@ export function CatalogPage() {
       load();
     } catch (e2) {
       setErr(e2.message);
+    }
+  }
+
+  async function onRegularizeCategory() {
+    if (!catForm._id || regularizeBusy) return;
+    setRegularizeBusy(true);
+    setErr(null);
+    try {
+      const data = await regularizeCategoryCodigos(catForm._id);
+      window.alert(`Correlativo actualizado. Próximo código sugerido: ${data.suggestedCodigo || '—'}`);
+      load();
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setRegularizeBusy(false);
+    }
+  }
+
+  async function onItemCategoryChange(categoryId) {
+    setItemForm((f) => ({ ...f, categoryId }));
+    if (modalItem !== 'new') return;
+    try {
+      const data = await fetchCategoryNextCodigo(categoryId);
+      if (data?.suggestedCodigo) {
+        setItemForm((f) => ({ ...f, categoryId, codigo: data.suggestedCodigo }));
+        setItemCodigoHint({ minCodigo: data.suggestedCodigo, prefix: data.prefix });
+      }
+    } catch {
+      /* ignore */
     }
   }
 
@@ -207,6 +282,7 @@ export function CatalogPage() {
       active: true,
     });
     setModalItem('new');
+    setItemCodigoHint(null);
   }
 
   function openEditItem(row) {
@@ -222,6 +298,7 @@ export function CatalogPage() {
       _id: row.id,
     });
     setModalItem('edit');
+    setItemCodigoHint(null);
   }
 
   async function saveItem(e) {
@@ -326,9 +403,11 @@ export function CatalogPage() {
               ? isAdmin
                 ? 'Aprobar solicitudes de ítems del equipo comercial'
                 : 'Solicitar altas o cambios de nombre/precio en el catálogo'
-              : isAdmin
-                ? 'Administración de categorías e ítems'
-                : 'Consulta de precios y descripciones'}
+              : pageView === 'prefixes'
+                ? 'Análisis y regularización de prefijos por categoría (solo superusuario)'
+                : isAdmin
+                  ? 'Administración de categorías e ítems'
+                  : 'Consulta de precios y descripciones'}
           </p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -353,6 +432,15 @@ export function CatalogPage() {
                   </span>
                 )}
               </button>
+              {superuser && (
+                <button
+                  type="button"
+                  className={`btn btn-ghost${pageView === 'prefixes' ? ' active' : ''}`}
+                  onClick={() => setPageView('prefixes')}
+                >
+                  Regularizar prefijos
+                </button>
+              )}
             </>
           )}
           {isAdmin && pageView === 'catalog' && (
@@ -382,6 +470,12 @@ export function CatalogPage() {
           onAutoOpenHandled={() => setRequestAutoOpen(null)}
           onChanged={() => {
             loadPendingCount();
+            load();
+          }}
+        />
+      ) : pageView === 'prefixes' && superuser ? (
+        <CatalogPrefixRegularizePanel
+          onApplied={() => {
             load();
           }}
         />
@@ -459,6 +553,11 @@ export function CatalogPage() {
                   ::
                 </span>
                 <span className="cat-name">{c.nombre}</span>
+                {c.codigoPrefix && (
+                  <span className="mono" style={{ fontSize: 10, color: 'var(--cyan)' }}>
+                    {c.codigoPrefix}-
+                  </span>
+                )}
                 <span className="mono muted" style={{ fontSize: 11 }}>
                   orden {c.sortOrder}
                 </span>
@@ -621,6 +720,33 @@ export function CatalogPage() {
               />
             </label>
             <label>
+              <span className="fg-lbl">Prefijo código (ej. SF)</span>
+              <input
+                className="form-input mono"
+                placeholder="SF"
+                maxLength={12}
+                value={catForm.codigoPrefix}
+                onChange={(e) =>
+                  setCatForm((f) => ({ ...f, codigoPrefix: e.target.value.toUpperCase().replace(/\s/g, '') }))
+                }
+              />
+              <span className="muted mono" style={{ fontSize: 11 }}>
+                Los ítems usarán formato PREFIJO-0001. Puede subir el correlativo, no bajarlo.
+              </span>
+            </label>
+            {modalCat === 'edit' && catForm.codigoPrefix && (
+              <div>
+                <button
+                  type="button"
+                  className="btn btn-ghost mono"
+                  disabled={regularizeBusy}
+                  onClick={onRegularizeCategory}
+                >
+                  {regularizeBusy ? 'Regularizando…' : 'Regularizar correlativo'}
+                </button>
+              </div>
+            )}
+            <label>
               <span className="fg-lbl">Orden (opcional)</span>
               <input
                 type="number"
@@ -746,7 +872,7 @@ export function CatalogPage() {
                 className="form-input"
                 required
                 value={itemForm.categoryId}
-                onChange={(e) => setItemForm((f) => ({ ...f, categoryId: e.target.value }))}
+                onChange={(e) => onItemCategoryChange(e.target.value)}
               >
                 <option value="">—</option>
                 {sortedCats.map((c) => (
@@ -762,8 +888,20 @@ export function CatalogPage() {
                 className="form-input mono"
                 required
                 value={itemForm.codigo}
-                onChange={(e) => setItemForm((f) => ({ ...f, codigo: e.target.value }))}
+                onChange={(e) => setItemForm((f) => ({ ...f, codigo: e.target.value.toUpperCase() }))}
               />
+              {itemCodigoHint?.prefix && (
+                <span className="muted mono" style={{ fontSize: 11 }}>
+                  Formato obligatorio {itemCodigoHint.prefix}-####.
+                  {itemCodigoHint.minCodigo && (
+                    <>
+                      {' '}
+                      Mínimo: {itemCodigoHint.minCodigo}
+                      {itemCodigoHint.edit ? ' (puede usar uno mayor)' : ''}.
+                    </>
+                  )}
+                </span>
+              )}
             </label>
             <label>
               <span className="fg-lbl">Descripción *</span>
@@ -776,10 +914,9 @@ export function CatalogPage() {
             </label>
             <label>
               <span className="fg-lbl">Unidad</span>
-              <input
-                className="form-input mono"
+              <MeasureUnitSelect
                 value={itemForm.unidad}
-                onChange={(e) => setItemForm((f) => ({ ...f, unidad: e.target.value }))}
+                onChange={(v) => setItemForm((f) => ({ ...f, unidad: v }))}
               />
             </label>
             <label>

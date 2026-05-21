@@ -19,16 +19,54 @@ router.get('/', async (req, res) => {
     req.query.includeDeleted === 'true' &&
     (req.user.role === 'SUPERUSER' || req.user.role === 'ADMIN');
 
+  const q = (req.query.q || '').trim();
+  const clientId = (req.query.clientId || '').trim();
+  const createdBy = (req.query.createdBy || '').trim();
+  const dateFrom = (req.query.dateFrom || '').trim();
+  const dateTo = (req.query.dateTo || '').trim();
+
   try {
     const uid = req.user.id;
     const role = req.user.role;
 
+    const filters = [];
+    const params = [uid, role, includeDeleted];
+    let idx = 4;
+
+    if (q) {
+      filters.push(`(p.nombre ILIKE $${idx} OR p.odoo_ref ILIKE $${idx})`);
+      params.push(`%${q}%`);
+      idx++;
+    }
+    if (clientId) {
+      filters.push(`p.client_id = $${idx}::uuid`);
+      params.push(clientId);
+      idx++;
+    }
+    if (createdBy && (role === 'SUPERUSER' || role === 'ADMIN')) {
+      filters.push(`p.created_by = $${idx}::uuid`);
+      params.push(createdBy);
+      idx++;
+    }
+    if (dateFrom) {
+      filters.push(`p.created_at >= $${idx}::date`);
+      params.push(dateFrom);
+      idx++;
+    }
+    if (dateTo) {
+      filters.push(`p.created_at < ($${idx}::date + INTERVAL '1 day')`);
+      params.push(dateTo);
+      idx++;
+    }
+
+    const filterSql = filters.length ? ` AND ${filters.join(' AND ')}` : '';
+
     const sql = `
       ${PROJECT_SELECT}
-      WHERE ${projectVisibilityWhere('$2', '$1', '$3')}
+      WHERE ${projectVisibilityWhere('$2', '$1', '$3')}${filterSql}
       ORDER BY p.updated_at DESC`;
 
-    const { rows } = await pool.query(sql, [uid, role, includeDeleted]);
+    const { rows } = await pool.query(sql, params);
     return res.json({ success: true, data: rows.map((r) => mapProject(r, uid)) });
   } catch (err) {
     console.error('[PROJECTS] list:', err);
