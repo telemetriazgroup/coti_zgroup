@@ -2,6 +2,7 @@ const express = require('express');
 const bcrypt  = require('bcrypt');
 const crypto  = require('crypto');
 const rateLimit = require('express-rate-limit');
+const { body, validationResult } = require('express-validator');
 const { pool }  = require('../config/db');
 const {
   signAccessToken,
@@ -258,7 +259,7 @@ router.get('/me', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT u.id, u.email, u.role,
-              e.nombres, e.apellidos, e.cargo, e.telefono, e.foto_url, e.fecha_ingreso
+              e.nombres, e.apellidos, e.cargo, e.telefono, e.dni, e.foto_url, e.fecha_ingreso
        FROM users u
        LEFT JOIN employees e ON e.user_id = u.id
        WHERE u.id = $1 AND u.active = true`,
@@ -283,6 +284,7 @@ router.get('/me', requireAuth, async (req, res) => {
         apellidos: u.apellidos,
         cargo:     u.cargo,
         telefono:  u.telefono,
+        dni:       u.dni,
         fotoUrl:   u.foto_url,
         fechaIngreso: u.fecha_ingreso,
       }
@@ -295,5 +297,141 @@ router.get('/me', requireAuth, async (req, res) => {
     });
   }
 });
+
+// ─── PUT /api/auth/me — actualizar datos personales ─────────────
+router.put('/me', requireAuth, async (req, res) => {
+  const { nombres, apellidos, cargo, telefono, dni } = req.body || {};
+
+  try {
+    const { rows: emp } = await pool.query(`SELECT user_id FROM employees WHERE user_id = $1`, [req.user.id]);
+
+    if (emp.length) {
+      await pool.query(
+        `UPDATE employees SET
+           nombres = COALESCE($1, nombres),
+           apellidos = COALESCE($2, apellidos),
+           cargo = COALESCE($3, cargo),
+           telefono = COALESCE($4, telefono),
+           dni = COALESCE($5, dni),
+           updated_at = NOW()
+         WHERE user_id = $6`,
+        [
+          nombres?.trim() || null,
+          apellidos?.trim() || null,
+          cargo?.trim() || null,
+          telefono?.trim() || null,
+          dni?.trim() || null,
+          req.user.id,
+        ]
+      );
+    } else if (nombres?.trim() && apellidos?.trim()) {
+      await pool.query(
+        `INSERT INTO employees (user_id, nombres, apellidos, cargo, telefono, dni)
+         VALUES ($1, $2, $3, $4, $5, $6)`,
+        [
+          req.user.id,
+          nombres.trim(),
+          apellidos.trim(),
+          cargo?.trim() || null,
+          telefono?.trim() || null,
+          dni?.trim() || null,
+        ]
+      );
+    }
+
+    const { rows } = await pool.query(
+      `SELECT u.id, u.email, u.role,
+              e.nombres, e.apellidos, e.cargo, e.telefono, e.dni, e.foto_url, e.fecha_ingreso
+       FROM users u
+       LEFT JOIN employees e ON e.user_id = u.id
+       WHERE u.id = $1`,
+      [req.user.id]
+    );
+
+    const u = rows[0];
+    return res.json({
+      success: true,
+      data: {
+        id: u.id,
+        email: u.email,
+        role: u.role,
+        nombres: u.nombres,
+        apellidos: u.apellidos,
+        cargo: u.cargo,
+        telefono: u.telefono,
+        dni: u.dni,
+        fotoUrl: u.foto_url,
+        fechaIngreso: u.fecha_ingreso,
+      },
+    });
+  } catch (err) {
+    console.error('[AUTH] Update me error:', err);
+    return res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'Error interno' },
+    });
+  }
+});
+
+// ─── PUT /api/auth/me/password — cambio seguro de contraseña ────
+router.put(
+  '/me/password',
+  requireAuth,
+  [
+    body('currentPassword').notEmpty().withMessage('Contraseña actual requerida'),
+    body('newPassword').isLength({ min: 8 }).withMessage('La nueva contraseña debe tener al menos 8 caracteres'),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
+      });
+    }
+
+    const { currentPassword, newPassword } = req.body;
+    if (currentPassword === newPassword) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'SAME_PASSWORD', message: 'La nueva contraseña debe ser distinta a la actual' },
+      });
+    }
+
+    try {
+      const { rows } = await pool.query(`SELECT password_hash FROM users WHERE id = $1 AND active = true`, [
+        req.user.id,
+      ]);
+      if (!rows[0]) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Usuario no encontrado' },
+        });
+      }
+
+      const ok = await bcrypt.compare(currentPassword, rows[0].password_hash);
+      if (!ok) {
+        return res.status(401).json({
+          success: false,
+          error: { code: 'INVALID_PASSWORD', message: 'Contraseña actual incorrecta' },
+        });
+      }
+
+      const passwordHash = await bcrypt.hash(newPassword, 12);
+      await pool.query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [
+        passwordHash,
+        req.user.id,
+      ]);
+
+      return res.json({ success: true, data: { message: 'Contraseña actualizada' } });
+    } catch (err) {
+      console.error('[AUTH] Change password error:', err);
+      return res.status(500).json({
+        success: false,
+        error: { code: 'SERVER_ERROR', message: 'Error interno' },
+      });
+    }
+  }
+);
 
 module.exports = router;

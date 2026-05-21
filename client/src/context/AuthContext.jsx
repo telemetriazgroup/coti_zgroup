@@ -69,19 +69,32 @@ export function AuthProvider({ children }) {
     navigate('/login', { replace: true });
   }, [navigate]);
 
+  const refreshProfile = useCallback((data) => {
+    setUser((prev) => {
+      const next = {
+        ...(prev || {}),
+        ...(data || {}),
+        fotoUrl: data?.fotoUrl ?? data?.foto_url ?? prev?.fotoUrl,
+      };
+      window.dispatchEvent(new CustomEvent('zgroup:user-updated', { detail: next }));
+      return next;
+    });
+  }, []);
+
   const value = useMemo(
     () => ({
       user,
       ready,
       login,
       logout,
+      refreshProfile,
       hasRole: (...roles) => user && roles.includes(user.role),
       isSuperuser: () => checkSuperuser(user),
       isAdmin: () => checkAdmin(user),
       canManageCatalog: () => checkCanManageCatalog(user),
       canShareProjects: () => checkCanShareProjects(user),
     }),
-    [user, ready, login, logout]
+    [user, ready, login, logout, refreshProfile]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

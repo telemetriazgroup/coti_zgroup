@@ -33,7 +33,7 @@ const emptyCreate = {
 };
 
 export function UsersPage() {
-  const { hasRole, user: me } = useAuth();
+  const { hasRole, user: me, isSuperuser } = useAuth();
   const canImportExport = hasRole('ADMIN', 'SUPERUSER');
   const canAssignRoles = hasRole('ADMIN', 'SUPERUSER');
   const isCommercialOnly = me?.role === 'COMERCIAL';
@@ -148,6 +148,26 @@ export function UsersPage() {
       setModal(null);
       setEditForm(null);
       load();
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  }
+
+  function canResetPassword(row) {
+    if (row.id === me?.id) return false;
+    if (isSuperuser()) return true;
+    return row.created_by === me?.id;
+  }
+
+  async function resetPassword(row) {
+    if (!canResetPassword(row)) return;
+    if (!window.confirm(`¿Reiniciar la contraseña de ${row.email} al valor por defecto?`)) return;
+    setErr(null);
+    try {
+      const data = await api.post(`/api/users/${row.id}/reset-password`, {});
+      window.alert(
+        `Contraseña reiniciada.\n\nEmail: ${data.email}\nNueva contraseña: ${data.defaultPassword}\n\nComuníquela al usuario de forma segura.`
+      );
     } catch (e2) {
       setErr(e2.message);
     }
@@ -307,6 +327,11 @@ export function UsersPage() {
                       <button type="button" className="btn-link mono" onClick={() => openEdit(row)}>
                         Editar
                       </button>
+                      {canResetPassword(row) && (
+                        <button type="button" className="btn-link mono" onClick={() => resetPassword(row)}>
+                          Reiniciar clave
+                        </button>
+                      )}
                       {row.active && row.id !== me?.id && (
                         <button type="button" className="btn-link btn-link--danger mono" onClick={() => deactivate(row)}>
                           Desactivar

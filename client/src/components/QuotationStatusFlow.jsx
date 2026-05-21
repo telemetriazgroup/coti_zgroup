@@ -97,11 +97,13 @@ export function QuotationStatusFlow({
           {canShareProject && (
             <button
               type="button"
-              className="btn btn-ghost mono"
-              style={{ fontSize: 11, padding: '6px 12px' }}
+              className="btn btn-share-highlight mono"
               onClick={onShareClick}
               title="Compartir proyecto con otros usuarios"
             >
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+                <path d="M4 12v7a2 2 0 002 2h12a2 2 0 002-2v-7M16 6l-4-4-4 4M12 2v14" />
+              </svg>
               Compartir
               {shareCount > 0 ? ` (${shareCount})` : ''}
             </button>

@@ -12,6 +12,7 @@ const {
   fetchAllUsersForExport,
   applyUserImport,
 } = require('../lib/usersExcel');
+const { buildDefaultPassword } = require('../lib/defaultPassword');
 
 async function userManagedBy(actor, targetId) {
   if (actor.id === targetId) return true;
@@ -36,6 +37,16 @@ async function userManagedBy(actor, targetId) {
     return rows.length > 0;
   }
   return false;
+}
+
+async function canResetUserPassword(actor, targetId) {
+  if (actor.id === targetId) return false;
+  if (actor.role === 'SUPERUSER') return true;
+  const { rows } = await pool.query(`SELECT id FROM users WHERE id = $1 AND created_by = $2`, [
+    targetId,
+    actor.id,
+  ]);
+  return rows.length > 0;
 }
 
 const upload = multer({
@@ -262,6 +273,48 @@ router.post('/import/apply', requireRole('ADMIN', 'SUPERUSER'), upload.single('f
   }
 });
 
+// ─── POST /api/users/:id/reset-password — reinicio a contraseña por defecto ───
+router.post('/:id/reset-password', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
+  try {
+    const allowed = await canResetUserPassword(req.user, req.params.id);
+    if (!allowed) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'No puede reiniciar la contraseña de este usuario' },
+      });
+    }
+
+    const { rows } = await pool.query(`SELECT id, email FROM users WHERE id = $1 AND active = true`, [
+      req.params.id,
+    ]);
+    if (!rows[0]) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Usuario no encontrado' },
+      });
+    }
+
+    const defaultPassword = buildDefaultPassword(rows[0].email);
+    const passwordHash = await bcrypt.hash(defaultPassword, 12);
+    await pool.query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [
+      passwordHash,
+      rows[0].id,
+    ]);
+
+    return res.json({
+      success: true,
+      data: {
+        email: rows[0].email,
+        defaultPassword,
+        message: 'Contraseña reiniciada. Comunique la nueva contraseña al usuario de forma segura.',
+      },
+    });
+  } catch (err) {
+    console.error('[USERS] reset-password:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
 // ─── GET /api/users/:id — Ver usuario ──────────────────────────
 router.get('/:id', async (req, res) => {
   if (req.user.id !== req.params.id) {
@@ -427,6 +480,15 @@ router.put('/:id', async (req, res) => {
       let idx = 1;
 
       if (password) {
+        if (isSelf) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'USE_PROFILE_PASSWORD',
+              message: 'Use Mi perfil para cambiar su contraseña con verificación de la actual',
+            },
+          });
+        }
         updates.push(`password_hash = $${idx++}`);
         params.push(await bcrypt.hash(password, 12));
       }

@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { NavLink, Outlet, useLocation } from 'react-router-dom';
+import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 
@@ -152,13 +152,15 @@ export function AppShell() {
           </div>
         </div>
         <div className="sb-user">
-          <div className="sb-avatar">{initials}</div>
-          <div className="sb-user-info">
-            <div className="sb-user-name">
-              {user?.nombres ? `${user.nombres} ${user.apellidos || ''}` : user?.email}
+          <Link to="/profile" className="sb-user-link" onClick={closeSidebarMobile} title="Mi perfil">
+            <div className="sb-avatar">{initials}</div>
+            <div className="sb-user-info">
+              <div className="sb-user-name">
+                {user?.nombres ? `${user.nombres} ${user.apellidos || ''}` : user?.email}
+              </div>
+              <div className="sb-user-role">{user?.role}</div>
             </div>
-            <div className="sb-user-role">{user?.role}</div>
-          </div>
+          </Link>
           <button type="button" className="sb-logout-btn" onClick={() => logout()} title="Salir">
             <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
               <path d="M9 21H5a2 2 0 01-2-2V5a2 2 0 012-2h4M16 17l5-5-5-5M21 12H9" />
@@ -186,6 +188,12 @@ export function AppShell() {
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
             </svg>
             Proyectos
+          </NavLink>
+          <NavLink to="/profile" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" />
+            </svg>
+            Mi perfil
           </NavLink>
           {(isAdmin() || hasRole('COMERCIAL')) && (
             <NavLink to="/catalog" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
