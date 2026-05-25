@@ -3040,6 +3040,69 @@ select.form-input {
   margin: 6px 0 0;
   font-size: 9px;
 }
+.db-browser {
+  display: grid;
+  grid-template-columns: minmax(200px, 260px) 1fr;
+  gap: 16px;
+  align-items: start;
+}
+@media (max-width: 900px) {
+  .db-browser {
+    grid-template-columns: 1fr;
+  }
+}
+.db-browser__sidebar {
+  max-height: calc(100dvh - 220px);
+  overflow: auto;
+}
+.db-browser__table-list {
+  list-style: none;
+  margin: 0;
+  padding: 8px;
+}
+.db-browser__table-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  text-align: left;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text);
+  cursor: pointer;
+}
+.db-browser__table-btn:hover {
+  background: var(--fin-acc-hover);
+}
+.db-browser__table-btn--on {
+  border-color: var(--cyan);
+  background: rgba(0, 229, 255, 0.08);
+}
+.db-browser__main {
+  min-width: 0;
+}
+.db-browser__grid {
+  max-height: min(520px, calc(100dvh - 280px));
+  overflow: auto;
+}
+.db-browser__cell {
+  font-size: 11px;
+  max-width: 220px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.db-browser__pager {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 16px;
+  border-top: 1px solid var(--border-dim);
+}
 .banner--warn {
   border-color: rgba(255, 215, 0, 0.45);
   color: var(--amber);

@@ -24,6 +24,11 @@ const {
   previewPrefixRegularization,
   applyPrefixRegularization,
 } = require('../lib/catalogPrefixRegularize');
+const { verifyUserPassword } = require('../lib/verifyUserPassword');
+const {
+  isOtrosCategory,
+  deactivateCatalogCategory,
+} = require('../lib/catalogCategoryLifecycle');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -315,7 +320,92 @@ const catPutValidators = [
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
   body('defaultApplyAdjustment').optional().isBoolean(),
+  body('confirmPassword').optional().isString(),
 ];
+
+async function runCategoryDeactivate(req, res, categoryId) {
+  const password = req.body?.confirmPassword || req.body?.password;
+  if (!password) {
+    return res.status(400).json({
+      success: false,
+      error: {
+        code: 'PASSWORD_REQUIRED',
+        message: 'Ingrese su contraseña para desactivar la categoría',
+      },
+    });
+  }
+  const ok = await verifyUserPassword(req.user.id, password);
+  if (!ok) {
+    return res.status(403).json({
+      success: false,
+      error: { code: 'INVALID_PASSWORD', message: 'Contraseña incorrecta' },
+    });
+  }
+
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const { rows: before } = await client.query(`SELECT * FROM catalog_categories WHERE id = $1`, [categoryId]);
+    if (!before[0]) {
+      await client.query('ROLLBACK');
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Categoría no encontrada' },
+      });
+    }
+    if (!before[0].active) {
+      await client.query('ROLLBACK');
+      return res.json({
+        success: true,
+        data: { message: 'La categoría ya estaba inactiva', movedItems: 0 },
+      });
+    }
+
+    const { moved, categoryName } = await deactivateCatalogCategory(client, categoryId);
+    await client.query('COMMIT');
+
+    await logCatalogChanges({
+      entityType: 'CATEGORY',
+      entityId: categoryId,
+      entityLabel: categoryName,
+      actorId: req.user.id,
+      changeSource: 'DIRECT',
+      changes: [
+        { field: 'active', oldValue: 'true', newValue: 'false' },
+        {
+          field: 'category_id',
+          oldValue: categoryName,
+          newValue: `${moved} ítem(s) → OTROS`,
+        },
+      ],
+    });
+    await invalidateCatalogCache();
+
+    return res.json({
+      success: true,
+      data: {
+        message: `Categoría desactivada. ${moved} ítem(s) reasignados a OTROS (no se eliminaron).`,
+        movedItems: moved,
+      },
+    });
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {
+      /* noop */
+    }
+    if (err.code === 'OTROS_PROTECTED') {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'OTROS_PROTECTED', message: err.message },
+      });
+    }
+    console.error('[CATALOG] deactivate category:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  } finally {
+    client.release();
+  }
+}
 
 // ─── PUT /api/catalog/categories/:id — ADMIN ───────────────────
 router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidators, async (req, res) => {
@@ -327,116 +417,178 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
     });
   }
 
-  const { nombre, codigoPrefix, sortOrder, active, defaultApplyAdjustment } = req.body;
+  const { nombre, codigoPrefix, sortOrder, active, defaultApplyAdjustment, confirmPassword } = req.body;
   try {
     const { rows: before } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
     if (!before[0]) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Categoría no encontrada' } });
     }
 
-    const fields = [];
-    const vals = [];
-    let i = 1;
-    if (nombre !== undefined && String(nombre).trim() !== '') {
-      fields.push(`nombre = $${i++}`);
-      vals.push(String(nombre).trim());
+    const deactivating = active === false && before[0].active !== false;
+    if (deactivating) {
+      if (isOtrosCategory(before[0])) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'OTROS_PROTECTED', message: 'La categoría OTROS no puede desactivarse' },
+        });
+      }
+      if (!confirmPassword) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'PASSWORD_REQUIRED',
+            message: 'Ingrese su contraseña para desactivar la categoría',
+          },
+        });
+      }
+      const ok = await verifyUserPassword(req.user.id, confirmPassword);
+      if (!ok) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'INVALID_PASSWORD', message: 'Contraseña incorrecta' },
+        });
+      }
     }
-    if (codigoPrefix !== undefined) {
-      fields.push(`codigo_prefix = $${i++}`);
-      vals.push(normalizePrefix(codigoPrefix));
+
+    const client = await pool.connect();
+    let movedItems = 0;
+    try {
+      await client.query('BEGIN');
+
+      if (deactivating) {
+        const r = await deactivateCatalogCategory(client, req.params.id);
+        movedItems = r.moved;
+      }
+
+      const fields = [];
+      const vals = [];
+      let i = 1;
+      if (nombre !== undefined && String(nombre).trim() !== '') {
+        fields.push(`nombre = $${i++}`);
+        vals.push(String(nombre).trim());
+      }
+      if (codigoPrefix !== undefined) {
+        fields.push(`codigo_prefix = $${i++}`);
+        vals.push(normalizePrefix(codigoPrefix));
+      }
+      if (sortOrder !== undefined) {
+        fields.push(`sort_order = $${i++}`);
+        vals.push(sortOrder);
+      }
+      if (active !== undefined && !deactivating) {
+        fields.push(`active = $${i++}`);
+        vals.push(active);
+      }
+      if (defaultApplyAdjustment !== undefined) {
+        fields.push(`default_apply_adjustment = $${i++}`);
+        vals.push(!!defaultApplyAdjustment);
+      }
+
+      let after = before[0];
+      if (fields.length > 0) {
+        vals.push(req.params.id);
+        const { rows } = await client.query(
+          `UPDATE catalog_categories SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
+          vals
+        );
+        after = rows[0];
+      } else if (deactivating) {
+        const { rows } = await client.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
+        after = rows[0];
+      }
+
+      if (fields.length === 0 && !deactivating) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'Sin cambios' },
+        });
+      }
+
+      await client.query('COMMIT');
+
+      const changes = categoryUpdateChanges(before[0], after);
+      if (deactivating && movedItems > 0) {
+        changes.push({
+          field: 'category_id',
+          oldValue: before[0].nombre,
+          newValue: `${movedItems} ítem(s) → OTROS`,
+        });
+      }
+      if (changes.length) {
+        await logCatalogChanges({
+          entityType: 'CATEGORY',
+          entityId: after.id,
+          entityLabel: after.nombre,
+          actorId: req.user.id,
+          changeSource: 'DIRECT',
+          changes,
+        });
+      }
+      if (codigoPrefix !== undefined && after.codigo_prefix) {
+        await syncCategoryNextSeq(after.id, after.codigo_prefix);
+        const { rows: refreshed } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [after.id]);
+        after = refreshed[0];
+      }
+      await invalidateCatalogCache();
+      return res.json({
+        success: true,
+        data: {
+          ...mapCategory(after),
+          movedItems: deactivating ? movedItems : undefined,
+          deactivateMessage: deactivating
+            ? `${movedItems} ítem(s) reasignados a OTROS (no eliminados).`
+            : undefined,
+        },
+      });
+    } catch (err) {
+      try {
+        await client.query('ROLLBACK');
+      } catch (_) {
+        /* noop */
+      }
+      throw err;
+    } finally {
+      client.release();
     }
-    if (sortOrder !== undefined) {
-      fields.push(`sort_order = $${i++}`);
-      vals.push(sortOrder);
-    }
-    if (active !== undefined) {
-      fields.push(`active = $${i++}`);
-      vals.push(active);
-    }
-    if (defaultApplyAdjustment !== undefined) {
-      fields.push(`default_apply_adjustment = $${i++}`);
-      vals.push(!!defaultApplyAdjustment);
-    }
-    if (fields.length === 0) {
+  } catch (err) {
+    if (err.code === 'OTROS_PROTECTED') {
       return res.status(400).json({
         success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'Sin cambios' },
+        error: { code: 'OTROS_PROTECTED', message: err.message },
       });
     }
-    vals.push(req.params.id);
-    const { rows } = await pool.query(
-      `UPDATE catalog_categories SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
-      vals
-    );
-    if (!rows[0]) {
-      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Categoría no encontrada' } });
-    }
-    const after = rows[0];
-    const changes = categoryUpdateChanges(before[0], after);
-    if (changes.length) {
-      await logCatalogChanges({
-        entityType: 'CATEGORY',
-        entityId: after.id,
-        entityLabel: after.nombre,
-        actorId: req.user.id,
-        changeSource: 'DIRECT',
-        changes,
-      });
-    }
-    if (codigoPrefix !== undefined && after.codigo_prefix) {
-      await syncCategoryNextSeq(after.id, after.codigo_prefix);
-      const { rows: refreshed } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [after.id]);
-      await invalidateCatalogCache();
-      return res.json({ success: true, data: mapCategory(refreshed[0]) });
-    }
-    await invalidateCatalogCache();
-    return res.json({ success: true, data: mapCategory(rows[0]) });
-  } catch (err) {
     console.error('[CATALOG] update category:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
 
-// ─── DELETE /api/catalog/categories/:id — desactivar — ADMIN ───
-router.delete('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
-  const errors = validationResult(req);
-  if (!errors.isEmpty()) {
-    return res.status(400).json({
-      success: false,
-      error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
-    });
-  }
-
-  try {
-    const { rows: before } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
-    const client = await pool.connect();
-    try {
-      await client.query('BEGIN');
-      await client.query(`UPDATE catalog_categories SET active = false WHERE id = $1`, [req.params.id]);
-      await client.query(`UPDATE catalog_items SET active = false WHERE category_id = $1`, [req.params.id]);
-      await client.query('COMMIT');
-    } catch (e) {
-      await client.query('ROLLBACK');
-      throw e;
-    } finally {
-      client.release();
-    }
-    if (before[0]?.active) {
-      await logCatalogChanges({
-        entityType: 'CATEGORY',
-        entityId: req.params.id,
-        entityLabel: before[0].nombre,
-        actorId: req.user.id,
-        changeSource: 'DIRECT',
-        changes: [{ field: 'active', oldValue: 'true', newValue: 'false' }],
+// ─── POST /api/catalog/categories/:id/deactivate — ADMIN ─────────
+router.post(
+  '/categories/:id/deactivate',
+  requireRole('ADMIN', 'SUPERUSER'),
+  [param('id').isUUID(), body('confirmPassword').notEmpty().withMessage('Contraseña requerida')],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
       });
     }
-    await invalidateCatalogCache();
-    return res.json({ success: true, data: { message: 'Categoría desactivada' } });
-  } catch (err) {
-    console.error('[CATALOG] delete category:', err);
-    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    return runCategoryDeactivate(req, res, req.params.id);
   }
+);
+
+// ─── DELETE /api/catalog/categories/:id — desactivar (legacy) ───
+router.delete('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+  return res.status(400).json({
+    success: false,
+    error: {
+      code: 'USE_DEACTIVATE_ENDPOINT',
+      message: 'Use POST /api/catalog/categories/:id/deactivate con confirmPassword',
+    },
+  });
 });
 
 const itemBody = [

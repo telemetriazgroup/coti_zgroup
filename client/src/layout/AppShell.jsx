@@ -219,6 +219,16 @@ export function AppShell() {
                 Sistema / Backup
               </NavLink>
               <NavLink
+                to="/superusuario/datos"
+                className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
+                onClick={closeSidebarMobile}
+              >
+                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M4 6h16M4 10h16M4 14h16M4 18h16" />
+                </svg>
+                Datos BD
+              </NavLink>
+              <NavLink
                 to="/superusuario/asignaciones"
                 className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
                 onClick={closeSidebarMobile}

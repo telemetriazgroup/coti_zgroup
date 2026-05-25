@@ -59,6 +59,9 @@ export function CatalogPage() {
   });
   const [itemCodigoHint, setItemCodigoHint] = useState(null);
   const [regularizeBusy, setRegularizeBusy] = useState(false);
+  const [pwdConfirm, setPwdConfirm] = useState(null);
+  const [pwdValue, setPwdValue] = useState('');
+  const [pwdBusy, setPwdBusy] = useState(false);
 
   const [dragId, setDragId] = useState(null);
 
@@ -187,24 +190,54 @@ export function CatalogPage() {
     setModalCat('edit');
   }
 
+  function isOtrosCategory(c) {
+    return String(c?.nombre || '')
+      .trim()
+      .toUpperCase() === 'OTROS';
+  }
+
+  async function persistCategory(body, confirmPassword) {
+    const payload = confirmPassword ? { ...body, confirmPassword } : body;
+    if (modalCat === 'new') {
+      await api.post('/api/catalog/categories', payload);
+    } else {
+      const data = await api.put(`/api/catalog/categories/${catForm._id}`, payload);
+      if (data?.deactivateMessage) {
+        window.alert(data.deactivateMessage);
+      }
+    }
+    setModalCat(null);
+    setPwdConfirm(null);
+    setPwdValue('');
+    load();
+  }
+
   async function saveCategory(e) {
     e.preventDefault();
     setErr(null);
+    const body = {
+      nombre: catForm.nombre.trim(),
+      sortOrder: catForm.sortOrder === '' ? undefined : parseInt(catForm.sortOrder, 10),
+      codigoPrefix: catForm.codigoPrefix.trim() || null,
+      active: catForm.active,
+      defaultApplyAdjustment: catForm.defaultApplyAdjustment !== false,
+    };
+    const orig = categories.find((c) => c.id === catForm._id);
+    const willDeactivate =
+      modalCat === 'edit' && orig?.active !== false && body.active === false && !isOtrosCategory(orig);
+
+    if (willDeactivate) {
+      setPwdConfirm({
+        title: 'Desactivar categoría',
+        message: `Al desactivar «${orig?.nombre}», sus ítems se reasignarán a la categoría OTROS. No se eliminarán. Confirme con su contraseña.`,
+        onConfirm: (password) => persistCategory(body, password),
+      });
+      setPwdValue('');
+      return;
+    }
+
     try {
-      const body = {
-        nombre: catForm.nombre.trim(),
-        sortOrder: catForm.sortOrder === '' ? undefined : parseInt(catForm.sortOrder, 10),
-        codigoPrefix: catForm.codigoPrefix.trim() || null,
-        active: catForm.active,
-        defaultApplyAdjustment: catForm.defaultApplyAdjustment !== false,
-      };
-      if (modalCat === 'new') {
-        await api.post('/api/catalog/categories', body);
-      } else {
-        await api.put(`/api/catalog/categories/${catForm._id}`, body);
-      }
-      setModalCat(null);
-      load();
+      await persistCategory(body);
     } catch (e2) {
       setErr(e2.message);
     }
@@ -240,13 +273,38 @@ export function CatalogPage() {
   }
 
   async function deactivateCategory(c) {
-    if (!window.confirm(`¿Desactivar categoría "${c.nombre}" e ítems asociados?`)) return;
+    if (isOtrosCategory(c)) {
+      setErr('La categoría OTROS no puede desactivarse.');
+      return;
+    }
+    setPwdConfirm({
+      title: `Desactivar «${c.nombre}»`,
+      message:
+        'Los ítems de esta categoría pasarán a OTROS (permanecen activos en el catálogo). Confirme con su contraseña.',
+      onConfirm: async (password) => {
+        const data = await api.post(`/api/catalog/categories/${c.id}/deactivate`, {
+          confirmPassword: password,
+        });
+        if (data?.message) window.alert(data.message);
+      },
+    });
+    setPwdValue('');
+  }
+
+  async function submitPwdConfirm(e) {
+    e.preventDefault();
+    if (!pwdConfirm?.onConfirm || !pwdValue.trim()) return;
+    setPwdBusy(true);
     setErr(null);
     try {
-      await api.del(`/api/catalog/categories/${c.id}`);
+      await pwdConfirm.onConfirm(pwdValue);
+      setPwdConfirm(null);
+      setPwdValue('');
       load();
     } catch (e2) {
       setErr(e2.message);
+    } finally {
+      setPwdBusy(false);
     }
   }
 
@@ -574,7 +632,7 @@ export function CatalogPage() {
                     <button type="button" className="btn-link mono" onClick={() => openEditCategory(c)}>
                       Editar
                     </button>
-                    {c.active && (
+                    {c.active && !isOtrosCategory(c) && (
                       <button type="button" className="btn-link mono" onClick={() => deactivateCategory(c)}>
                         Desactivar
                       </button>
@@ -766,10 +824,20 @@ export function CatalogPage() {
               <input
                 type="checkbox"
                 checked={catForm.active}
+                disabled={
+                  modalCat === 'edit' &&
+                  isOtrosCategory(categories.find((c) => c.id === catForm._id))
+                }
                 onChange={(e) => setCatForm((f) => ({ ...f, active: e.target.checked }))}
               />
               <span>Activa</span>
             </label>
+            {modalCat === 'edit' &&
+              isOtrosCategory(categories.find((c) => c.id === catForm._id)) && (
+                <p className="muted mono" style={{ fontSize: 11, margin: '-4px 0 0' }}>
+                  La categoría OTROS es del sistema y no puede desactivarse.
+                </p>
+              )}
             <label className="chk-row">
               <input
                 type="checkbox"
@@ -994,6 +1062,52 @@ export function CatalogPage() {
         title={historyTarget?.title}
         onClose={() => setHistoryTarget(null)}
       />
+
+      {pwdConfirm && (
+        <Modal
+          title={pwdConfirm.title}
+          onClose={() => {
+            if (pwdBusy) return;
+            setPwdConfirm(null);
+            setPwdValue('');
+          }}
+          footer={
+            <>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={pwdBusy}
+                onClick={() => {
+                  setPwdConfirm(null);
+                  setPwdValue('');
+                }}
+              >
+                Cancelar
+              </button>
+              <button type="submit" form="cat-pwd-form" className="btn btn-primary" disabled={pwdBusy}>
+                {pwdBusy ? 'Confirmando…' : 'Confirmar'}
+              </button>
+            </>
+          }
+        >
+          <form id="cat-pwd-form" className="stack-form" onSubmit={submitPwdConfirm}>
+            <p className="mono" style={{ fontSize: 12, lineHeight: 1.5 }}>
+              {pwdConfirm.message}
+            </p>
+            <label>
+              <span className="fg-lbl">Su contraseña *</span>
+              <input
+                type="password"
+                className="form-input mono"
+                required
+                autoComplete="current-password"
+                value={pwdValue}
+                onChange={(e) => setPwdValue(e.target.value)}
+              />
+            </label>
+          </form>
+        </Modal>
+      )}
     </section>
   );
 }

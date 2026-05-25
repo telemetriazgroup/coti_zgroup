@@ -4,6 +4,13 @@ const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { exportSystemData, importSystemData } = require('../lib/systemExport');
 const { invalidateCatalogCache } = require('../lib/catalogRedis');
+const {
+  listTables,
+  getTableSchema,
+  fetchTableRows,
+  updateTableRow,
+} = require('../lib/dbBrowser');
+const { verifyUserPassword: verifySuperPassword } = require('../lib/verifyUserPassword');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -119,6 +126,74 @@ router.post('/import/apply', upload.single('file'), async (req, res) => {
   } catch (err) {
     console.error('[SUPERUSER] import:', err);
     return res.status(400).json({ success: false, error: { code: 'IMPORT_FAILED', message: err.message } });
+  }
+});
+
+// ─── Explorador de datos (solo lectura + UPDATE, sin DELETE) ────
+router.get('/db/tables', async (req, res) => {
+  try {
+    const tables = await listTables();
+    return res.json({ success: true, data: { tables } });
+  } catch (err) {
+    console.error('[SUPERUSER] db tables:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+router.get('/db/tables/:table/schema', async (req, res) => {
+  try {
+    const schema = await getTableSchema(req.params.table);
+    return res.json({ success: true, data: schema });
+  } catch (err) {
+    if (err.code === 'TABLE_NOT_ALLOWED') {
+      return res.status(400).json({ success: false, error: { code: err.code, message: err.message } });
+    }
+    console.error('[SUPERUSER] db schema:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+router.get('/db/tables/:table/rows', async (req, res) => {
+  try {
+    const data = await fetchTableRows(req.params.table, {
+      limit: req.query.limit,
+      offset: req.query.offset,
+      orderBy: req.query.orderBy,
+    });
+    return res.json({ success: true, data });
+  } catch (err) {
+    if (err.code === 'TABLE_NOT_ALLOWED') {
+      return res.status(400).json({ success: false, error: { code: err.code, message: err.message } });
+    }
+    console.error('[SUPERUSER] db rows:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+router.put('/db/tables/:table/rows', async (req, res) => {
+  try {
+    const { primaryKey, updates, confirmPassword } = req.body || {};
+    if (!confirmPassword) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'PASSWORD_REQUIRED', message: 'Confirme su contraseña para modificar datos' },
+      });
+    }
+    const ok = await verifySuperPassword(req.user.id, confirmPassword);
+    if (!ok) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'INVALID_PASSWORD', message: 'Contraseña incorrecta' },
+      });
+    }
+    const row = await updateTableRow(req.params.table, primaryKey || {}, updates || {});
+    return res.json({ success: true, data: { row } });
+  } catch (err) {
+    if (['TABLE_NOT_ALLOWED', 'READONLY_TABLE', 'NO_PRIMARY_KEY', 'INVALID_PK', 'NO_UPDATES', 'NOT_FOUND'].includes(err.code)) {
+      return res.status(400).json({ success: false, error: { code: err.code, message: err.message } });
+    }
+    console.error('[SUPERUSER] db update:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message || 'Error interno' } });
   }
 });
 

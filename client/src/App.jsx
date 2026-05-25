@@ -13,6 +13,7 @@ import { ProjectBudgetPage } from './pages/ProjectBudgetPage';
 import { ProjectPlansPage } from './pages/ProjectPlansPage';
 import { UserGuidePage } from './pages/UserGuidePage';
 import { SuperuserPage } from './pages/SuperuserPage';
+import { DbBrowserPage } from './pages/DbBrowserPage';
 import { AdminAssignmentsPage } from './pages/AdminAssignmentsPage';
 import { MeasuresPage } from './pages/MeasuresPage';
 import { ProfilePage } from './pages/ProfilePage';
@@ -92,6 +93,7 @@ export function App() {
           <Route path="guia" element={<UserGuidePage />} />
           <Route element={<RequireSuperuser />}>
             <Route path="superusuario" element={<SuperuserPage />} />
+            <Route path="superusuario/datos" element={<DbBrowserPage />} />
             <Route path="superusuario/asignaciones" element={<AdminAssignmentsPage />} />
           </Route>
           <Route element={<RequireAdmin />}>

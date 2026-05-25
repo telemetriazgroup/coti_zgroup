@@ -116,6 +116,9 @@ export function SuperuserPage() {
           <button type="button" className="btn btn-primary" onClick={exportAll}>
             Exportar todo (JSON)
           </button>
+          <a href="#/superusuario/datos" className="btn btn-ghost mono">
+            Explorador de datos BD →
+          </a>
         </div>
 
         <hr style={{ borderColor: 'var(--border-dim)', margin: '16px 0' }} />
