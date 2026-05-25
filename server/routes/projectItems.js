@@ -66,6 +66,7 @@ function mapItem(row) {
     createdBy: row.created_by ?? null,
     createdByEmail: row.created_by_email ?? null,
     sortOrder: row.sort_order,
+    applyAdjustment: row.apply_adjustment !== false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -74,15 +75,35 @@ function mapItem(row) {
 function totalsFromRows(rows) {
   let activos = 0;
   let consumibles = 0;
+  let activosAdj = 0;
+  let consumiblesAdj = 0;
+  let activosExempt = 0;
+  let consumiblesExempt = 0;
   for (const r of rows) {
     const st = r.subtotal != null ? Number(r.subtotal) : 0;
-    if (r.tipo === 'ACTIVO') activos += st;
-    else if (r.tipo === 'CONSUMIBLE') consumibles += st;
+    const applies = r.apply_adjustment !== false;
+    if (r.tipo === 'ACTIVO') {
+      activos += st;
+      if (applies) activosAdj += st;
+      else activosExempt += st;
+    } else if (r.tipo === 'CONSUMIBLE') {
+      consumibles += st;
+      if (applies) consumiblesAdj += st;
+      else consumiblesExempt += st;
+    }
   }
+  const listaAdj = activosAdj + consumiblesAdj;
+  const listaExempt = activosExempt + consumiblesExempt;
   return {
     activos: Math.round(activos * 100) / 100,
     consumibles: Math.round(consumibles * 100) / 100,
     lista: Math.round((activos + consumibles) * 100) / 100,
+    activosAdj: Math.round(activosAdj * 100) / 100,
+    consumiblesAdj: Math.round(consumiblesAdj * 100) / 100,
+    activosExempt: Math.round(activosExempt * 100) / 100,
+    consumiblesExempt: Math.round(consumiblesExempt * 100) / 100,
+    listaAdj: Math.round(listaAdj * 100) / 100,
+    listaExempt: Math.round(listaExempt * 100) / 100,
   };
 }
 
@@ -124,6 +145,17 @@ async function touchProjectUpdated(projectId, client = pool) {
 async function fetchItemRow(client, id) {
   const { rows } = await client.query(`${ITEMS_SELECT} WHERE pi.id = $1`, [id]);
   return rows[0];
+}
+
+/** Hereda checkbox «Ajuste» M1 desde la categoría del catálogo (default true). */
+async function resolveDefaultApplyAdjustment(client, categoryId) {
+  if (!categoryId) return true;
+  const { rows } = await client.query(
+    `SELECT default_apply_adjustment FROM catalog_categories WHERE id = $1`,
+    [categoryId]
+  );
+  if (!rows[0]) return true;
+  return rows[0].default_apply_adjustment !== false;
 }
 
 /**
@@ -170,10 +202,11 @@ async function addCatalogItemToProject(client, { projectId, userId, catalogItemI
     [projectId]
   );
   const sortOrder = so[0].n;
+  const applyAdjustment = await resolveDefaultApplyAdjustment(client, cat.category_id);
   const { rows: ins } = await client.query(
     `INSERT INTO project_items
-      (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12)
+      (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13)
      RETURNING id`,
     [
       projectId,
@@ -187,6 +220,7 @@ async function addCatalogItemToProject(client, { projectId, userId, catalogItemI
       qty,
       sortOrder,
       cat.category_id,
+      applyAdjustment,
       userId,
     ]
   );
@@ -590,10 +624,11 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
           [req.params.id]
         );
         const sortOrder = so[0].n;
+        const applyAdjustment = await resolveDefaultApplyAdjustment(client, cat.category_id);
         const { rows: ins } = await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12)
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13)
            RETURNING id`,
           [
             req.params.id,
@@ -607,6 +642,7 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
             qty,
             sortOrder,
             cat.category_id,
+            applyAdjustment,
             req.user.id,
           ]
         );
@@ -692,12 +728,26 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
           [req.params.id]
         );
         const sortOrder = so[0].n;
+        const applyAdjustment = await resolveDefaultApplyAdjustment(client, categoryId);
         const { rows: ins } = await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, created_by)
-           VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11)
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by)
+           VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12)
            RETURNING id`,
-          [req.params.id, codigo, descripcion, unidad, tipo, unitPrice, unitPrice, qty, sortOrder, categoryId, req.user.id]
+          [
+            req.params.id,
+            codigo,
+            descripcion,
+            unidad,
+            tipo,
+            unitPrice,
+            unitPrice,
+            qty,
+            sortOrder,
+            categoryId,
+            applyAdjustment,
+            req.user.id,
+          ]
         );
         outRow = await fetchItemRow(client, ins[0].id);
         logAuditEvent({
@@ -750,6 +800,7 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
 const putItemValidation = [
   body('qty').optional().isFloat({ min: 0.001 }),
   body('unitPrice').optional().isFloat({ min: 0 }),
+  body('applyAdjustment').optional().isBoolean(),
 ];
 
 // ─── PUT /api/projects/:id/items/:itemId ───────────────────────
@@ -766,11 +817,11 @@ router.put(
       });
     }
 
-    const { qty, unitPrice } = req.body;
-    if (qty == null && unitPrice == null) {
+    const { qty, unitPrice, applyAdjustment } = req.body;
+    if (qty == null && unitPrice == null && applyAdjustment === undefined) {
       return res.status(400).json({
         success: false,
-        error: { code: 'VALIDATION_ERROR', message: 'Indique qty o unitPrice' },
+        error: { code: 'VALIDATION_ERROR', message: 'Indique qty, unitPrice o applyAdjustment' },
       });
     }
 
@@ -797,11 +848,13 @@ router.put(
       const prevSnap = mapItem(cur[0]);
       const nextQty = qty != null ? Number(qty) : Number(cur[0].qty);
       const nextPrice = unitPrice != null ? Number(unitPrice) : Number(cur[0].unit_price);
+      const nextApply =
+        applyAdjustment !== undefined ? !!applyAdjustment : cur[0].apply_adjustment !== false;
 
       await pool.query(
-        `UPDATE project_items SET qty = $1, unit_price = $2, updated_at = NOW()
-         WHERE id = $3 AND project_id = $4`,
-        [nextQty, nextPrice, req.params.itemId, req.params.id]
+        `UPDATE project_items SET qty = $1, unit_price = $2, apply_adjustment = $3, updated_at = NOW()
+         WHERE id = $4 AND project_id = $5`,
+        [nextQty, nextPrice, nextApply, req.params.itemId, req.params.id]
       );
 
       const { rows: upRows } = await pool.query(`${ITEMS_SELECT} WHERE pi.id = $1`, [req.params.itemId]);

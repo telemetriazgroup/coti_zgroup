@@ -32,7 +32,7 @@ function FinParam({ label, hint, children }) {
 
 const HINT = {
   adjPct:
-    'Porcentaje aplicado sobre la base lista: en modo «Margen» se suma al precio; en «Descuento» se resta. Define el precio objetivo de venta (M1).',
+    'Porcentaje aplicado solo sobre líneas con checkbox «Ajuste» ✓ en el presupuesto: en modo «Margen» se suma; en «Descuento» se resta. Las líneas sin ✓ quedan exentas.',
   cpPlazo:
     'Duración del contrato de arriendo en corto plazo (meses). Reparte merma y consumibles en el tiempo y fija el horizonte de la cuota CP.',
   cpVida:
@@ -72,6 +72,62 @@ const HINT = {
   cmpPeriod:
     'Cantidad de meses para acumular utilidades CP vs LP y emitir el veredicto comparativo (M5 y PDF Gerencia).',
 };
+
+function FinRecoveryChart({ curve, paybackTarget, fmt, title = 'Recuperación acumulada' }) {
+  if (!curve?.length) return null;
+  const w = 300;
+  const h = 100;
+  const pad = 12;
+  const maxY = Math.max(paybackTarget || 0, ...curve.map((p) => p.cumUtil), 1);
+  const toX = (i) => pad + (i / Math.max(curve.length - 1, 1)) * (w - pad * 2);
+  const toY = (v) => h - pad - (v / maxY) * (h - pad * 2);
+  const linePts = curve.map((p, i) => `${toX(i)},${toY(p.cumUtil)}`).join(' ');
+  const last = curve[curve.length - 1];
+  const paybackY = paybackTarget > 0 ? toY(paybackTarget) : null;
+
+  return (
+    <div className="fin-recovery-chart">
+      <div className="fin-recovery-chart__hdr mono">
+        <span>{title}</span>
+        <span className="muted">
+          m{curve.length} · acum. {fmt(last.cumUtil)}
+        </span>
+      </div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="fin-recovery-chart__svg" role="img" aria-label={title}>
+        {paybackY != null && (
+          <line
+            x1={pad}
+            y1={paybackY}
+            x2={w - pad}
+            y2={paybackY}
+            stroke="var(--amber)"
+            strokeWidth="1"
+            strokeDasharray="4 3"
+            opacity="0.7"
+          />
+        )}
+        <polyline fill="none" stroke="var(--cyan)" strokeWidth="2" points={linePts} />
+        <polyline
+          fill="url(#finRecoveryFill)"
+          stroke="none"
+          points={`${pad},${h - pad} ${linePts} ${toX(curve.length - 1)},${h - pad}`}
+          opacity="0.15"
+        />
+        <defs>
+          <linearGradient id="finRecoveryFill" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="0%" stopColor="var(--cyan)" />
+            <stop offset="100%" stopColor="transparent" />
+          </linearGradient>
+        </defs>
+      </svg>
+      {paybackTarget > 0 && (
+        <p className="fin-recovery-chart__legend mono muted">
+          Línea ámbar: inversión venta {fmt(paybackTarget)}
+        </p>
+      )}
+    </div>
+  );
+}
 
 /** Panel derecho estilo zgroup-cotizaciones-v10-final.html (mod-hdr + mod-badge + colores por módulo). */
 function ModSection({ modId, badgeNum, tone, title, titleExtra, headerRight, open, onToggle, children, disabled }) {
@@ -145,6 +201,12 @@ export function FinanceModules({
   baseLista,
   baseActivos,
   baseConsumibles,
+  baseListaAdj,
+  baseListaExempt,
+  baseActivosAdj,
+  baseActivosExempt,
+  baseConsumiblesAdj,
+  baseConsumiblesExempt,
   financeParams,
   onFinanceParamsChange,
   viewerMode,
@@ -162,9 +224,26 @@ export function FinanceModules({
         baseLista,
         baseActivos,
         baseConsumibles,
+        baseListaAdj,
+        baseListaExempt,
+        baseActivosAdj,
+        baseActivosExempt,
+        baseConsumiblesAdj,
+        baseConsumiblesExempt,
         params: p,
       }),
-    [baseLista, baseActivos, baseConsumibles, p]
+    [
+      baseLista,
+      baseActivos,
+      baseConsumibles,
+      baseListaAdj,
+      baseListaExempt,
+      baseActivosAdj,
+      baseActivosExempt,
+      baseConsumiblesAdj,
+      baseConsumiblesExempt,
+      p,
+    ]
   );
 
   const [open, setOpen] = useState(() => ({
@@ -279,12 +358,18 @@ export function FinanceModules({
         </div>
         <div className="fin-result fin-result--cyan mono">
           <div className="fin-result__row">
-            <span className="muted">Base lista</span>
-            <span>{fmt(m1.base)}</span>
+            <span className="muted">Base lista (con ajuste ✓)</span>
+            <span>{fmt(m1.baseAdj ?? m1.base)}</span>
           </div>
+          {(m1.baseExempt ?? 0) > 0 && (
+            <div className="fin-result__row">
+              <span className="muted">Líneas sin ajuste</span>
+              <span>{fmt(m1.baseExempt)}</span>
+            </div>
+          )}
           {!hideSensitive && (
             <div className="fin-result__row">
-              <span className="muted">{m1.adjType === 'margin' ? '+ Seguridad' : '− Descuento'}</span>
+              <span className="muted">{m1.adjType === 'margin' ? '+ Seguridad (solo ✓)' : '− Descuento (solo ✓)'}</span>
               <span style={{ color: m1.adjType === 'margin' ? 'var(--amber)' : 'var(--red)' }}>
                 {m1.adjType === 'margin' ? '+' : '−'}
                 {fmt(m1.ventaAdj)}
@@ -382,13 +467,25 @@ export function FinanceModules({
                   </div>
                   {baseConsumibles > 0 && (
                     <div className="fin-table__row">
-                      <span>Consumibles / mes</span>
+                      <span>Consumibles diluidos / mes (÷ {m2.cpPlazo}m)</span>
                       <span>{fmt(m2.consumiblesMonthly)}</span>
                     </div>
                   )}
                   <div className="fin-table__row">
+                    <span>Depreciación acum. al fin contrato</span>
+                    <span>{fmt(m2.depreciationAccumulated)}</span>
+                  </div>
+                  <div className="fin-table__row">
+                    <span>Valor residual activos (fin contrato)</span>
+                    <span style={{ color: 'var(--green)' }}>{fmt(m2.residualActivos)}</span>
+                  </div>
+                  <div className="fin-table__row">
                     <span style={{ color: 'var(--amber)' }}>ROA / mes (ganancia)</span>
                     <span style={{ color: 'var(--amber)' }}>{fmt(m2.roaMonthly)}</span>
+                  </div>
+                  <div className="fin-table__row fin-table__row--hi">
+                    <span>Ganancia proyectada contrato ({m2.cpPlazo}m)</span>
+                    <span>{fmt(m2.gananciaContrato)}</span>
                   </div>
                 </>
               )}
@@ -602,6 +699,88 @@ export function FinanceModules({
                 </div>
               </div>
             )}
+            {!hideSensitive && m3.phase1Detail && (
+              <div className="fin-phase-block mono" style={{ marginTop: 12 }}>
+                <p className="fin-phase-block__title">Detalle Fase 1</p>
+                <div className="fin-table fin-table--xl">
+                  <div className="fin-table__row">
+                    <span>Cuota banco / mes</span>
+                    <span>{fmt(m3.phase1Detail.cuotaBanco)}</span>
+                  </div>
+                  <div className="fin-table__row">
+                    <span>GOP / mes</span>
+                    <span>{fmt(m3.phase1Detail.gopMensual)}</span>
+                  </div>
+                  <div className="fin-table__row">
+                    <span>Consumibles diluidos F1 / mes</span>
+                    <span>{fmt(m3.phase1Detail.consumiblesMensual)}</span>
+                  </div>
+                  <div className="fin-table__row">
+                    <span>Depreciación activos / mes</span>
+                    <span>{fmt(m3.phase1Detail.depreciacionMensual)}</span>
+                  </div>
+                  <div className="fin-table__row">
+                    <span>Utilidad ZGROUP / mes</span>
+                    <span>{fmt(m3.phase1Detail.gananciaMes)}</span>
+                  </div>
+                  <div className="fin-table__row">
+                    <span>Total utilidad F1 ({m3.phase1Detail.months}m)</span>
+                    <span>{fmt(m3.phase1Detail.totalGanancia)}</span>
+                  </div>
+                  <div className="fin-table__row fin-table__row--hi">
+                    <span>Residual activos fin F1</span>
+                    <span>{fmt(m3.phase1Detail.residualActivos)}</span>
+                  </div>
+                </div>
+              </div>
+            )}
+            {!hideSensitive && m3.phase2Detail && m3.lpNF2 > 0 && (
+              <div className="fin-phase-block mono" style={{ marginTop: 12 }}>
+                <p className="fin-phase-block__title">Detalle Fase 2</p>
+                <div className="fin-table fin-table--xl">
+                  <div className="fin-table__row">
+                    <span>Renta cliente / mes</span>
+                    <span>{fmt(m3.phase2Detail.rentaCliente)}</span>
+                  </div>
+                  <div className="fin-table__row">
+                    <span>GOP / mes</span>
+                    <span>{fmt(m3.phase2Detail.gopMensual)}</span>
+                  </div>
+                  {m3.activarFondoReposicion && (
+                    <div className="fin-table__row">
+                      <span>Fondo reposición / mes</span>
+                      <span>{fmt(m3.phase2Detail.fondoReposicionMensual)}</span>
+                    </div>
+                  )}
+                  <div className="fin-table__row">
+                    <span>Utilidad ZGROUP / mes</span>
+                    <span>{fmt(m3.phase2Detail.gananciaMes)}</span>
+                  </div>
+                  <div className="fin-table__row">
+                    <span>Total utilidad F2 ({m3.phase2Detail.months}m)</span>
+                    <span>{fmt(m3.phase2Detail.totalGanancia)}</span>
+                  </div>
+                  <div className="fin-table__row fin-table__row--hi">
+                    <span>Residual activos fin proyecto</span>
+                    <span>{fmt(m3.phase2Detail.residualActivos)}</span>
+                  </div>
+                  {m3.consumiblesPendientesPostF1 > 0 && (
+                    <div className="fin-table__row">
+                      <span>Consumibles no diluidos en F1</span>
+                      <span>{fmt(m3.consumiblesPendientesPostF1)}</span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+            {!hideSensitive && (
+              <div className="fin-table mono fin-table--xl" style={{ marginTop: 10 }}>
+                <div className="fin-table__row fin-table__row--hi">
+                  <span>Utilidad total proyecto (F1+F2)</span>
+                  <span>{fmt(m3.utilidadFinProyecto)}</span>
+                </div>
+              </div>
+            )}
             {m3.activarFondoReposicion && !hideSensitive && (
               <div className="banner banner--warn mono" style={{ marginTop: 8 }}>
                 Contrato ({m3.lpNContrato}m) &gt; 80% de vida útil ({m3.contratoUmbralMeses}m): se activa fondo de
@@ -731,9 +910,11 @@ export function FinanceModules({
                   <tr>
                     <th>Año</th>
                     <th className="num">Ingreso</th>
-                    <th className="num">Pago banco</th>
-                    <th className="num">Gtos.op</th>
+                    <th className="num">Deuda banco</th>
+                    <th className="num">GOP</th>
                     <th className="num">Util. neta</th>
+                    <th className="num">Ingreso ZGROUP</th>
+                    <th className="num">Residual act.</th>
                     <th className="num">Acum.</th>
                   </tr>
                 </thead>
@@ -751,18 +932,20 @@ export function FinanceModules({
                         <td className="num mono">{fmt(row.pagoBanco)}</td>
                         <td className="num mono">{fmt(row.gopYear)}</td>
                         <td className="num mono">{fmt(row.utilNeta)}</td>
+                        <td className="num mono">{fmt(row.ingresoZgroup ?? row.utilNeta)}</td>
+                        <td className="num mono">{fmt(row.residualActivos)}</td>
                         <td className="num mono">{fmt(row.cumAcum)}</td>
                       </tr>
                       {row.showTransitionBanner && !hideSensitive && (
                         <tr className="fin-5y-banner fin-5y-banner--cyan">
-                          <td colSpan={6}>
+                          <td colSpan={8}>
                             Mes {m3.lpNPrestamo}: banco liquidado — transición F1→F2
                           </td>
                         </tr>
                       )}
                       {row.showF2FullYearBanner && !hideSensitive && (
                         <tr className="fin-5y-banner fin-5y-banner--green">
-                          <td colSpan={6}>Pago banco $0 — activo libre</td>
+                          <td colSpan={8}>Pago banco $0 — activo libre</td>
                         </tr>
                       )}
                     </React.Fragment>
@@ -775,11 +958,21 @@ export function FinanceModules({
                     <td className="num">{fmt(m4.totals5y.totBanco)}</td>
                     <td className="num">{fmt(m4.totals5y.totGop)}</td>
                     <td className="num">{fmt(m4.totals5y.totUtil)}</td>
+                    <td className="num">{fmt(m4.totals5y.totUtil)}</td>
+                    <td className="num">—</td>
                     <td className="num">{fmt(m4.totals5y.cumAcum)}</td>
                   </tr>
                 </tfoot>
               </table>
             </div>
+            {!hideSensitive && m4.recoveryCurve?.length > 0 && (
+              <FinRecoveryChart
+                curve={m4.recoveryCurve}
+                paybackTarget={m1.ventaTotal}
+                fmt={fmt}
+                title="Curva recuperación (utilidad acumulada)"
+              />
+            )}
           </>
         )}
       </ModSection>
@@ -834,6 +1027,26 @@ export function FinanceModules({
               <div className="fin-table__row fin-table__row--hi">
                 <span>Utilidad acum. en periodo · LP</span>
                 <span>{fmt(m5.lpTotPeriodo)}</span>
+              </div>
+              <div className="fin-table__row">
+                <span>Ganancia proyectada contrato CP ({m2.cpPlazo}m)</span>
+                <span>{fmt(m5.cpGananciaContrato)}</span>
+              </div>
+              <div className="fin-table__row">
+                <span>Utilidad total ciclo LP</span>
+                <span>{fmt(m5.lpUtilidadFinProyecto)}</span>
+              </div>
+              <div className="fin-table__row">
+                <span>Residual activos · fin CP</span>
+                <span>{fmt(m5.cpResidualActivos)}</span>
+              </div>
+              <div className="fin-table__row">
+                <span>Residual activos · fin F1 LP</span>
+                <span>{fmt(m5.lpResidualActivosF1)}</span>
+              </div>
+              <div className="fin-table__row">
+                <span>Residual activos · fin proyecto LP</span>
+                <span>{fmt(m5.lpResidualActivosFin)}</span>
               </div>
             </>
           )}

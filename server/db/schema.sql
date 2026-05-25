@@ -184,6 +184,7 @@ CREATE TABLE catalog_categories (
   next_seq    INTEGER NOT NULL DEFAULT 1,
   sort_order  INTEGER NOT NULL DEFAULT 0,
   active      BOOLEAN NOT NULL DEFAULT true,
+  default_apply_adjustment BOOLEAN NOT NULL DEFAULT true,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -296,6 +297,7 @@ CREATE TABLE project_items (
   is_custom       BOOLEAN NOT NULL DEFAULT false,
   category_id     UUID REFERENCES catalog_categories(id) ON DELETE SET NULL,
   sort_order      INTEGER NOT NULL DEFAULT 0,
+  apply_adjustment BOOLEAN NOT NULL DEFAULT true,
   created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()

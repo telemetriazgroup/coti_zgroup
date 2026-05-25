@@ -27,6 +27,21 @@ describe('finance-engine — defaults y M1', () => {
     assert.strictEqual(m1.ventaTotal, 1100);
   });
 
+  it('M1 margen con líneas exentas: ajuste solo sobre baseAdj', () => {
+    const { m1 } = computeFinance({
+      baseLista: 10000,
+      baseActivos: 10000,
+      baseConsumibles: 0,
+      baseListaAdj: 7000,
+      baseListaExempt: 3000,
+      baseActivosAdj: 7000,
+      baseActivosExempt: 3000,
+      params: { adjType: 'margin', adjPct: 10 },
+    });
+    assert.strictEqual(m1.ventaTotal, 10700);
+    assert.strictEqual(m1.baseExempt, 3000);
+  });
+
   it('M1 descuento: ventaTotal = base × (1 - pct/100)', () => {
     const { m1 } = computeFinance({
       baseLista: 1000,
@@ -48,9 +63,10 @@ describe('finance-engine — defaults y M1', () => {
 });
 
 describe('finance-engine — M2 corto plazo', () => {
-  it('renta cliente = suma componentes (sin consumibles)', () => {
+  it('renta cliente = suma componentes (activos depreciados, consumibles diluidos)', () => {
     const { m2 } = computeFinance({
       baseLista: 12000,
+      baseActivos: 12000,
       baseConsumibles: 0,
       params: { adjPct: 0, cpPlazo: 6, cpVida: 60, cpOp: 5, cpRoa: 35, cpMerma: 2 },
     });
@@ -61,6 +77,7 @@ describe('finance-engine — M2 corto plazo', () => {
     const roa = (vt * 0.35) / 12;
     assert.ok(Math.abs(m2.rentaCliente - (dep + merma + gop + roa)) < 0.01);
     assert.ok(Math.abs(m2.gananciaMensual - roa) < 0.01);
+    assert.ok(Math.abs(m2.residualActivos - (vt - dep * m2.cpPlazo)) < 0.01);
   });
 
   it('PE = ceil(venta / ROA mensual)', () => {

@@ -171,7 +171,7 @@ export function CatalogPage() {
   }, [items, filterCat, q, filterTipo]);
 
   function openNewCategory() {
-    setCatForm({ nombre: '', sortOrder: '', codigoPrefix: '', active: true });
+    setCatForm({ nombre: '', sortOrder: '', codigoPrefix: '', active: true, defaultApplyAdjustment: true });
     setModalCat('new');
   }
 
@@ -181,6 +181,7 @@ export function CatalogPage() {
       sortOrder: String(c.sortOrder ?? 0),
       codigoPrefix: c.codigoPrefix || '',
       active: c.active,
+      defaultApplyAdjustment: c.defaultApplyAdjustment !== false,
       _id: c.id,
     });
     setModalCat('edit');
@@ -195,6 +196,7 @@ export function CatalogPage() {
         sortOrder: catForm.sortOrder === '' ? undefined : parseInt(catForm.sortOrder, 10),
         codigoPrefix: catForm.codigoPrefix.trim() || null,
         active: catForm.active,
+        defaultApplyAdjustment: catForm.defaultApplyAdjustment !== false,
       };
       if (modalCat === 'new') {
         await api.post('/api/catalog/categories', body);
@@ -562,6 +564,11 @@ export function CatalogPage() {
                   orden {c.sortOrder}
                 </span>
                 {!c.active && <span className="tag tag--off">inactiva</span>}
+                {c.defaultApplyAdjustment === false && (
+                  <span className="tag tag--warn mono" title="Las líneas nuevas del presupuesto no aplican margen/descuento M1">
+                    sin ajuste M1
+                  </span>
+                )}
                 {isAdmin && (
                   <span className="cat-actions">
                     <button type="button" className="btn-link mono" onClick={() => openEditCategory(c)}>
@@ -763,6 +770,21 @@ export function CatalogPage() {
               />
               <span>Activa</span>
             </label>
+            <label className="chk-row">
+              <input
+                type="checkbox"
+                checked={catForm.defaultApplyAdjustment !== false}
+                onChange={(e) =>
+                  setCatForm((f) => ({ ...f, defaultApplyAdjustment: e.target.checked }))
+                }
+              />
+              <span>Ajuste M1 activo por defecto</span>
+            </label>
+            <p className="muted mono" style={{ fontSize: 11, margin: '-4px 0 0', lineHeight: 1.45 }}>
+              Si está marcado, al agregar ítems de esta categoría al presupuesto el checkbox «Ajuste» queda ✓
+              (entran en margen de seguridad o descuento). Desmarcado = exentos por defecto (el usuario puede
+              cambiarlo línea a línea).
+            </p>
           </form>
         </Modal>
       )}

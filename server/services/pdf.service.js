@@ -72,12 +72,26 @@ async function loadExportPayload(projectId) {
 
   let activos = 0;
   let consumibles = 0;
+  let activosAdj = 0;
+  let consumiblesAdj = 0;
+  let activosExempt = 0;
+  let consumiblesExempt = 0;
   for (const r of items) {
     const st = r.subtotal != null ? Number(r.subtotal) : 0;
-    if (r.tipo === 'ACTIVO') activos += st;
-    else if (r.tipo === 'CONSUMIBLE') consumibles += st;
+    const applies = r.apply_adjustment !== false;
+    if (r.tipo === 'ACTIVO') {
+      activos += st;
+      if (applies) activosAdj += st;
+      else activosExempt += st;
+    } else if (r.tipo === 'CONSUMIBLE') {
+      consumibles += st;
+      if (applies) consumiblesAdj += st;
+      else consumiblesExempt += st;
+    }
   }
   const lista = Math.round((activos + consumibles) * 100) / 100;
+  const listaAdj = Math.round((activosAdj + consumiblesAdj) * 100) / 100;
+  const listaExempt = Math.round((activosExempt + consumiblesExempt) * 100) / 100;
 
   const { mergeFinanceParams, computeFinance } = await loadFinanceEngine();
   const params = mergeFinanceParams(pr[0].finance_params || {});
@@ -85,13 +99,29 @@ async function loadExportPayload(projectId) {
     baseLista: lista,
     baseActivos: activos,
     baseConsumibles: consumibles,
+    baseListaAdj: listaAdj,
+    baseListaExempt: listaExempt,
+    baseActivosAdj: Math.round(activosAdj * 100) / 100,
+    baseActivosExempt: Math.round(activosExempt * 100) / 100,
+    baseConsumiblesAdj: Math.round(consumiblesAdj * 100) / 100,
+    baseConsumiblesExempt: Math.round(consumiblesExempt * 100) / 100,
     params,
   });
 
   return {
     project: pr[0],
     items,
-    totals: { activos, consumibles, lista },
+    totals: {
+      activos,
+      consumibles,
+      lista,
+      activosAdj: Math.round(activosAdj * 100) / 100,
+      consumiblesAdj: Math.round(consumiblesAdj * 100) / 100,
+      activosExempt: Math.round(activosExempt * 100) / 100,
+      consumiblesExempt: Math.round(consumiblesExempt * 100) / 100,
+      listaAdj,
+      listaExempt,
+    },
     fin,
     mergedParams: params,
   };
@@ -290,6 +320,13 @@ function buildGerenciaLargoPlazoV12(fin, mergedParams) {
     ),
     pdfClienteRow('Capital en riesgo ZGROUP (referencia)', fmtUsd(0)),
     pdfClienteRow('Punto equilibrio formalización', `${m3.lpPE} meses`),
+    ...(m3.consumiblesF1Monthly > 0
+      ? [pdfClienteRow('Consumibles diluidos F1 (/mes)', fmtUsd(m3.consumiblesF1Monthly))]
+      : []),
+    ...(m3.assetDepreciationMonthly > 0
+      ? [pdfClienteRow('Depreciación activos (/mes)', fmtUsd(m3.assetDepreciationMonthly))]
+      : []),
+    pdfClienteRow('Valor residual activos fin F1', fmtUsd(m3.residualActivosF1)),
   ];
 
   const filasF2 =
@@ -309,6 +346,10 @@ function buildGerenciaLargoPlazoV12(fin, mergedParams) {
             `Utilidad neta F2 (/${nF2} m)`,
             `${fmtUsd(m3.lpGanF2)}/m × ${nF2} m = ${fmtUsd(m3.lpTotalGanF2)}`
           ),
+          pdfClienteRow('Valor residual activos fin proyecto', fmtUsd(m3.residualActivosFinContrato)),
+          ...(m3.consumiblesPendientesPostF1 > 0
+            ? [pdfClienteRow('Consumibles no diluidos en F1', fmtUsd(m3.consumiblesPendientesPostF1))]
+            : []),
         ]
       : [];
 
@@ -483,9 +524,10 @@ function buildGerenciaResumenKpis(fin, totals, items) {
 function buildGerenciaPartidasBloque(items, m1) {
   const actItems = (items || []).filter((i) => i.tipo !== 'CONSUMIBLE');
   const consItems = (items || []).filter((i) => i.tipo === 'CONSUMIBLE');
-  const base = Number(m1.base) || 0;
-  const adjMag = Math.abs(Number(m1.ventaTotal) - base);
-  const lab = m1.adjType === 'margin' ? `+ Margen de seguridad (${fmtPct1(m1.adjPct)})` : `− Descuento (${fmtPct1(m1.adjPct)})`;
+  const base = Number(m1.baseAdj ?? m1.base) || 0;
+  const exempt = Number(m1.baseExempt) || 0;
+  const adjMag = Math.abs(Number(m1.ventaAdj) || 0);
+  const lab = m1.adjType === 'margin' ? `+ Margen de seguridad (${fmtPct1(m1.adjPct)}, solo ✓)` : `− Descuento (${fmtPct1(m1.adjPct)}, solo ✓)`;
   const rowsHdr = `<tr style="background:#edf2f7">
     <th style="padding:5pt 6pt;text-align:left;font-size:7.5pt;color:#1a365d;font-weight:700;border-bottom:1.5pt solid #2b6cb0">Código</th>
     <th style="padding:5pt 6pt;text-align:left;font-size:7.5pt;color:#1a365d;font-weight:700;border-bottom:1.5pt solid #2b6cb0">Descripción</th>
@@ -493,6 +535,7 @@ function buildGerenciaPartidasBloque(items, m1) {
     <th style="padding:5pt 6pt;text-align:right;font-size:7pt">P. lista (ref.)</th>
     <th style="padding:5pt 6pt;text-align:right;font-size:7.5pt">P. asumido</th>
     <th style="padding:5pt 6pt;text-align:center">Cant.</th>
+    <th style="padding:5pt 6pt;text-align:center">Ajuste</th>
     <th style="padding:5pt 6pt;text-align:right">Subtotal</th>
   </tr>`;
   const fmtRefPrices = (it) => {
@@ -518,10 +561,11 @@ function buildGerenciaPartidasBloque(items, m1) {
     <td style="padding:3pt 6pt;text-align:right;font-family:monospace;font-size:8.5pt;border-bottom:0.4pt solid #e2e8f0;vertical-align:top">${listCell}</td>
     <td style="padding:3pt 6pt;text-align:right;font-family:monospace;font-size:8.5pt;border-bottom:0.4pt solid #e2e8f0;vertical-align:top">${asumCell}</td>
     <td style="padding:3pt 6pt;text-align:center;font-family:monospace;font-size:8.5pt;border-bottom:0.4pt solid #e2e8f0">${esc(String(it.qty))}</td>
+    <td style="padding:3pt 6pt;text-align:center;font-size:8pt;border-bottom:0.4pt solid #e2e8f0">${it.apply_adjustment !== false ? '✓' : '—'}</td>
     <td style="padding:3pt 6pt;text-align:right;font-family:monospace;font-size:8.5pt;border-bottom:0.4pt solid #e2e8f0">${fmtUsd(Number(it.subtotal))}</td>
   </tr>`;
   };
-  const subtot = (label, val) => `<tr style="background:#edf2f7"><td colspan="6" style="padding:4pt 6pt;text-align:right;font-size:8.5pt;font-weight:600;color:#4a5568">${esc(
+  const subtot = (label, val) => `<tr style="background:#edf2f7"><td colspan="7" style="padding:4pt 6pt;text-align:right;font-size:8.5pt;font-weight:600;color:#4a5568">${esc(
     label
   )}</td><td style="padding:4pt 6pt;text-align:right;font-family:monospace;font-size:9pt;font-weight:700;color:#1a365d">${fmtUsd(val)}</td></tr>`;
   const aBlock =
@@ -547,7 +591,8 @@ function buildGerenciaPartidasBloque(items, m1) {
   ${aBlock}
   ${cBlock}
   <table style="width:100%;border-collapse:collapse;margin-top:6pt;border:1pt solid #e2e8f0">
-    ${pdfClienteRow('TOTAL LISTA BASE', fmtUsd(base))}
+    ${pdfClienteRow('TOTAL LISTA (con ajuste ✓)', fmtUsd(base))}
+    ${exempt > 0 ? pdfClienteRow('Líneas sin ajuste M1', fmtUsd(exempt)) : ''}
     ${pdfClienteRow(lab, fmtUsd(adjMag))}
     <tr style="background:#1a365d"><td colspan="2" style="padding:5pt 8pt;font-weight:700;color:#fff;font-size:9.5pt">TOTAL VENTA (BASE UNIFICADA M1)</td></tr>
     <tr><td style="padding:5pt 8pt;font-size:9pt;color:#4a5568"></td>
@@ -622,6 +667,18 @@ function buildGerenciaCortoPlazoBloque(fin, mergedParams) {
     <tr>
       <td style="color:#4a5568">Punto de equilibrio</td>
       <td colspan="2" style="text-align:right;font-family:monospace;padding:4pt 8pt">${esc(m2.peDisplay)} aprox. para inversión</td>
+    </tr>
+    <tr style="background:#fafbfc">
+      <td>Depreciación acumulada (fin contrato)</td>
+      <td colspan="2" style="text-align:right;font-family:monospace;padding:4pt 8pt">${fmtUsd(m2.depreciationAccumulated)}</td>
+    </tr>
+    <tr>
+      <td style="color:#276749;font-weight:600">Valor residual activos (fin contrato)</td>
+      <td colspan="2" style="text-align:right;font-family:monospace;padding:4pt 8pt;color:#276749;font-weight:700">${fmtUsd(m2.residualActivos)}</td>
+    </tr>
+    <tr style="background:#fafbfc">
+      <td style="font-weight:700;color:#c27803">Ganancia proyectada contrato</td>
+      <td colspan="2" style="text-align:right;font-family:monospace;padding:4pt 8pt;font-weight:700;color:#c27803">${fmtUsd(m2.gananciaContrato)}</td>
     </tr>
   </table>`;
 }
@@ -814,6 +871,23 @@ function buildGerenciaPanelM5Bloque(fin) {
       <td class="num" style="color:#c27803;font-weight:700">${fmtUsd(m5.cpTotPeriodo)}</td>
       <td class="num" style="font-weight:700">${fmtUsd(lpGanF1H)}</td>
       ${f2GanAc}
+    </tr>
+    <tr>
+      <td>Residual activos fin CP</td>
+      <td class="num">${fmtUsd(m5.cpResidualActivos)}</td>
+      <td class="num">—</td>
+      ${nF2 > 0 ? '<td class="num">—</td>' : ''}
+    </tr>
+    <tr style="background:#fafbfc">
+      <td>Residual activos fin F1 / fin LP</td>
+      <td class="num">—</td>
+      <td class="num">${fmtUsd(m5.lpResidualActivosF1)}</td>
+      ${nF2 > 0 ? `<td class="num">${fmtUsd(m5.lpResidualActivosFin)}</td>` : ''}
+    </tr>
+    <tr>
+      <td>Utilidad total ciclo LP</td>
+      <td class="num">—</td>
+      <td class="num"${nF2 > 0 ? ' colspan="2"' : ''}>${fmtUsd(m5.lpUtilidadFinProyecto)}</td>
     </tr>
   </table>
   <p style="margin:8px 0;padding:8px;background:#f0fff4;border:1pt solid #9ae6b4;border-radius:4pt;font-size:8.5pt;color:#276749;font-weight:600">

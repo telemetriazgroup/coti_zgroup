@@ -46,6 +46,60 @@ export function mergeFinanceParams(stored) {
   return { ...DEFAULT_FINANCE_PARAMS, ...(stored && typeof stored === 'object' ? stored : {}) };
 }
 
+/** Bases lista con / sin checkbox «Ajuste» (margen/descuento solo sobre adj). */
+function resolveFinanceBases(input) {
+  const baseActivos = Number(input?.baseActivos);
+  const baseConsumibles = Number(input?.baseConsumibles);
+  const hasSplit =
+    Number.isFinite(Number(input?.baseListaAdj)) || Number.isFinite(Number(input?.baseActivosAdj));
+
+  if (hasSplit) {
+    const activosAdj = Number(input.baseActivosAdj) || 0;
+    const consumiblesAdj = Number(input.baseConsumiblesAdj) || 0;
+    const activosExempt = Number(input.baseActivosExempt) || 0;
+    const consumiblesExempt = Number(input.baseConsumiblesExempt) || 0;
+    return {
+      activos: Number.isFinite(baseActivos) ? baseActivos : activosAdj + activosExempt,
+      consumibles: Number.isFinite(baseConsumibles) ? baseConsumibles : consumiblesAdj + consumiblesExempt,
+      activosAdj,
+      consumiblesAdj,
+      activosExempt,
+      consumiblesExempt,
+      listaAdj: Number(input.baseListaAdj) || activosAdj + consumiblesAdj,
+      listaExempt: Number(input.baseListaExempt) || activosExempt + consumiblesExempt,
+    };
+  }
+
+  const activos = Number.isFinite(baseActivos) ? baseActivos : 0;
+  const consumibles = Number.isFinite(baseConsumibles) ? baseConsumibles : 0;
+  const listaFromInput =
+    input?.baseLista != null ? Number(input.baseLista) : activos + consumibles;
+  const activosEff = activos > 0 || consumibles > 0 ? activos : listaFromInput;
+  const consumiblesEff = consumibles;
+  return {
+    activos: activosEff,
+    consumibles: consumiblesEff,
+    activosAdj: activosEff,
+    consumiblesAdj: consumiblesEff,
+    activosExempt: 0,
+    consumiblesExempt: 0,
+    listaAdj: listaFromInput,
+    listaExempt: 0,
+  };
+}
+
+function applyM1Part(baseAdj, baseExempt, adjPct, isMargin) {
+  const adjAmount = baseAdj * (adjPct / 100);
+  const adjusted = isMargin ? baseAdj + adjAmount : baseAdj - adjAmount;
+  return {
+    baseAdj,
+    baseExempt,
+    adjAmount,
+    adjusted,
+    total: adjusted + baseExempt,
+  };
+}
+
 export function frenchPayment(pv, tem, n) {
   if (pv <= 0 || n <= 0) return 0;
   if (tem <= 0) return pv / n;
@@ -82,30 +136,41 @@ export function buildAmortizationSchedule(pv, tem, n, cuota) {
  * @param {number} input.baseLista - suma activos + consumibles (subtotal lista)
  * @param {number} [input.baseActivos]
  * @param {number} [input.baseConsumibles]
+ * @param {number} [input.baseListaAdj] - subtotal líneas con ajuste ✓
+ * @param {number} [input.baseListaExempt] - subtotal sin ajuste
+ * @param {number} [input.baseActivosAdj]
+ * @param {number} [input.baseActivosExempt]
+ * @param {number} [input.baseConsumiblesAdj]
+ * @param {number} [input.baseConsumiblesExempt]
  * @param {object} [input.params] - finance params (parcial OK)
  */
 export function computeFinance(input) {
   const p = mergeFinanceParams(input?.params);
-  const baseActivos = Number(input?.baseActivos);
-  const baseConsumibles = Number(input?.baseConsumibles);
-  const baseLista =
-    input?.baseLista != null
-      ? Number(input.baseLista)
-      : (Number.isFinite(baseActivos) ? baseActivos : 0) +
-        (Number.isFinite(baseConsumibles) ? baseConsumibles : 0);
+  const bases = resolveFinanceBases(input);
 
   const adj = p.adjPct || 0;
   const isMargin = p.adjType !== 'discount';
-  const ventaAdj = baseLista * (adj / 100);
-  const ventaTotal = isMargin ? baseLista + ventaAdj : baseLista - ventaAdj;
+
+  const m1Activos = applyM1Part(bases.activosAdj, bases.activosExempt, adj, isMargin);
+  const m1Consumibles = applyM1Part(bases.consumiblesAdj, bases.consumiblesExempt, adj, isMargin);
+  const m1Lista = applyM1Part(bases.listaAdj, bases.listaExempt, adj, isMargin);
+
+  const ventaActivos = m1Activos.total;
+  const ventaConsumibles = m1Consumibles.total;
+  const ventaTotal = m1Lista.total;
+  const ventaAdj = m1Lista.adjAmount;
 
   const m1 = {
-    base: baseLista,
+    base: bases.listaAdj + bases.listaExempt,
+    baseAdj: bases.listaAdj,
+    baseExempt: bases.listaExempt,
     adjPct: adj,
     adjType: isMargin ? 'margin' : 'discount',
     ventaAdj,
     ventaTotal,
-    discount100Warning: !isMargin && adj >= 100 && ventaTotal <= 0,
+    ventaActivos,
+    ventaConsumibles,
+    discount100Warning: !isMargin && adj >= 100 && m1Lista.adjusted <= 0,
   };
 
   const cpPlazo = Math.max(1, p.cpPlazo || 6);
@@ -114,16 +179,18 @@ export function computeFinance(input) {
   const cpRoa = p.cpRoa || 35;
   const cpMerma = p.cpMerma || 2;
 
-  const baseCons = Number.isFinite(baseConsumibles) ? baseConsumibles : 0;
-
-  const cpDep = ventaTotal / cpVida;
-  const cpMermaVal = (ventaTotal * (cpMerma / 100)) / cpPlazo;
+  const cpDep = ventaActivos > 0 ? ventaActivos / cpVida : 0;
+  const cpMermaVal = ventaActivos > 0 ? (ventaActivos * (cpMerma / 100)) / cpPlazo : 0;
   const cpGop = (ventaTotal * (cpOp / 100)) / 12;
-  const cpConsRec = baseCons > 0 ? baseCons / cpPlazo : 0;
+  const cpConsRec = ventaConsumibles > 0 ? ventaConsumibles / cpPlazo : 0;
   const cpRoaVal = (ventaTotal * (cpRoa / 100)) / 12;
   const cpRentaVal = cpDep + cpMermaVal + cpGop + cpConsRec + cpRoaVal;
   const cpGanancia = cpRoaVal;
   const cpPE = cpGanancia > 0 ? Math.ceil(ventaTotal / cpGanancia) : null;
+  const cpDepAcum = cpDep * cpPlazo;
+  const cpResidualActivos = Math.max(0, ventaActivos - cpDepAcum);
+  const cpGananciaContrato = cpGanancia * cpPlazo;
+  const cpConsumiblesDiluidos = cpConsRec * cpPlazo;
 
   const m2 = {
     enabled: p.enableCp !== false,
@@ -132,13 +199,19 @@ export function computeFinance(input) {
     cpOp,
     cpRoa,
     cpMerma,
+    ventaActivos,
+    ventaConsumibles,
     depreciationMonthly: cpDep,
+    depreciationAccumulated: cpDepAcum,
+    residualActivos: cpResidualActivos,
     mermaMonthly: cpMermaVal,
     gopMonthly: cpGop,
     consumiblesMonthly: cpConsRec,
+    consumiblesDiluidosContrato: cpConsumiblesDiluidos,
     roaMonthly: cpRoaVal,
     rentaCliente: cpRentaVal,
     gananciaMensual: cpGanancia,
+    gananciaContrato: cpGananciaContrato,
     peMeses: cpPE,
     peDisplay: cpGanancia > 0 ? `${cpPE} m` : '—',
     warningVidaMenorPlazo: cpVida < cpPlazo,
@@ -186,6 +259,16 @@ export function computeFinance(input) {
 
   const amort = buildAmortizationSchedule(totalFin, temBanco, lpNPrestamo, cuotaBanco);
 
+  const lpAssetDepMonthly = ventaActivos > 0 ? ventaActivos / lpVida : 0;
+  const lpConsumiblesF1Monthly =
+    ventaConsumibles > 0 && lpNPrestamo > 0 ? ventaConsumibles / lpNPrestamo : 0;
+  const lpResidualActivosF1 = Math.max(0, ventaActivos - lpAssetDepMonthly * lpNPrestamo);
+  const lpResidualActivosFin = Math.max(0, ventaActivos - lpAssetDepMonthly * lpNContrato);
+  const lpConsumiblesPendientesF2 = Math.max(
+    0,
+    ventaConsumibles - lpConsumiblesF1Monthly * lpNPrestamo
+  );
+
   const m3 = {
     enabled: p.enableLp !== false,
     lpNPrestamo,
@@ -197,6 +280,8 @@ export function computeFinance(input) {
     lpForm,
     lpPostPct: p.lpPostPct || 80,
     lpFondoRepPct: p.lpFondoRep || 5,
+    ventaActivos,
+    ventaConsumibles,
     totalFinanciado: totalFin,
     temBanco,
     costoBase,
@@ -218,6 +303,34 @@ export function computeFinance(input) {
     lpFondoMensual,
     lpMargenNegativo,
     amortization: amort.rows,
+    assetDepreciationMonthly: lpAssetDepMonthly,
+    consumiblesF1Monthly: lpConsumiblesF1Monthly,
+    residualActivosF1: lpResidualActivosF1,
+    residualActivosFinContrato: lpResidualActivosFin,
+    consumiblesPendientesPostF1: lpConsumiblesPendientesF2,
+    phase1Detail: {
+      label: 'Fase 1 (con deuda banco)',
+      months: lpNPrestamo,
+      rentaCliente: lpRentaF1,
+      gananciaMes: lpGanF1,
+      totalGanancia: lpTotalGanF1,
+      cuotaBanco,
+      gopMensual: lpGop,
+      consumiblesMensual: lpConsumiblesF1Monthly,
+      depreciacionMensual: lpAssetDepMonthly,
+      residualActivos: lpResidualActivosF1,
+    },
+    phase2Detail: {
+      label: 'Fase 2 (post-préstamo)',
+      months: lpNF2,
+      rentaCliente: lpRentaF2,
+      gananciaMes: lpGanF2,
+      totalGanancia: lpTotalGanF2,
+      fondoReposicionMensual: lpFondoMensual,
+      gopMensual: lpGop,
+      residualActivos: lpResidualActivosFin,
+    },
+    utilidadFinProyecto: lpTotalCiclo,
     timeline: {
       f1Pct: lpNContrato > 0 ? (lpNPrestamo / lpNContrato) * 100 : 0,
       f2Pct: lpNContrato > 0 ? ((lpNContrato - lpNPrestamo) / lpNContrato) * 100 : 0,
@@ -249,6 +362,8 @@ export function computeFinance(input) {
     ventaTotal > 0 && estRentaSb < estCostoMin - 1e-9;
   const minStandbyPct =
     lpRentaF1 > 0 ? Math.ceil((estCostoMin / lpRentaF1) * 100) : 0;
+
+  const cmpPeriod = Math.max(1, p.cmpPeriod || 24);
 
   const fiveYearRows = [];
   let cumAcum = 0;
@@ -303,6 +418,9 @@ export function computeFinance(input) {
       gopYear,
       utilNeta,
       cumAcum,
+      residualActivos: Math.max(0, ventaActivos - lpAssetDepMonthly * Math.min(mEnd, lpNContrato)),
+      consumiblesMes: lpConsumiblesF1Monthly,
+      ingresoZgroup: utilNeta,
       isAllF1,
       isAllF2,
       isTransition,
@@ -310,6 +428,23 @@ export function computeFinance(input) {
       showF2FullYearBanner: showF2Banner,
       phaseLabel: isTransition ? 'F1→F2' : isAllF2 ? 'F2' : 'F1',
     });
+  }
+
+  const horizonMonths = Math.max(lpNContrato, cpPlazo, cmpPeriod);
+  const recoveryCurve = [];
+  let cumUtilCurve = 0;
+  for (let m = 1; m <= Math.min(horizonMonths, 60); m++) {
+    const inF1 = m <= lpNPrestamo;
+    const inF2 = m > lpNPrestamo && m <= lpNContrato;
+    const inCp = m <= cpPlazo;
+    let utilMes = 0;
+    if (p.enableLp !== false && m <= lpNContrato) {
+      utilMes = inF1 ? lpGanF1 : inF2 ? lpGanF2 : 0;
+    } else if (p.enableCp !== false && inCp) {
+      utilMes = cpGanancia;
+    }
+    cumUtilCurve += utilMes;
+    recoveryCurve.push({ month: m, utilMes, cumUtil: cumUtilCurve });
   }
 
   const reglaDeOroExpected = lpTotalCicloSeasonal;
@@ -344,6 +479,7 @@ export function computeFinance(input) {
       cumAcum,
     },
     lpTotalCicloSeasonal,
+    recoveryCurve,
     reglaDeOro: {
       expected: reglaDeOroExpected,
       actual: reglaDeOroActual,
@@ -352,7 +488,6 @@ export function computeFinance(input) {
   };
 
   // ── M5 Panel gerencial (comparativa CP vs LP, HTML v10) ────────
-  const cmpPeriod = Math.max(1, p.cmpPeriod || 24);
   const cpTot = cpGanancia * cmpPeriod;
   const f1InPeriod = Math.min(cmpPeriod, lpNPrestamo);
   const f2InPeriod = Math.max(0, cmpPeriod - lpNPrestamo);
@@ -382,6 +517,13 @@ export function computeFinance(input) {
     lpMasBaratoCliente: lpMasBarato,
     lpTotalCiclo,
     lpTotalCicloSeasonal,
+    cpGananciaContrato,
+    cpResidualActivos,
+    lpResidualActivosF1,
+    lpResidualActivosFin: lpResidualActivosFin,
+    lpUtilidadFinProyecto: lpTotalCiclo,
+    ventaActivos,
+    ventaConsumibles,
     veredicto,
   };
 

@@ -45,7 +45,17 @@ export function ProjectBudgetPage() {
   const [project, setProject] = useState(null);
   const [projectStatus, setProjectStatus] = useState(null);
   const [items, setItems] = useState([]);
-  const [totals, setTotals] = useState({ activos: 0, consumibles: 0, lista: 0 });
+  const [totals, setTotals] = useState({
+    activos: 0,
+    consumibles: 0,
+    lista: 0,
+    activosAdj: 0,
+    consumiblesAdj: 0,
+    activosExempt: 0,
+    consumiblesExempt: 0,
+    listaAdj: 0,
+    listaExempt: 0,
+  });
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
 
@@ -356,6 +366,20 @@ export function ProjectBudgetPage() {
     if (!canEditBudgetLines) return;
     if (flushTimers.current[id]) clearTimeout(flushTimers.current[id]);
     flushTimers.current[id] = setTimeout(() => flushRow(id), 300);
+  }
+
+  async function toggleApplyAdjustment(id, applyAdjustment) {
+    if (!canEditBudgetLines) return;
+    setErr(null);
+    try {
+      const data = await api.put(`/api/projects/${projectId}/items/${id}`, { applyAdjustment });
+      setItems(data.items);
+      setTotals(data.totals);
+      if (data.projectStatus) setProjectStatus(data.projectStatus);
+      syncDraftFromItems(data.items);
+    } catch (e) {
+      setErr(e.message);
+    }
   }
 
   async function flushRow(id) {
@@ -1146,6 +1170,13 @@ export function ProjectBudgetPage() {
                   </th>
                   <th className="num">Cant.</th>
                   <th className="num">Subtotal</th>
+                  <th
+                    className="budget-col-adj num"
+                    scope="col"
+                    title="Si está marcado, la línea entra en margen/descuento M1"
+                  >
+                    Ajuste
+                  </th>
                   {canEditBudgetLines && (
                     <th className="actions-col budget-actions-th" scope="col" title="Quitar línea" aria-label="Quitar">
                       <span className="budget-actions-th-icon" aria-hidden="true">
@@ -1158,13 +1189,13 @@ export function ProjectBudgetPage() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={canEditBudgetLines ? 9 : 8} className="muted">
+                    <td colSpan={canEditBudgetLines ? 10 : 9} className="muted">
                       Agregue ítems desde el catálogo o una pieza personalizada.
                     </td>
                   </tr>
                 ) : displayBudgetItems.length === 0 ? (
                   <tr>
-                    <td colSpan={canEditBudgetLines ? 9 : 8} className="muted">
+                    <td colSpan={canEditBudgetLines ? 10 : 9} className="muted">
                       Ninguna línea coincide con la búsqueda.
                     </td>
                   </tr>
@@ -1302,6 +1333,24 @@ export function ProjectBudgetPage() {
                           )}
                         </td>
                         <td className="num mono">{formatUsd(row.subtotal)}</td>
+                        <td className="num budget-col-adj">
+                          <label
+                            className="budget-adj-chk mono"
+                            title={
+                              row.applyAdjustment !== false
+                                ? 'Incluida en margen/descuento M1'
+                                : 'Exenta de margen/descuento M1'
+                            }
+                          >
+                            <input
+                              type="checkbox"
+                              checked={row.applyAdjustment !== false}
+                              disabled={!canEditBudgetLines}
+                              onChange={(e) => toggleApplyAdjustment(row.id, e.target.checked)}
+                              aria-label={`Ajuste partida ${row.codigo || nPart}`}
+                            />
+                          </label>
+                        </td>
                         {canEditBudgetLines && (
                           <td className="actions-cell budget-actions-cell">
                             <button
@@ -1354,6 +1403,11 @@ export function ProjectBudgetPage() {
             <div className="budget-footer__line budget-footer__totals">
               <span>ACTIVOS: {formatUsd(totals.activos)}</span>
               <span>CONSUMIBLES: {formatUsd(totals.consumibles)}</span>
+              {totals.listaExempt > 0 && (
+                <span className="muted">
+                  Sin ajuste M1: {formatUsd(totals.listaExempt)}
+                </span>
+              )}
               <span className="budget-footer-total">TOTAL LISTA: {formatUsd(totals.lista)}</span>
             </div>
           </footer>
@@ -1366,6 +1420,12 @@ export function ProjectBudgetPage() {
         baseLista={totals.lista}
         baseActivos={totals.activos}
         baseConsumibles={totals.consumibles}
+        baseListaAdj={totals.listaAdj}
+        baseListaExempt={totals.listaExempt}
+        baseActivosAdj={totals.activosAdj}
+        baseActivosExempt={totals.activosExempt}
+        baseConsumiblesAdj={totals.consumiblesAdj}
+        baseConsumiblesExempt={totals.consumiblesExempt}
         financeParams={financeParams}
         onFinanceParamsChange={setFinanceParams}
         viewerMode={viewerMode}

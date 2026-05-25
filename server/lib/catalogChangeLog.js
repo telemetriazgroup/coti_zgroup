@@ -10,6 +10,7 @@ const FIELD_LABELS = {
   category_id: 'Categoría',
   sort_order: 'Orden',
   active: 'Estado activo',
+  default_apply_adjustment: 'Ajuste M1 por defecto',
 };
 
 function formatFieldValue(field, value) {
@@ -19,6 +20,9 @@ function formatFieldValue(field, value) {
     return Number.isNaN(n) ? String(value) : n.toFixed(2);
   }
   if (field === 'active') return value === 'true' || value === true ? 'Activo' : 'Inactivo';
+  if (field === 'default_apply_adjustment') {
+    return value === 'true' || value === true ? 'Activo (aplica margen/descuento)' : 'Inactivo (exento M1)';
+  }
   return String(value);
 }
 
@@ -109,7 +113,7 @@ function itemUpdateChanges(before, after) {
 
 function categoryUpdateChanges(before, after) {
   const changes = [];
-  for (const field of ['nombre', 'sort_order', 'active']) {
+  for (const field of ['nombre', 'sort_order', 'active', 'default_apply_adjustment']) {
     if (after[field] === undefined) continue;
     const d = diffRow(before, after, field, (v) => (field === 'nombre' ? String(v).trim() : String(v)));
     if (d) changes.push(d);

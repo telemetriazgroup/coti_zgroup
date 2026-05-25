@@ -50,6 +50,7 @@ function mapCategory(row) {
     nextSeq: row.next_seq != null ? Number(row.next_seq) : 1,
     sortOrder: row.sort_order,
     active: row.active,
+    defaultApplyAdjustment: row.default_apply_adjustment !== false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -257,6 +258,7 @@ const catBody = [
   body('codigoPrefix').optional().isString(),
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
+  body('defaultApplyAdjustment').optional().isBoolean(),
 ];
 
 // ─── POST /api/catalog/categories — ADMIN ───────────────────────
@@ -269,8 +271,9 @@ router.post('/categories', requireRole('ADMIN', 'SUPERUSER'), catBody, async (re
     });
   }
 
-  const { nombre, codigoPrefix, sortOrder, active } = req.body;
+  const { nombre, codigoPrefix, sortOrder, active, defaultApplyAdjustment } = req.body;
   const prefix = normalizePrefix(codigoPrefix);
+  const defaultAdj = defaultApplyAdjustment !== false;
 
   try {
     let so = sortOrder;
@@ -280,8 +283,9 @@ router.post('/categories', requireRole('ADMIN', 'SUPERUSER'), catBody, async (re
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO catalog_categories (nombre, codigo_prefix, sort_order, active) VALUES ($1, $2, $3, COALESCE($4, true)) RETURNING *`,
-      [nombre.trim(), prefix, so, active]
+      `INSERT INTO catalog_categories (nombre, codigo_prefix, sort_order, active, default_apply_adjustment)
+       VALUES ($1, $2, $3, COALESCE($4, true), $5) RETURNING *`,
+      [nombre.trim(), prefix, so, active, defaultAdj]
     );
     if (prefix) {
       await syncCategoryNextSeq(rows[0].id, prefix);
@@ -310,6 +314,7 @@ const catPutValidators = [
   body('codigoPrefix').optional().isString(),
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
+  body('defaultApplyAdjustment').optional().isBoolean(),
 ];
 
 // ─── PUT /api/catalog/categories/:id — ADMIN ───────────────────
@@ -322,7 +327,7 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
     });
   }
 
-  const { nombre, codigoPrefix, sortOrder, active } = req.body;
+  const { nombre, codigoPrefix, sortOrder, active, defaultApplyAdjustment } = req.body;
   try {
     const { rows: before } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
     if (!before[0]) {
@@ -347,6 +352,10 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
     if (active !== undefined) {
       fields.push(`active = $${i++}`);
       vals.push(active);
+    }
+    if (defaultApplyAdjustment !== undefined) {
+      fields.push(`default_apply_adjustment = $${i++}`);
+      vals.push(!!defaultApplyAdjustment);
     }
     if (fields.length === 0) {
       return res.status(400).json({

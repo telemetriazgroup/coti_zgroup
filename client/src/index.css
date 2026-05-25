@@ -1473,6 +1473,10 @@ select.form-input {
   color: var(--muted2);
   border-color: var(--border-dim);
 }
+.tag--warn {
+  color: var(--amber);
+  border-color: rgba(255, 215, 0, 0.35);
+}
 .chk-row {
   display: flex;
   align-items: center;
@@ -2977,6 +2981,64 @@ select.form-input {
 .fin-5y-banner--green {
   background: rgba(0, 232, 122, 0.07);
   color: var(--green);
+}
+.budget-col-adj {
+  width: 52px;
+  text-align: center;
+}
+.budget-adj-chk {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+.budget-adj-chk input {
+  width: 16px;
+  height: 16px;
+  accent-color: var(--cyan);
+  cursor: pointer;
+}
+.budget-adj-chk input:disabled {
+  cursor: default;
+  opacity: 0.75;
+}
+.fin-phase-block {
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  padding: 10px 12px;
+  background: rgba(0, 0, 0, 0.12);
+}
+.fin-phase-block__title {
+  margin: 0 0 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--cyan);
+}
+.fin-recovery-chart {
+  margin-top: 12px;
+  padding: 10px;
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.1);
+}
+.fin-recovery-chart__hdr {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 10px;
+  margin-bottom: 6px;
+}
+.fin-recovery-chart__svg {
+  width: 100%;
+  height: auto;
+  display: block;
+}
+.fin-recovery-chart__legend {
+  margin: 6px 0 0;
+  font-size: 9px;
 }
 .banner--warn {
   border-color: rgba(255, 215, 0, 0.45);
