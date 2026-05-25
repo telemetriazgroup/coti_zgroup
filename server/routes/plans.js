@@ -8,7 +8,7 @@ const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
 const { canReadProject, canWriteProject } = require('../utils/projectAccess');
 const { loadShareContext } = require('../utils/projectShare');
-const { isSuperuser } = require('../utils/userRoles');
+const { isSuperuser, isAdmin } = require('../utils/userRoles');
 const storage = require('../services/storage.service');
 
 const router = express.Router();
@@ -73,14 +73,23 @@ function safeBasename(name) {
   return b.slice(0, 200).toLowerCase() || 'file';
 }
 
+/** ADMIN y SUPERUSER ven todas las versiones; resto solo la actual. */
+function canSeePlanHistory(user) {
+  return isAdmin(user);
+}
+
+function canAccessPlanVersion(user, plan) {
+  return canSeePlanHistory(user) || plan.is_current;
+}
+
 // ─── GET /api/projects/:id/plans ───────────────────────────────
 router.get('/:id/plans', async (req, res) => {
   try {
     const project = await loadProject(req, res, req.params.id);
     if (!project) return;
 
-    const isStaff = req.user.role === 'ADMIN' || req.user.role === 'SUPERUSER' || req.user.role === 'COMERCIAL';
-    const sql = isStaff
+    const seeHistory = canSeePlanHistory(req.user);
+    const sql = seeHistory
       ? `SELECT p.*, u.email AS uploaded_by_email
          FROM project_plans p
          LEFT JOIN users u ON u.id = p.uploaded_by
@@ -107,6 +116,9 @@ router.get('/:id/plans', async (req, res) => {
         plans,
         count: countCurrent,
         countVersions: rows.length,
+        storageConfigured: storage.isStorageConfigured(),
+        canUpload: canWriteProject(req.user, project, project._shareCtx),
+        canSeeHistory: seeHistory,
       },
     });
   } catch (err) {
@@ -153,18 +165,16 @@ router.post('/:id/plans', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), runUpl
     try {
       await client.query('BEGIN');
 
-      const { rows: maxProjRow } = await client.query(
-        `SELECT COALESCE(MAX(version), 0) AS mv FROM project_plans WHERE project_id = $1`,
-        [req.params.id]
-      );
-      let versionSeq = Number(maxProjRow[0].mv) || 0;
-
       for (const file of files) {
         const nombreOriginal = safeBasename(file.originalname);
         const mimeType = file.mimetype || 'application/octet-stream';
 
-        versionSeq += 1;
-        const nextVer = versionSeq;
+        const { rows: maxNameRow } = await client.query(
+          `SELECT COALESCE(MAX(version), 0) AS mv FROM project_plans
+           WHERE project_id = $1 AND LOWER(TRIM(nombre_original)) = $2`,
+          [req.params.id, nombreOriginal]
+        );
+        const nextVer = Number(maxNameRow[0].mv) + 1;
 
         await client.query(
           `UPDATE project_plans SET is_current = false
@@ -248,7 +258,7 @@ router.get('/:id/plans/:planId/file', async (req, res) => {
     }
     const plan = rows[0];
 
-    if (req.user.role !== 'ADMIN' && !plan.is_current) {
+    if (!canAccessPlanVersion(req.user, plan)) {
       return res
         .status(403)
         .json({ success: false, error: { code: 'FORBIDDEN', message: 'Solo la versión actual' } });
@@ -304,7 +314,7 @@ router.get('/:id/plans/:planId/preview', async (req, res) => {
     }
     const plan = rows[0];
 
-    if (req.user.role !== 'ADMIN' && !plan.is_current) {
+    if (!canAccessPlanVersion(req.user, plan)) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Solo la versión actual' } });
     }
 

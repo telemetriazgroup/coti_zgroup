@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, getBlob, postFormDataWithProgress } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import { canWriteProjects, isAdmin as checkIsAdmin } from '../lib/userRoles';
 import { Modal } from '../components/Modal';
 import { ProjectWorkNav } from '../components/ProjectWorkNav';
 import { QuotationStatusFlow } from '../components/QuotationStatusFlow';
@@ -25,13 +26,14 @@ function formatDate(iso) {
 
 export function ProjectPlansPage() {
   const { projectId } = useParams();
-  const { hasRole, user } = useAuth();
-  const canWrite = hasRole('ADMIN', 'COMERCIAL');
-  const isAdmin = hasRole('ADMIN');
+  const { user } = useAuth();
+  const canWrite = canWriteProjects(user);
+  const canSeeHistory = checkIsAdmin(user);
   const viewerMode = user?.role === 'VIEWER';
 
   const [project, setProject] = useState(null);
   const [plans, setPlans] = useState([]);
+  const [storageConfigured, setStorageConfigured] = useState(true);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [uploadPct, setUploadPct] = useState(null);
@@ -51,6 +53,7 @@ export function ProjectPlansPage() {
       ]);
       setProject(proj);
       setPlans(data.plans || []);
+      if (typeof data.storageConfigured === 'boolean') setStorageConfigured(data.storageConfigured);
     } catch (e) {
       setErr(e.message);
     } finally {
@@ -198,7 +201,13 @@ export function ProjectPlansPage() {
         </div>
       )}
 
-      {canWrite && (
+      {canWrite && !storageConfigured && (
+        <div className="banner banner--warn mono" style={{ marginBottom: 12 }}>
+          Almacenamiento de planos no configurado (S3_ENDPOINT). Contacte al administrador para habilitar cargas.
+        </div>
+      )}
+
+      {canWrite && storageConfigured && (
         <div
           className={`plans-dropzone ${dragOver ? 'plans-dropzone--active' : ''}`}
           onDragOver={(e) => {
@@ -261,7 +270,7 @@ export function ProjectPlansPage() {
             <div key={nombre} className="plans-group">
               <div className="plans-group__title mono">
                 {nombre}
-                {isAdmin && versions.length > 1 && (
+                {canSeeHistory && versions.length > 1 && (
                   <span className="muted" style={{ fontWeight: 400, marginLeft: 8 }}>
                     ({versions.length} versiones)
                   </span>
@@ -308,7 +317,7 @@ export function ProjectPlansPage() {
         </div>
       )}
 
-      {!isAdmin && (
+      {!canSeeHistory && (
         <p className="muted mono" style={{ marginTop: 16, fontSize: 12 }}>
           Solo ves la versión actual de cada plano. El historial de versiones está disponible para administradores.
         </p>
