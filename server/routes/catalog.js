@@ -4,6 +4,7 @@ const { body, param, validationResult } = require('express-validator');
 const { validate: uuidValidate } = require('uuid');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { canManageCatalog } = require('../utils/userRoles');
 const { getCached, setCached, invalidateCatalogCache } = require('../lib/catalogRedis');
 const { buildCatalogXlsx, parseImportBuffer, validateImportRows, applyImportRows } = require('../lib/catalogExcel');
 const {
@@ -29,6 +30,7 @@ const {
   isOtrosCategory,
   deactivateCatalogCategory,
 } = require('../lib/catalogCategoryLifecycle');
+const { normalizeBool, regularizeCatalogActiveFlags } = require('../lib/catalogNormalize');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -54,7 +56,7 @@ function mapCategory(row) {
     codigoPrefix: row.codigo_prefix || null,
     nextSeq: row.next_seq != null ? Number(row.next_seq) : 1,
     sortOrder: row.sort_order,
-    active: row.active,
+    active: normalizeBool(row.active, true),
     defaultApplyAdjustment: row.default_apply_adjustment !== false,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -71,7 +73,7 @@ function mapItem(row) {
     unidad: row.unidad,
     tipo: row.tipo,
     unitPrice: row.unit_price != null ? Number(row.unit_price) : 0,
-    active: row.active,
+    active: normalizeBool(row.active, true),
     sortOrder: row.sort_order,
     createdBy: row.created_by,
     createdAt: row.created_at,
@@ -83,7 +85,7 @@ async function fetchCatalogFromDb(includeInactive) {
   const { rows: catRows } = await pool.query(
     includeInactive
       ? `SELECT * FROM catalog_categories ORDER BY sort_order ASC, nombre ASC`
-      : `SELECT * FROM catalog_categories WHERE active = true ORDER BY sort_order ASC, nombre ASC`
+      : `SELECT * FROM catalog_categories WHERE active IS TRUE ORDER BY sort_order ASC, nombre ASC`
   );
 
   let itemSql;
@@ -96,7 +98,7 @@ async function fetchCatalogFromDb(includeInactive) {
     itemSql = `
       SELECT i.*, c.nombre AS category_nombre FROM catalog_items i
       INNER JOIN catalog_categories c ON c.id = i.category_id
-      WHERE i.active = true AND c.active = true
+      WHERE i.active IS TRUE AND c.active IS TRUE
       ORDER BY c.sort_order ASC, i.sort_order ASC, i.codigo ASC`;
   }
   const { rows: itemRows } = await pool.query(itemSql);
@@ -110,7 +112,7 @@ async function fetchCatalogFromDb(includeInactive) {
 // ─── GET /api/catalog/export — Excel (todos los roles autenticados) ─
 router.get('/export', async (req, res) => {
   try {
-    const includeInactive = req.query.includeInactive === 'true' && req.user.role === 'ADMIN';
+    const includeInactive = req.query.includeInactive === 'true' && canManageCatalog(req.user);
     const data = await fetchCatalogFromDb(includeInactive);
     const buf = buildCatalogXlsx(data);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -199,10 +201,15 @@ router.post('/import/apply', requireRole('ADMIN', 'SUPERUSER'), async (req, res)
 
 // ─── GET /api/catalog — lectura (Redis + fallback BD) ───────────
 router.get('/', async (req, res) => {
-  const includeInactive = req.query.includeInactive === 'true' && req.user.role === 'ADMIN';
+  const includeInactive = req.query.includeInactive === 'true' && canManageCatalog(req.user);
+  const fresh = req.query.fresh === 'true' && canManageCatalog(req.user);
 
   try {
-    const cached = await getCached(includeInactive);
+    if (fresh) {
+      await invalidateCatalogCache();
+    }
+
+    const cached = fresh ? null : await getCached(includeInactive);
     if (cached) {
       return res.json({ success: true, data: cached, cached: true });
     }
@@ -213,6 +220,52 @@ router.get('/', async (req, res) => {
   } catch (err) {
     console.error('[CATALOG] GET:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/catalog/refresh-cache — ADMIN / SUPERUSER ────────
+router.post('/refresh-cache', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+  try {
+    await invalidateCatalogCache();
+    const act = await fetchCatalogFromDb(false);
+    const all = await fetchCatalogFromDb(true);
+    await setCached(false, act);
+    await setCached(true, all);
+    return res.json({
+      success: true,
+      data: { message: 'Caché del catálogo actualizada desde la base de datos' },
+    });
+  } catch (err) {
+    console.error('[CATALOG] refresh-cache:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/catalog/regularize-active — normalizar active ───
+router.post('/regularize-active', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    const stats = await regularizeCatalogActiveFlags(client);
+    await client.query('COMMIT');
+    await invalidateCatalogCache();
+    return res.json({
+      success: true,
+      data: {
+        message: `Regularizado: ${stats.categoriesFixed} categoría(s), ${stats.itemsFixed} ítem(s) corregidos, ${stats.itemsReactivated} ítem(s) reactivados en categorías activas.`,
+        ...stats,
+      },
+    });
+  } catch (err) {
+    try {
+      await client.query('ROLLBACK');
+    } catch (_) {
+      /* noop */
+    }
+    console.error('[CATALOG] regularize-active:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  } finally {
+    client.release();
   }
 });
 
@@ -425,6 +478,7 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
     }
 
     const deactivating = active === false && before[0].active !== false;
+    const reactivating = active === true && before[0].active === false;
     if (deactivating) {
       if (isOtrosCategory(before[0])) {
         return res.status(400).json({
@@ -477,7 +531,7 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
       }
       if (active !== undefined && !deactivating) {
         fields.push(`active = $${i++}`);
-        vals.push(active);
+        vals.push(normalizeBool(active, true));
       }
       if (defaultApplyAdjustment !== undefined) {
         fields.push(`default_apply_adjustment = $${i++}`);
@@ -503,6 +557,14 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
           success: false,
           error: { code: 'VALIDATION_ERROR', message: 'Sin cambios' },
         });
+      }
+
+      if (reactivating) {
+        await client.query(
+          `UPDATE catalog_items SET active = true, updated_at = NOW()
+           WHERE category_id = $1 AND active IS NOT TRUE`,
+          [req.params.id]
+        );
       }
 
       await client.query('COMMIT');

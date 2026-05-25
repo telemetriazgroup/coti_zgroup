@@ -187,6 +187,9 @@ router.put('/db/tables/:table/rows', async (req, res) => {
       });
     }
     const row = await updateTableRow(req.params.table, primaryKey || {}, updates || {});
+    if (req.params.table === 'catalog_categories' || req.params.table === 'catalog_items') {
+      await invalidateCatalogCache();
+    }
     return res.json({ success: true, data: { row } });
   } catch (err) {
     if (['TABLE_NOT_ALLOWED', 'READONLY_TABLE', 'NO_PRIMARY_KEY', 'INVALID_PK', 'NO_UPDATES', 'NOT_FOUND'].includes(err.code)) {

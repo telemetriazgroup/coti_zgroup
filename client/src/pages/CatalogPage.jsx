@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useLocation } from 'react-router-dom';
 import { api, getBlob, postFormData } from '../lib/api';
 import { fetchCatalog } from '../lib/catalogApi';
+import { clearLocalCatalog } from '../lib/catalogLocalCache';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
 import { CatalogRequestsPanel } from '../components/CatalogRequestsPanel';
@@ -62,6 +63,7 @@ export function CatalogPage() {
   const [pwdConfirm, setPwdConfirm] = useState(null);
   const [pwdValue, setPwdValue] = useState('');
   const [pwdBusy, setPwdBusy] = useState(false);
+  const [refreshBusy, setRefreshBusy] = useState(false);
 
   const [dragId, setDragId] = useState(null);
 
@@ -82,11 +84,12 @@ export function CatalogPage() {
     }
   }, [location.state]);
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts = {}) => {
     setLoading(true);
     setErr(null);
     try {
-      const { data, fromCache: fc } = await fetchCatalog(isAdmin && showInactive);
+      const useFresh = opts.fresh === true || (opts.fresh !== false && showInactive);
+      const { data, fromCache: fc } = await fetchCatalog(isAdmin && showInactive, { fresh: useFresh });
       setCategories(data.categories || []);
       setItems(data.items || []);
       setFromCache(fc);
@@ -96,6 +99,42 @@ export function CatalogPage() {
       setLoading(false);
     }
   }, [isAdmin, showInactive]);
+
+  async function refreshCatalogFromDb() {
+    setRefreshBusy(true);
+    setErr(null);
+    clearLocalCatalog();
+    try {
+      await api.post('/api/catalog/refresh-cache');
+      await load({ fresh: true });
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setRefreshBusy(false);
+    }
+  }
+
+  async function regularizeCatalogActive() {
+    if (
+      !window.confirm(
+        'Normaliza el campo active en categorías e ítems (true/false). ¿Continuar?'
+      )
+    ) {
+      return;
+    }
+    setRefreshBusy(true);
+    setErr(null);
+    try {
+      const data = await api.post('/api/catalog/regularize-active');
+      clearLocalCatalog();
+      window.alert(data?.message || 'Regularización completada.');
+      await load({ fresh: true });
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setRefreshBusy(false);
+    }
+  }
 
   useEffect(() => {
     load();
@@ -509,6 +548,24 @@ export function CatalogPage() {
                 <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
                 Ver inactivos
               </label>
+              <button
+                type="button"
+                className="btn btn-ghost mono"
+                disabled={refreshBusy || loading}
+                onClick={refreshCatalogFromDb}
+                title="Recarga desde PostgreSQL e invalida caché Redis"
+              >
+                {refreshBusy ? 'Actualizando…' : 'Actualizar BD'}
+              </button>
+              <button
+                type="button"
+                className="btn btn-ghost mono"
+                disabled={refreshBusy || loading}
+                onClick={regularizeCatalogActive}
+                title="Corrige valores active inconsistentes"
+              >
+                Regularizar activos
+              </button>
               <button type="button" className="btn btn-primary" onClick={openNewCategory}>
                 Categoría
               </button>

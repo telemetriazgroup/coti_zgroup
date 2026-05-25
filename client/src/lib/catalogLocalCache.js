@@ -20,3 +20,11 @@ export function setLocalCatalog(data) {
     /* quota / privado */
   }
 }
+
+export function clearLocalCatalog() {
+  try {
+    localStorage.removeItem(KEY);
+  } catch {
+    /* ignore */
+  }
+}

@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { normalizeBool } = require('./catalogNormalize');
 
 /** Tablas consultables por superusuario (sin DELETE en API). */
 const ALLOWED_TABLES = [
@@ -130,13 +131,18 @@ async function updateTableRow(tableName, primaryKeyValues, updates) {
 
   const blocked = BLOCKED_UPDATE_COLUMNS[tableName] || new Set();
   const editable = new Set(schema.columns.filter((c) => c.editable).map((c) => c.name));
+  const colTypes = new Map(schema.columns.map((c) => [c.name, c.dataType]));
   const fields = [];
   const vals = [];
   let i = 1;
   for (const [key, val] of Object.entries(updates || {})) {
     if (!editable.has(key) || blocked.has(key)) continue;
+    let v = val === '' ? null : val;
+    if (colTypes.get(key) === 'boolean') {
+      v = normalizeBool(v, true);
+    }
     fields.push(`"${key}" = $${i++}`);
-    vals.push(val === '' ? null : val);
+    vals.push(v);
   }
   if (fields.length === 0) {
     const err = new Error('Sin campos editables para actualizar');
