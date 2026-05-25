@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
+import { ClientPicker } from '../components/ClientPicker';
 import { QuotationEstadosGuideContent } from '../components/QuotationEstadosGuideContent';
 import { STATUS_LABEL } from '../lib/quotationStatus';
 import {
@@ -542,18 +543,14 @@ export function ProjectsPage() {
             </label>
             <label>
               <span className="fg-lbl">Cliente (opcional)</span>
-              <select
-                className="form-input"
+              <ClientPicker
+                clients={clients}
                 value={formNew.clientId}
-                onChange={(e) => setFormNew((f) => ({ ...f, clientId: e.target.value }))}
-              >
-                <option value="">—</option>
-                {clients.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.razonSocial}
-                  </option>
-                ))}
-              </select>
+                onChange={(clientId) => setFormNew((f) => ({ ...f, clientId }))}
+                onClientsChange={setClients}
+                canCreate={canWrite}
+                optional
+              />
             </label>
           </form>
         </Modal>

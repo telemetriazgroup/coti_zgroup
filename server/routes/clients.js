@@ -10,6 +10,12 @@ const {
   buildClientsXlsx,
   fetchAllClientsForExport,
 } = require('../lib/clientsExcel');
+const {
+  logClientCreate,
+  logClientChanges,
+  clientUpdateChanges,
+  fetchClientHistory,
+} = require('../lib/clientChangeLog');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -27,6 +33,9 @@ const upload = multer({
 
 const router = express.Router();
 router.use(requireAuth);
+
+const WRITE_ROLES = ['ADMIN', 'COMERCIAL', 'SUPERUSER'];
+const HISTORY_ROLES = ['ADMIN', 'COMERCIAL', 'SUPERUSER'];
 
 function mapClient(row) {
   return {
@@ -93,8 +102,8 @@ router.get('/export', async (req, res) => {
   }
 });
 
-// ─── POST /api/clients/import/preview — ADMIN + COMERCIAL ──────
-router.post('/import/preview', requireRole('ADMIN', 'COMERCIAL'), upload.single('file'), async (req, res) => {
+// ─── POST /api/clients/import/preview — ADMIN + COMERCIAL + SUPERUSER ──────
+router.post('/import/preview', requireRole(...WRITE_ROLES), upload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer) {
       return res.status(400).json({
@@ -120,8 +129,8 @@ router.post('/import/preview', requireRole('ADMIN', 'COMERCIAL'), upload.single(
   }
 });
 
-// ─── POST /api/clients/import/apply — ADMIN + COMERCIAL ──────
-router.post('/import/apply', requireRole('ADMIN', 'COMERCIAL'), async (req, res) => {
+// ─── POST /api/clients/import/apply — ADMIN + COMERCIAL + SUPERUSER ──────
+router.post('/import/apply', requireRole(...WRITE_ROLES), async (req, res) => {
   try {
     const incoming = req.body?.rows;
     if (!Array.isArray(incoming) || incoming.length === 0) {
@@ -156,6 +165,21 @@ router.post('/import/apply', requireRole('ADMIN', 'COMERCIAL'), async (req, res)
     return res.json({ success: true, data: { inserted } });
   } catch (err) {
     console.error('[CLIENTS] import apply:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/clients/:id/history ──────────────────────────────
+router.get('/:id/history', requireRole(...HISTORY_ROLES), async (req, res) => {
+  try {
+    const { rows: ex } = await pool.query(`SELECT id FROM clients WHERE id = $1`, [req.params.id]);
+    if (!ex.length) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Cliente no encontrado' } });
+    }
+    const data = await fetchClientHistory(req.params.id);
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[CLIENTS] history:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
@@ -196,8 +220,8 @@ const writeValidation = [
 
 const putExtraValidation = [...writeValidation, body('active').optional().isBoolean()];
 
-// ─── POST /api/clients — ADMIN + COMERCIAL ─────────────────────
-router.post('/', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (req, res) => {
+// ─── POST /api/clients — ADMIN + COMERCIAL + SUPERUSER ─────────────────────
+router.post('/', requireRole(...WRITE_ROLES), writeValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -235,6 +259,9 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (req,
         req.user.id,
       ]
     );
+    const created = rows[0];
+    await logClientCreate(created, req.user.id, 'DIRECT');
+
     const full = await pool.query(
       `SELECT c.*,
         (SELECT COUNT(*)::int FROM projects p
@@ -249,8 +276,8 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL'), writeValidation, async (req,
   }
 });
 
-// ─── PUT /api/clients/:id — ADMIN + COMERCIAL ──────────────────
-router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), putExtraValidation, async (req, res) => {
+// ─── PUT /api/clients/:id — ADMIN + COMERCIAL + SUPERUSER ──────────────────
+router.put('/:id', requireRole(...WRITE_ROLES), putExtraValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -272,10 +299,24 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), putExtraValidation, async 
   } = req.body;
 
   try {
-    const { rows: ex } = await pool.query(`SELECT id FROM clients WHERE id = $1`, [req.params.id]);
+    const { rows: ex } = await pool.query(`SELECT * FROM clients WHERE id = $1`, [req.params.id]);
     if (!ex.length) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Cliente no encontrado' } });
     }
+    const before = ex[0];
+
+    const nextActive = active === undefined ? before.active : Boolean(active);
+    const after = {
+      razon_social: razonSocial.trim(),
+      ruc: ruc || null,
+      contacto_nombre: contactoNombre || null,
+      contacto_email: contactoEmail || null,
+      contacto_telefono: contactoTelefono || null,
+      direccion: direccion || null,
+      ciudad: ciudad || null,
+      notas: notas || null,
+      active: nextActive,
+    };
 
     await pool.query(
       `UPDATE clients SET
@@ -287,21 +328,37 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL'), putExtraValidation, async 
          direccion = $6,
          ciudad = $7,
          notas = $8,
-         active = COALESCE($9, active)
+         active = $9
        WHERE id = $10`,
       [
-        razonSocial.trim(),
-        ruc || null,
-        contactoNombre || null,
-        contactoEmail || null,
-        contactoTelefono || null,
-        direccion || null,
-        ciudad || null,
-        notas || null,
-        active === undefined ? null : Boolean(active),
+        after.razon_social,
+        after.ruc,
+        after.contacto_nombre,
+        after.contacto_email,
+        after.contacto_telefono,
+        after.direccion,
+        after.ciudad,
+        after.notas,
+        after.active,
         req.params.id,
       ]
     );
+
+    const changes = clientUpdateChanges(before, after);
+    if (changes.length) {
+      let changeSource = 'DIRECT';
+      const activeChange = changes.find((c) => c.field === 'active');
+      if (activeChange) {
+        changeSource = activeChange.newValue === 'false' ? 'ARCHIVE' : 'RESTORE';
+      }
+      await logClientChanges({
+        clientId: req.params.id,
+        clientLabel: after.razon_social,
+        actorId: req.user.id,
+        changeSource,
+        changes,
+      });
+    }
 
     const { rows } = await pool.query(
       `SELECT c.*,

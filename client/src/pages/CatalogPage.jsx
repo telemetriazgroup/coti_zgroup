@@ -10,6 +10,7 @@ import { CatalogHistoryModal } from '../components/CatalogHistoryModal';
 import { CatalogPrefixRegularizePanel } from '../components/CatalogPrefixRegularizePanel';
 import { fetchCategoryNextCodigo, regularizeCategoryCodigos } from '../lib/catalogCodigoApi';
 import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
+import { CatalogItemDependenciesEditor } from '../components/CatalogItemDependenciesEditor';
 
 const ISSUE_LABELS = {
   FALTA_CATEGORIA: 'Falta categoría',
@@ -57,6 +58,7 @@ export function CatalogPage() {
     unitPrice: '',
     sortOrder: '',
     active: true,
+    dependencies: [],
   });
   const [itemCodigoHint, setItemCodigoHint] = useState(null);
   const [regularizeBusy, setRegularizeBusy] = useState(false);
@@ -379,12 +381,13 @@ export function CatalogPage() {
       unitPrice: '',
       sortOrder: '',
       active: true,
+      dependencies: [],
     });
     setModalItem('new');
     setItemCodigoHint(null);
   }
 
-  function openEditItem(row) {
+  async function openEditItem(row) {
     setItemForm({
       categoryId: row.categoryId,
       codigo: row.codigo,
@@ -395,9 +398,22 @@ export function CatalogPage() {
       sortOrder: String(row.sortOrder ?? 0),
       active: row.active,
       _id: row.id,
+      dependencies: [],
     });
     setModalItem('edit');
     setItemCodigoHint(null);
+    try {
+      const data = await api.get(`/api/catalog/items/${row.id}/dependencies`);
+      setItemForm((f) => ({
+        ...f,
+        dependencies: (data.dependencies || []).map((d) => ({
+          childItemId: d.childItemId,
+          qty: String(d.qty ?? 1),
+        })),
+      }));
+    } catch {
+      /* sin deps */
+    }
   }
 
   async function saveItem(e) {
@@ -408,6 +424,12 @@ export function CatalogPage() {
       setErr('Precio inválido');
       return;
     }
+    const deps = (itemForm.dependencies || [])
+      .filter((d) => d.childItemId)
+      .map((d) => ({
+        childItemId: d.childItemId,
+        qty: parseFloat(String(d.qty).replace(',', '.')) || 1,
+      }));
     const body = {
       categoryId: itemForm.categoryId,
       codigo: itemForm.codigo.trim(),
@@ -417,6 +439,7 @@ export function CatalogPage() {
       unitPrice,
       sortOrder: itemForm.sortOrder === '' ? undefined : parseInt(itemForm.sortOrder, 10),
       active: itemForm.active,
+      dependencies: deps,
     };
     try {
       if (modalItem === 'new') {
@@ -1106,6 +1129,12 @@ export function CatalogPage() {
               />
               <span>Activo</span>
             </label>
+            <CatalogItemDependenciesEditor
+              excludeItemId={modalItem === 'edit' ? itemForm._id : null}
+              catalogItems={items}
+              value={itemForm.dependencies}
+              onChange={(dependencies) => setItemForm((f) => ({ ...f, dependencies }))}
+            />
           </form>
         </Modal>
       )}

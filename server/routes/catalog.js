@@ -31,6 +31,11 @@ const {
   deactivateCatalogCategory,
 } = require('../lib/catalogCategoryLifecycle');
 const { normalizeBool, regularizeCatalogActiveFlags } = require('../lib/catalogNormalize');
+const {
+  fetchDirectDependencies,
+  setItemDependencies,
+  resolveDependencyBundle,
+} = require('../lib/catalogItemDependencies');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -724,6 +729,17 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
       ]
     );
     await logItemCreate(rows[0], req.user.id, 'DIRECT', null);
+    if (Array.isArray(req.body.dependencies)) {
+      try {
+        await setItemDependencies(rows[0].id, req.body.dependencies);
+      } catch (depErr) {
+        await pool.query(`UPDATE catalog_items SET active = false WHERE id = $1`, [rows[0].id]);
+        return res.status(400).json({
+          success: false,
+          error: { code: depErr.code || 'INVALID_DEPS', message: depErr.message },
+        });
+      }
+    }
     if (cat.codigo_prefix) {
       await afterItemCodigoSaved(categoryId, cat.codigo_prefix, rows[0].codigo);
     }
@@ -812,53 +828,71 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
       vals.push(active);
     }
 
-    if (fields.length === 0) {
+    if (fields.length === 0 && req.body.dependencies === undefined) {
       return res.status(400).json({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'Sin cambios' },
       });
     }
 
-    const targetCatId = categoryId !== undefined ? categoryId : cur[0].category_id;
-    const targetCodigo = codigo !== undefined ? codigo.trim() : cur[0].codigo;
-    const { rows: catRows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [targetCatId]);
-    const cat = catRows[0];
-    if (cat?.codigo_prefix && (codigo !== undefined || categoryId !== undefined)) {
-      const v = await validateCategoryCodigo({
-        codigo: targetCodigo,
-        prefix: cat.codigo_prefix,
-        categoryId: targetCatId,
-        excludeItemId: req.params.id,
-        previousCodigo: cur[0].codigo,
-        isNew: false,
-      });
-      if (!v.ok) {
-        return res.status(400).json({ success: false, error: { code: v.code, message: v.message } });
+    let updatedRow = cur[0];
+    if (fields.length > 0) {
+      const targetCatId = categoryId !== undefined ? categoryId : cur[0].category_id;
+      const targetCodigo = codigo !== undefined ? codigo.trim() : cur[0].codigo;
+      const { rows: catRows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [targetCatId]);
+      const cat = catRows[0];
+      if (cat?.codigo_prefix && (codigo !== undefined || categoryId !== undefined)) {
+        const v = await validateCategoryCodigo({
+          codigo: targetCodigo,
+          prefix: cat.codigo_prefix,
+          categoryId: targetCatId,
+          excludeItemId: req.params.id,
+          previousCodigo: cur[0].codigo,
+          isNew: false,
+        });
+        if (!v.ok) {
+          return res.status(400).json({ success: false, error: { code: v.code, message: v.message } });
+        }
+      }
+
+      vals.push(req.params.id);
+      const { rows } = await pool.query(
+        `UPDATE catalog_items SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
+        vals
+      );
+      updatedRow = rows[0];
+      const changes = itemUpdateChanges(cur[0], rows[0]);
+      if (changes.length) {
+        await logCatalogChanges({
+          entityType: 'ITEM',
+          entityId: rows[0].id,
+          entityLabel: rows[0].codigo,
+          actorId: req.user.id,
+          changeSource: 'DIRECT',
+          changes,
+        });
+      }
+      const { rows: catAfter } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [
+        rows[0].category_id,
+      ]);
+      if (catAfter[0]?.codigo_prefix) {
+        await afterItemCodigoSaved(rows[0].category_id, catAfter[0].codigo_prefix, rows[0].codigo);
       }
     }
 
-    vals.push(req.params.id);
-    const { rows } = await pool.query(
-      `UPDATE catalog_items SET ${fields.join(', ')} WHERE id = $${i} RETURNING *`,
-      vals
-    );
-    const changes = itemUpdateChanges(cur[0], rows[0]);
-    if (changes.length) {
-      await logCatalogChanges({
-        entityType: 'ITEM',
-        entityId: rows[0].id,
-        entityLabel: rows[0].codigo,
-        actorId: req.user.id,
-        changeSource: 'DIRECT',
-        changes,
-      });
+    if (req.body.dependencies !== undefined) {
+      try {
+        await setItemDependencies(req.params.id, req.body.dependencies);
+      } catch (depErr) {
+        return res.status(400).json({
+          success: false,
+          error: { code: depErr.code || 'INVALID_DEPS', message: depErr.message },
+        });
+      }
     }
-    const { rows: catAfter } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [rows[0].category_id]);
-    if (catAfter[0]?.codigo_prefix) {
-      await afterItemCodigoSaved(rows[0].category_id, catAfter[0].codigo_prefix, rows[0].codigo);
-    }
+
     await invalidateCatalogCache();
-    return res.json({ success: true, data: mapItem(rows[0]) });
+    return res.json({ success: true, data: mapItem(updatedRow) });
   } catch (err) {
     if (err.code === '23505') {
       return res.status(409).json({
@@ -870,6 +904,73 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
+
+// ─── GET /api/catalog/items/:id/dependencies ───────────────────
+router.get('/items/:id/dependencies', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+  try {
+    const { rows: item } = await pool.query(`SELECT id FROM catalog_items WHERE id = $1`, [req.params.id]);
+    if (!item[0]) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
+    }
+    const deps = await fetchDirectDependencies(req.params.id);
+    return res.json({ success: true, data: { dependencies: deps } });
+  } catch (err) {
+    console.error('[CATALOG] item dependencies get:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/catalog/items/:id/dependency-bundle — presupuesto
+router.get('/items/:id/dependency-bundle', requireAuth, [param('id').isUUID()], async (req, res) => {
+  try {
+    const qty = req.query.qty != null ? Number(req.query.qty) : 1;
+    const bundle = await resolveDependencyBundle(req.params.id, qty);
+    if (!bundle) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
+    }
+    return res.json({ success: true, data: bundle });
+  } catch (err) {
+    console.error('[CATALOG] dependency bundle:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── PUT /api/catalog/items/:id/dependencies ───────────────────
+router.put(
+  '/items/:id/dependencies',
+  requireRole('ADMIN', 'SUPERUSER'),
+  [
+    param('id').isUUID(),
+    body('dependencies').isArray(),
+    body('dependencies.*.childItemId').isUUID(),
+    body('dependencies.*.qty').isFloat({ min: 0.001 }),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
+      });
+    }
+    try {
+      const { rows: item } = await pool.query(`SELECT id FROM catalog_items WHERE id = $1`, [req.params.id]);
+      if (!item[0]) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
+      }
+      const count = await setItemDependencies(req.params.id, req.body.dependencies);
+      await invalidateCatalogCache();
+      const deps = await fetchDirectDependencies(req.params.id);
+      return res.json({ success: true, data: { count, dependencies: deps } });
+    } catch (err) {
+      if (err.code) {
+        return res.status(400).json({ success: false, error: { code: err.code, message: err.message } });
+      }
+      console.error('[CATALOG] item dependencies put:', err);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
+  }
+);
 
 // ─── DELETE /api/catalog/items/:id — desactivar — ADMIN ────────
 router.delete('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {

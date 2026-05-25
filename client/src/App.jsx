@@ -96,13 +96,13 @@ export function App() {
             <Route path="superusuario/datos" element={<DbBrowserPage />} />
             <Route path="superusuario/asignaciones" element={<AdminAssignmentsPage />} />
           </Route>
-          <Route element={<RequireAdmin />}>
-            <Route path="clients" element={<ClientsPage />} />
-            <Route path="employees" element={<EmployeesPage />} />
-            <Route path="measures" element={<MeasuresPage />} />
-          </Route>
           <Route element={<RequireUserManager />}>
             <Route path="users" element={<UsersPage />} />
+            <Route path="clients" element={<ClientsPage />} />
+          </Route>
+          <Route element={<RequireAdmin />}>
+            <Route path="employees" element={<EmployeesPage />} />
+            <Route path="measures" element={<MeasuresPage />} />
           </Route>
         </Route>
       </Route>

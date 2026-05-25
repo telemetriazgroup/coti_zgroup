@@ -137,6 +137,21 @@ CREATE INDEX idx_clients_razon_social ON clients(razon_social);
 CREATE INDEX idx_clients_ruc ON clients(ruc);
 CREATE INDEX idx_clients_created_by ON clients(created_by);
 
+CREATE TABLE client_change_log (
+  id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  client_id      UUID NOT NULL REFERENCES clients(id) ON DELETE CASCADE,
+  client_label   VARCHAR(200),
+  field_name     VARCHAR(50) NOT NULL,
+  old_value      TEXT,
+  new_value      TEXT,
+  change_source  VARCHAR(30) NOT NULL DEFAULT 'DIRECT',
+  actor_id       UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_client_change_client ON client_change_log(client_id);
+CREATE INDEX idx_client_change_created ON client_change_log(created_at DESC);
+
 -- ─── PROJECTS ──────────────────────────────────────────────────
 
 CREATE TABLE projects (
@@ -210,6 +225,20 @@ CREATE INDEX idx_catalog_items_category ON catalog_items(category_id);
 CREATE INDEX idx_catalog_items_tipo ON catalog_items(tipo);
 CREATE INDEX idx_catalog_items_active ON catalog_items(active);
 CREATE UNIQUE INDEX idx_catalog_items_category_codigo ON catalog_items(category_id, codigo);
+
+CREATE TABLE catalog_item_dependencies (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  parent_item_id  UUID NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+  child_item_id   UUID NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+  qty             NUMERIC(10,3) NOT NULL DEFAULT 1 CHECK (qty > 0),
+  sort_order      INTEGER NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  CONSTRAINT catalog_item_deps_no_self CHECK (parent_item_id <> child_item_id),
+  CONSTRAINT catalog_item_deps_unique UNIQUE (parent_item_id, child_item_id)
+);
+
+CREATE INDEX idx_catalog_item_deps_parent ON catalog_item_dependencies(parent_item_id);
+CREATE INDEX idx_catalog_item_deps_child ON catalog_item_dependencies(child_item_id);
 
 -- ─── MEASURE UNITS (sufijos: UND, GLN, …) ─────────────────────
 

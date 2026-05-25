@@ -34,9 +34,13 @@ export function CatalogPrefixRegularizePanel({ onApplied }) {
       const data = await api.post('/api/catalog/prefix-regularization/apply', {
         confirm: true,
         fixInvalidCodigos: fixInvalid,
+        syncBudgetCodigos: true,
       });
       setMsg(
-        `Regularización aplicada: ${data.categoriesUpdated} categoría(s), ${data.itemsRenamed} código(s) corregido(s).`
+        `Regularización aplicada: ${data.categoriesUpdated} categoría(s), ${data.itemsRenamed} código(s) corregido(s)` +
+          (data.budgetLinesUpdated != null
+            ? `, ${data.budgetLinesUpdated} línea(s) de presupuesto actualizada(s).`
+            : '.')
       );
       setConfirmOpen(false);
       setAuthChecked(false);
@@ -58,7 +62,9 @@ export function CatalogPrefixRegularizePanel({ onApplied }) {
       </div>
       <p className="muted mono" style={{ fontSize: 12, marginBottom: 14, lineHeight: 1.45 }}>
         Analiza todas las categorías con prefijo configurado. Ajusta el correlativo siguiente según los códigos
-        existentes y, si lo autoriza, renombra ítems que no cumplan el formato PREFIJO-####.
+        existentes y, si lo autoriza, renombra ítems que no cumplan el formato PREFIJO-####. Al aplicar, también
+        actualiza el código en las líneas de presupuesto vinculadas (<code>catalog_item_id</code>) para mantener la
+        referencia. Las descripciones duplicadas activas se reportan pero no se fusionan automáticamente.
       </p>
 
       {err && (
@@ -101,6 +107,23 @@ export function CatalogPrefixRegularizePanel({ onApplied }) {
         <p className="mono muted" style={{ fontSize: 12, marginBottom: 12 }}>
           Categorías: {preview.summary.total} · Con prefijo: {preview.summary.withPrefix} · Requieren ajuste:{' '}
           {preview.summary.needingUpdate} · Ítems con formato inválido: {preview.summary.invalidItems}
+          {preview.summary.budgetLinesToUpdate > 0 && (
+            <>
+              {' '}
+              · Líneas presupuesto a sincronizar: {preview.summary.budgetLinesToUpdate}
+              {preview.summary.staleCodigoLines > 0 && (
+                <> ({preview.summary.staleCodigoLines} con código desactualizado)</>
+              )}
+            </>
+          )}
+          {preview.summary.duplicateDescriptionGroups > 0 && (
+            <>
+              {' '}
+              · <span style={{ color: 'var(--amber)' }}>
+                Grupos descripción duplicada: {preview.summary.duplicateDescriptionGroups}
+              </span>
+            </>
+          )}
         </p>
       )}
 
@@ -155,6 +178,7 @@ export function CatalogPrefixRegularizePanel({ onApplied }) {
                   <th>Categoría</th>
                   <th>Actual</th>
                   <th>→ Propuesto</th>
+                  <th className="num">Presupuestos</th>
                 </tr>
               </thead>
               <tbody>
@@ -166,9 +190,48 @@ export function CatalogPrefixRegularizePanel({ onApplied }) {
                       <td className="mono" style={{ color: 'var(--cyan)' }}>
                         {f.suggestedCodigo}
                       </td>
+                      <td className="num mono">
+                        {f.budgetImpact?.lineCount
+                          ? `${f.budgetImpact.lineCount} línea(s) / ${f.budgetImpact.projectCount} proy.`
+                          : '—'}
+                      </td>
                     </tr>
                   ))
                 )}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {preview?.duplicateDescriptionGroups?.length > 0 && (
+        <div style={{ marginTop: 16 }}>
+          <h3 className="mono" style={{ fontSize: 13, marginBottom: 8, color: 'var(--amber)' }}>
+            Descripciones duplicadas (activas) — revisión manual
+          </h3>
+          <p className="muted mono" style={{ fontSize: 11, marginBottom: 10, lineHeight: 1.45 }}>
+            Varios ítems activos comparten la misma descripción en una categoría. Regularizar prefijos no los fusiona;
+            archive o unifique manualmente en el catálogo para evitar duplicados en nuevas cotizaciones.
+          </p>
+          <div className="table-wrap">
+            <table className="data-table data-table--compact">
+              <thead>
+                <tr>
+                  <th>Categoría</th>
+                  <th>Descripción</th>
+                  <th>Códigos duplicados</th>
+                </tr>
+              </thead>
+              <tbody>
+                {preview.duplicateDescriptionGroups.map((g, idx) => (
+                  <tr key={`${g.categoryId}-${idx}`}>
+                    <td>{g.categoryNombre}</td>
+                    <td>{g.descripcion}</td>
+                    <td className="mono" style={{ fontSize: 11 }}>
+                      {g.items.map((it) => it.codigo).join(' · ')}
+                    </td>
+                  </tr>
+                ))}
               </tbody>
             </table>
           </div>
@@ -210,7 +273,15 @@ export function CatalogPrefixRegularizePanel({ onApplied }) {
             {fixInvalid && preview?.summary?.invalidItems > 0 && (
               <>
                 {' '}
-                Se renombrarán <strong>{preview.summary.invalidItems}</strong> ítem(s) al formato PREFIJO-####.
+                Se renombrarán <strong>{preview.summary.invalidItems}</strong> ítem(s) al formato PREFIJO-####
+                {preview.summary.budgetLinesToUpdate > 0 && (
+                  <>
+                    {' '}
+                    y se actualizarán <strong>{preview.summary.budgetLinesToUpdate}</strong> línea(s) de presupuesto
+                    vinculadas
+                  </>
+                )}
+                .
               </>
             )}
           </p>

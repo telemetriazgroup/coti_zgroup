@@ -11,6 +11,7 @@ const ALLOWED_TABLES = [
   'project_shares',
   'catalog_categories',
   'catalog_items',
+  'catalog_item_dependencies',
   'measure_units',
   'catalog_item_requests',
   'catalog_change_log',

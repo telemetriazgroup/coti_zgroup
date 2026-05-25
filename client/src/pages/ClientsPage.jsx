@@ -1,7 +1,9 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api, getBlob, postFormData } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import { canWriteProjects } from '../lib/userRoles';
 import { Modal } from '../components/Modal';
+import { ClientHistoryModal } from '../components/ClientHistoryModal';
 
 const ISSUE_LABELS = {
   FALTA_RAZON_SOCIAL: 'Falta razón social',
@@ -26,8 +28,8 @@ const emptyForm = {
 };
 
 export function ClientsPage() {
-  const { hasRole } = useAuth();
-  const canWrite = hasRole('ADMIN', 'COMERCIAL');
+  const { user } = useAuth();
+  const canWrite = canWriteProjects(user);
 
   const [list, setList] = useState([]);
   const [q, setQ] = useState('');
@@ -35,6 +37,7 @@ export function ClientsPage() {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [err, setErr] = useState(null);
+  const [historyTarget, setHistoryTarget] = useState(null);
 
   const fileInputRef = useRef(null);
   const [importModal, setImportModal] = useState(false);
@@ -90,7 +93,7 @@ export function ClientsPage() {
   }
 
   async function toggleClientActive(row, nextActive) {
-    const label = nextActive ? 'reactivar' : 'desactivar';
+    const label = nextActive ? 'restaurar' : 'archivar';
     if (!window.confirm(`¿${label} el cliente "${row.razonSocial}"?`)) return;
     setErr(null);
     try {
@@ -240,7 +243,7 @@ export function ClientsPage() {
               checked={includeInactive}
               onChange={(e) => setIncludeInactive(e.target.checked)}
             />
-            Mostrar inactivos
+            Mostrar archivados
           </label>
         )}
       </div>
@@ -261,19 +264,19 @@ export function ClientsPage() {
                 <th>Ciudad</th>
                 <th className="num">Proyectos</th>
                 <th>Estado</th>
-                {canWrite && <th className="actions-col">Acciones</th>}
+                <th className="actions-col">Acciones</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={canWrite ? 6 : 5} className="muted mono">
+                  <td colSpan={6} className="muted mono">
                     Cargando…
                   </td>
                 </tr>
               ) : list.length === 0 ? (
                 <tr>
-                  <td colSpan={canWrite ? 6 : 5} className="muted">
+                  <td colSpan={6} className="muted">
                     Sin resultados
                   </td>
                 </tr>
@@ -286,7 +289,7 @@ export function ClientsPage() {
                     <td className="num mono">{row.projectCount ?? 0}</td>
                     <td>
                       {row.active === false ? (
-                        <span className="tag tag--off">Inactivo</span>
+                        <span className="tag tag--off">Archivado</span>
                       ) : (
                         <span className="tag tag--ok">Activo</span>
                       )}
@@ -303,6 +306,24 @@ export function ClientsPage() {
                             </span>
                             Editar
                           </button>
+                          <button
+                            type="button"
+                            className="btn-action"
+                            onClick={() =>
+                              setHistoryTarget({
+                                clientId: row.id,
+                                title: `Historial — ${row.razonSocial}`,
+                              })
+                            }
+                          >
+                            <span className="btn-action__ic" aria-hidden>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <circle cx="12" cy="12" r="10" />
+                                <polyline points="12 6 12 12 16 14" />
+                              </svg>
+                            </span>
+                            Historial
+                          </button>
                           {row.active !== false ? (
                             <button
                               type="button"
@@ -311,11 +332,12 @@ export function ClientsPage() {
                             >
                               <span className="btn-action__ic" aria-hidden>
                                 <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <circle cx="12" cy="12" r="10" />
-                                  <path d="M4.93 4.93l14.14 14.14" />
+                                  <path d="M21 8v13H3V8" />
+                                  <path d="M1 3h22v5H1z" />
+                                  <path d="M10 12h4" />
                                 </svg>
                               </span>
-                              Desactivar
+                              Archivar
                             </button>
                           ) : (
                             <button
@@ -329,10 +351,26 @@ export function ClientsPage() {
                                   <polyline points="22 4 12 14.01 9 11.01" />
                                 </svg>
                               </span>
-                              Reactivar
+                              Restaurar
                             </button>
                           )}
                         </div>
+                      </td>
+                    )}
+                    {!canWrite && (
+                      <td className="actions-cell">
+                        <button
+                          type="button"
+                          className="btn-link mono"
+                          onClick={() =>
+                            setHistoryTarget({
+                              clientId: row.id,
+                              title: `Historial — ${row.razonSocial}`,
+                            })
+                          }
+                        >
+                          Historial
+                        </button>
                       </td>
                     )}
                   </tr>
@@ -520,6 +558,13 @@ export function ClientsPage() {
           </form>
         </Modal>
       )}
+
+      <ClientHistoryModal
+        open={!!historyTarget}
+        clientId={historyTarget?.clientId}
+        title={historyTarget?.title}
+        onClose={() => setHistoryTarget(null)}
+      />
     </section>
   );
 }

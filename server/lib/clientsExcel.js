@@ -1,5 +1,6 @@
 const XLSX = require('xlsx');
 const { pool } = require('../config/db');
+const { logClientCreate } = require('./clientChangeLog');
 
 const EXPORT_HEADERS = [
   'Razón social',
@@ -205,10 +206,11 @@ async function applyImportRows(validatedRows, userId) {
     await client.query('BEGIN');
     for (const row of validatedRows) {
       if (row.issues && row.issues.length) continue;
-      await client.query(
+      const { rows: ins } = await client.query(
         `INSERT INTO clients
           (razon_social, ruc, contacto_nombre, contacto_email, contacto_telefono, direccion, ciudad, notas, created_by, active)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)`,
+         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, true)
+         RETURNING *`,
         [
           row.razonSocial,
           row.rucForDb || null,
@@ -221,6 +223,7 @@ async function applyImportRows(validatedRows, userId) {
           userId,
         ]
       );
+      await logClientCreate(ins[0], userId, 'IMPORT', client);
       inserted += 1;
     }
     await client.query('COMMIT');

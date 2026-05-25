@@ -797,6 +797,111 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
   }
 });
 
+// ─── POST /api/projects/:id/items/batch — agregar varias líneas de catálogo
+router.post(
+  '/:id/items/batch',
+  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  [
+    body('lines').isArray({ min: 1 }),
+    body('lines.*.catalogItemId').isUUID(),
+    body('lines.*.qty').isFloat({ min: 0.001 }),
+    body('lines.*.unitPrice').optional().isFloat({ min: 0 }),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
+      });
+    }
+    const ip = getClientIp(req);
+    let client;
+    try {
+      const project = await loadProject(req, res, req.params.id);
+      if (!project) return;
+      if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      }
+      if (project.deleted_at) {
+        return res
+          .status(400)
+          .json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
+      }
+
+      client = await pool.connect();
+      const { rows: cntRows } = await client.query(
+        `SELECT COUNT(*)::int AS n FROM project_items WHERE project_id = $1`,
+        [req.params.id]
+      );
+      const wasEmpty = cntRows[0].n === 0;
+
+      await client.query('BEGIN');
+      let added = 0;
+      for (const line of req.body.lines) {
+        const u =
+          line.unitPrice != null && Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : null;
+        const r = await addCatalogItemToProject(client, {
+          projectId: req.params.id,
+          userId: req.user.id,
+          catalogItemId: line.catalogItemId,
+          qty: Number(line.qty),
+          unitPriceOverride: u,
+          ip,
+        });
+        if (r.errorCode) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            success: false,
+            error: { code: r.errorCode, message: 'Un ítem de catálogo ya no es válido' },
+          });
+        }
+        added += 1;
+      }
+
+      if (wasEmpty) {
+        await client.query(
+          `UPDATE projects SET status = 'EN_SEGUIMIENTO', updated_at = NOW() WHERE id = $1 AND status = 'BORRADOR'`,
+          [req.params.id]
+        );
+      } else {
+        await touchProjectUpdated(req.params.id, client);
+      }
+      await client.query('COMMIT');
+
+      const { rows: all } = await pool.query(
+        `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
+        [req.params.id]
+      );
+      const { rows: st } = await pool.query(`SELECT status FROM projects WHERE id = $1`, [req.params.id]);
+
+      logAuditEvent({
+        projectId: req.params.id,
+        eventType: 'BUDGET_ITEM_ADD',
+        actorId: req.user.id,
+        newData: { batchCount: added, source: 'dependencies' },
+        ip,
+      });
+
+      return res.status(201).json({
+        success: true,
+        data: {
+          added,
+          items: all.map(mapItem),
+          totals: totalsFromRows(all),
+          projectStatus: st[0]?.status,
+        },
+      });
+    } catch (err) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
+      console.error('[PROJECT_ITEMS] batch:', err);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    } finally {
+      if (client) client.release();
+    }
+  }
+);
+
 const putItemValidation = [
   body('qty').optional().isFloat({ min: 0.001 }),
   body('unitPrice').optional().isFloat({ min: 0 }),

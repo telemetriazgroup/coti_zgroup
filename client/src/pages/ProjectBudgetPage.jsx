@@ -12,6 +12,8 @@ import { STATUS_LABEL } from '../lib/quotationStatus';
 import { QuotationStatusFlow } from '../components/QuotationStatusFlow';
 import { ProjectShareModal } from '../components/ProjectShareModal';
 import { SearchableSelect } from '../components/SearchableSelect';
+import { ClientPicker } from '../components/ClientPicker';
+import { CatalogDependencyAddModal } from '../components/CatalogDependencyAddModal';
 import { fetchCategoryNextCodigo } from '../lib/catalogCodigoApi';
 import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
 
@@ -66,6 +68,8 @@ export function ProjectBudgetPage() {
   const [qDebounced, setQDebounced] = useState('');
   const [filterTipo, setFilterTipo] = useState('');
   const [addQty, setAddQty] = useState('1');
+  const [depAddModal, setDepAddModal] = useState(null);
+  const [depAddBusy, setDepAddBusy] = useState(false);
   const [addPriceOverride, setAddPriceOverride] = useState('');
 
   const [modal, setModal] = useState(null);
@@ -134,13 +138,7 @@ export function ProjectBudgetPage() {
   const [newProjectForm, setNewProjectForm] = useState({
     nombre: '',
     odooRef: '',
-    clientMode: 'existing',
     clientId: '',
-    newRazon: '',
-    newRuc: '',
-    newContactoNombre: '',
-    newContactoEmail: '',
-    newContactoTelefono: '',
   });
   const [dupNombre, setDupNombre] = useState('');
   const [dupClientId, setDupClientId] = useState('');
@@ -405,24 +403,54 @@ export function ProjectBudgetPage() {
     }
   }
 
+  async function commitBudgetLines(lines) {
+    const data = await api.post(`/api/projects/${projectId}/items/batch`, { lines });
+    setItems(data.items);
+    setTotals(data.totals);
+    if (data.projectStatus != null) setProjectStatus(data.projectStatus);
+    syncDraftFromItems(data.items);
+  }
+
   async function addFromCatalog(catalogItem) {
     if (!canWrite) return;
     setErr(null);
     const qty = parseFloat(String(addQty).replace(',', '.')) || 1;
-    const body = { catalogItemId: catalogItem.id, qty };
     const o = addPriceOverride.trim();
+    let unitPrice;
     if (o !== '') {
       const p = parseFloat(o.replace(',', '.'));
-      if (!Number.isNaN(p) && p >= 0) body.unitPrice = p;
+      if (!Number.isNaN(p) && p >= 0) unitPrice = p;
     }
     try {
-      const data = await api.post(`/api/projects/${projectId}/items`, body);
-      setItems(data.items);
-      setTotals(data.totals);
-      if (data.projectStatus != null) setProjectStatus(data.projectStatus);
-      syncDraftFromItems(data.items);
+      const bundle = await api.get(`/api/catalog/items/${catalogItem.id}/dependency-bundle?qty=${qty}`);
+      if (!bundle?.dependencyCount) {
+        const line = { catalogItemId: catalogItem.id, qty };
+        if (unitPrice != null) line.unitPrice = unitPrice;
+        await commitBudgetLines([line]);
+        return;
+      }
+      setDepAddModal({ bundle, mainUnitPrice: unitPrice });
     } catch (e) {
       setErr(e.message);
+    }
+  }
+
+  async function confirmDependencyAdd(selectedLines) {
+    if (!canWrite || !depAddModal) return;
+    setDepAddBusy(true);
+    setErr(null);
+    try {
+      const lines = selectedLines.map((l) => {
+        const row = { catalogItemId: l.catalogItemId, qty: l.qty };
+        if (l.isMain && depAddModal.mainUnitPrice != null) row.unitPrice = depAddModal.mainUnitPrice;
+        return row;
+      });
+      await commitBudgetLines(lines);
+      setDepAddModal(null);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setDepAddBusy(false);
     }
   }
 
@@ -762,39 +790,16 @@ export function ProjectBudgetPage() {
     setNewProjectBusy(true);
     setErr(null);
     try {
-      let clientId = newProjectForm.clientId || undefined;
-      if (newProjectForm.clientMode === 'new') {
-        if (!newProjectForm.newRazon.trim()) {
-          setErr('Razón social del cliente requerida');
-          setNewProjectBusy(false);
-          return;
-        }
-        const created = await api.post('/api/clients', {
-          razonSocial: newProjectForm.newRazon.trim(),
-          ruc: newProjectForm.newRuc.trim() || undefined,
-          contactoNombre: newProjectForm.newContactoNombre.trim() || undefined,
-          contactoEmail: newProjectForm.newContactoEmail.trim() || undefined,
-          contactoTelefono: newProjectForm.newContactoTelefono.trim() || undefined,
-        });
-        clientId = created.id;
-        setClientsList((prev) => [...prev, created]);
-      }
       const createdProj = await api.post('/api/projects', {
         nombre: newProjectForm.nombre.trim(),
         odooRef: newProjectForm.odooRef.trim() || undefined,
-        clientId,
+        clientId: newProjectForm.clientId || undefined,
       });
       setModal(null);
       setNewProjectForm({
         nombre: '',
         odooRef: '',
-        clientMode: 'existing',
         clientId: '',
-        newRazon: '',
-        newRuc: '',
-        newContactoNombre: '',
-        newContactoEmail: '',
-        newContactoTelefono: '',
       });
       navigate(`/projects/${createdProj.id}/presupuesto`);
     } catch (e2) {
@@ -906,13 +911,7 @@ export function ProjectBudgetPage() {
                 setNewProjectForm({
                   nombre: '',
                   odooRef: '',
-                  clientMode: 'existing',
                   clientId: project?.clientId || '',
-                  newRazon: '',
-                  newRuc: '',
-                  newContactoNombre: '',
-                  newContactoEmail: '',
-                  newContactoTelefono: '',
                 });
                 setModal('newProject');
               }}
@@ -1648,91 +1647,17 @@ export function ProjectBudgetPage() {
                 onChange={(e) => setNewProjectForm((f) => ({ ...f, odooRef: e.target.value }))}
               />
             </label>
-            <div className="budget-modal-seg mono muted" style={{ fontSize: 11, margin: '8px 0 4px' }}>
-              Cliente
-            </div>
-            <div className="chk-row" style={{ marginBottom: 10 }}>
-              <label className="chk mono" style={{ fontSize: 12 }}>
-                <input
-                  type="radio"
-                  name="np-client-mode"
-                  checked={newProjectForm.clientMode === 'existing'}
-                  onChange={() => setNewProjectForm((f) => ({ ...f, clientMode: 'existing' }))}
-                />
-                Cliente existente
-              </label>
-              <label className="chk mono" style={{ fontSize: 12 }}>
-                <input
-                  type="radio"
-                  name="np-client-mode"
-                  checked={newProjectForm.clientMode === 'new'}
-                  onChange={() => setNewProjectForm((f) => ({ ...f, clientMode: 'new' }))}
-                />
-                Nuevo cliente
-              </label>
-            </div>
-            {newProjectForm.clientMode === 'existing' ? (
-              <label>
-                <span className="fg-lbl">Cliente</span>
-                <select
-                  className="form-input"
-                  value={newProjectForm.clientId}
-                  onChange={(e) => setNewProjectForm((f) => ({ ...f, clientId: e.target.value }))}
-                >
-                  <option value="">— Sin cliente —</option>
-                  {clientsList.map((c) => (
-                    <option key={c.id} value={c.id}>
-                      {c.razonSocial}
-                    </option>
-                  ))}
-                </select>
-              </label>
-            ) : (
-              <>
-                <label>
-                  <span className="fg-lbl">Razón social *</span>
-                  <input
-                    className="form-input"
-                    required={newProjectForm.clientMode === 'new'}
-                    value={newProjectForm.newRazon}
-                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newRazon: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  <span className="fg-lbl">RUC (opcional)</span>
-                  <input
-                    className="form-input mono"
-                    value={newProjectForm.newRuc}
-                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newRuc: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  <span className="fg-lbl">Contacto nombre</span>
-                  <input
-                    className="form-input"
-                    value={newProjectForm.newContactoNombre}
-                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newContactoNombre: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  <span className="fg-lbl">Contacto email</span>
-                  <input
-                    type="email"
-                    className="form-input mono"
-                    value={newProjectForm.newContactoEmail}
-                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newContactoEmail: e.target.value }))}
-                  />
-                </label>
-                <label>
-                  <span className="fg-lbl">Contacto teléfono</span>
-                  <input
-                    className="form-input mono"
-                    value={newProjectForm.newContactoTelefono}
-                    onChange={(e) => setNewProjectForm((f) => ({ ...f, newContactoTelefono: e.target.value }))}
-                  />
-                </label>
-              </>
-            )}
+            <label>
+              <span className="fg-lbl">Cliente (opcional)</span>
+              <ClientPicker
+                clients={clientsList}
+                value={newProjectForm.clientId}
+                onChange={(clientId) => setNewProjectForm((f) => ({ ...f, clientId }))}
+                onClientsChange={setClientsList}
+                canCreate={canWrite}
+                optional
+              />
+            </label>
           </form>
         </Modal>
       )}
@@ -1769,18 +1694,14 @@ export function ProjectBudgetPage() {
             </label>
             <label>
               <span className="fg-lbl">Cliente del nuevo proyecto</span>
-              <select
-                className="form-input"
+              <ClientPicker
+                clients={clientsList}
                 value={dupClientId}
-                onChange={(e) => setDupClientId(e.target.value)}
-              >
-                <option value="">— Sin cliente —</option>
-                {clientsList.map((c) => (
-                  <option key={c.id} value={c.id}>
-                    {c.razonSocial}
-                  </option>
-                ))}
-              </select>
+                onChange={setDupClientId}
+                onClientsChange={setClientsList}
+                canCreate={canWrite}
+                optional
+              />
             </label>
             <div className="chk-row" style={{ marginBottom: 8 }}>
               <label className="chk mono" style={{ fontSize: 12 }}>
@@ -2086,6 +2007,14 @@ export function ProjectBudgetPage() {
           </div>
         </Modal>
       )}
+
+      <CatalogDependencyAddModal
+        open={!!depAddModal}
+        bundle={depAddModal?.bundle}
+        busy={depAddBusy}
+        onClose={() => !depAddBusy && setDepAddModal(null)}
+        onConfirm={confirmDependencyAdd}
+      />
 
       {modal === 'clear' && canEditBudgetLines && (
         <Modal

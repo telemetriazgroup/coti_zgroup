@@ -3540,6 +3540,25 @@ select.form-input {
   padding: 10px 12px;
   font-size: 12px;
 }
+.searchable-select__footer {
+  border-top: 1px solid var(--border-dim);
+  margin-top: 4px;
+  padding-top: 4px;
+}
+.searchable-select__create {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--amber);
+  font-size: 12px;
+  cursor: pointer;
+}
+.searchable-select__create:hover {
+  background: rgba(255, 215, 0, 0.08);
+}
 
 /* ─── Filtros módulo proyectos ─── */
 .projects-filters__grid {
@@ -3599,4 +3618,48 @@ select.form-input {
 .budget-panel--table .data-table tbody tr.budget-row--activo.budget-row-deleting,
 .budget-panel--table .data-table tbody tr.budget-row--consumible.budget-row-deleting {
   opacity: 0.35;
+}
+
+/* ─── Dependencias de ítem (catálogo / BOM) ─── */
+.catalog-deps-editor {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border-dim);
+}
+.catalog-deps-editor__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.catalog-deps-editor__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.catalog-deps-editor__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 8px;
+}
+.catalog-deps-editor__pick {
+  flex: 1 1 220px;
+  min-width: 180px;
+}
+.catalog-deps-editor__qty {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 72px;
+}
+.catalog-deps-editor__qty .form-input {
+  max-width: 88px;
+}
+.catalog-dep-row--main td {
+  background: rgba(0, 229, 255, 0.06);
 }
