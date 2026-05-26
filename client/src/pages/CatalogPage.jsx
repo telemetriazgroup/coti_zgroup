@@ -773,13 +773,14 @@ export function CatalogPage() {
                 <th>Unidad</th>
                 <th>Tipo</th>
                 <th className="num">P. unit.</th>
+                <th>Dependencias</th>
                 {isAdmin && <th />}
               </tr>
             </thead>
             <tbody>
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 7 : 6} className="muted">
+                  <td colSpan={isAdmin ? 8 : 7} className="muted">
                     Sin ítems
                   </td>
                 </tr>
@@ -804,6 +805,19 @@ export function CatalogPage() {
                       </td>
                       <td className="num mono">
                         {Number(row.unitPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                      </td>
+                      <td className="mono" style={{ fontSize: 11 }}>
+                        {(row.dependencyCount ?? 0) > 0 ? (
+                          <span
+                            className="tag"
+                            style={{ borderColor: 'var(--violet)', color: 'var(--violet)' }}
+                            title={`${row.dependencyCount} componente(s) configurado(s)`}
+                          >
+                            Sí · {row.dependencyCount}
+                          </span>
+                        ) : (
+                          <span className="muted">—</span>
+                        )}
                       </td>
                       {isAdmin && (
                         <td>

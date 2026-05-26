@@ -31,6 +31,7 @@ const {
   deactivateCatalogCategory,
 } = require('../lib/catalogCategoryLifecycle');
 const { normalizeBool, regularizeCatalogActiveFlags } = require('../lib/catalogNormalize');
+const { assertUniqueDescription } = require('../lib/catalogItemUniqueness');
 const {
   fetchDirectDependencies,
   setItemDependencies,
@@ -80,6 +81,8 @@ function mapItem(row) {
     unitPrice: row.unit_price != null ? Number(row.unit_price) : 0,
     active: normalizeBool(row.active, true),
     sortOrder: row.sort_order,
+    dependencyCount: row.dependency_count != null ? Number(row.dependency_count) : 0,
+    hasDependencies: row.dependency_count != null ? Number(row.dependency_count) > 0 : false,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -96,12 +99,16 @@ async function fetchCatalogFromDb(includeInactive) {
   let itemSql;
   if (includeInactive) {
     itemSql = `
-      SELECT i.*, c.nombre AS category_nombre FROM catalog_items i
+      SELECT i.*, c.nombre AS category_nombre,
+        (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
+      FROM catalog_items i
       JOIN catalog_categories c ON c.id = i.category_id
       ORDER BY c.sort_order ASC, i.sort_order ASC, i.codigo ASC`;
   } else {
     itemSql = `
-      SELECT i.*, c.nombre AS category_nombre FROM catalog_items i
+      SELECT i.*, c.nombre AS category_nombre,
+        (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
+      FROM catalog_items i
       INNER JOIN catalog_categories c ON c.id = i.category_id
       WHERE i.active IS TRUE AND c.active IS TRUE
       ORDER BY c.sort_order ASC, i.sort_order ASC, i.codigo ASC`;
@@ -711,6 +718,11 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
       so = rows[0].n;
     }
 
+    const descCheck = await assertUniqueDescription(descripcion);
+    if (!descCheck.ok) {
+      return res.status(409).json({ success: false, error: { code: descCheck.code, message: descCheck.message } });
+    }
+
     const { rows } = await pool.query(
       `INSERT INTO catalog_items
         (category_id, codigo, descripcion, unidad, tipo, unit_price, sort_order, active, created_by)
@@ -839,6 +851,13 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
     if (fields.length > 0) {
       const targetCatId = categoryId !== undefined ? categoryId : cur[0].category_id;
       const targetCodigo = codigo !== undefined ? codigo.trim() : cur[0].codigo;
+      const targetDesc = descripcion !== undefined ? descripcion.trim() : cur[0].descripcion;
+      if (descripcion !== undefined) {
+        const descCheck = await assertUniqueDescription(targetDesc, req.params.id);
+        if (!descCheck.ok) {
+          return res.status(409).json({ success: false, error: { code: descCheck.code, message: descCheck.message } });
+        }
+      }
       const { rows: catRows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [targetCatId]);
       const cat = catRows[0];
       if (cat?.codigo_prefix && (codigo !== undefined || categoryId !== undefined)) {

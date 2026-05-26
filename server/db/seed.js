@@ -179,6 +179,16 @@ async function seed() {
     }
 
     // ── 3. CATÁLOGO ──────────────────────────────────────────────
+    const { rows: catCountRows } = await client.query(
+      `SELECT COUNT(*)::int AS n FROM catalog_items WHERE active IS NOT FALSE`
+    );
+    const existingCatalogCount = catCountRows[0].n;
+
+    if (existingCatalogCount > 0) {
+      console.log(
+        `ℹ️  Catálogo: ${existingCatalogCount} ítems ya en BD — omitiendo carga inicial del seed (v6 + HTML v12)`
+      );
+    } else {
     let totalItems = 0;
     let sortOrder  = 0;
 
@@ -204,8 +214,13 @@ async function seed() {
       // Insertar ítems de la categoría
       let itemOrder = 0;
       for (const item of items) {
+        const descKey = String(item.desc || '').trim().toLowerCase();
         const { rows: existingItem } = await client.query(
-          'SELECT id FROM catalog_items WHERE codigo = $1', [item.codigo]
+          `SELECT id FROM catalog_items
+           WHERE codigo = $1
+              OR (active IS NOT FALSE AND LOWER(TRIM(descripcion)) = $2)
+           LIMIT 1`,
+          [item.codigo, descKey]
         );
 
         if (existingItem.length === 0) {
@@ -231,6 +246,7 @@ async function seed() {
         `✅ Catálogo HTML (v12): ${v12Stats.inserted} ítems nuevos, ` +
           `${v12Stats.skipped} ya existían, ${v12Stats.categoriesCreated} categorías creadas`
       );
+    }
     }
 
     await client.query('COMMIT');

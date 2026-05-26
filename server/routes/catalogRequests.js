@@ -6,6 +6,7 @@ const { isManagedCommercial } = require('../lib/adminTeam');
 const { invalidateCatalogCache } = require('../lib/catalogRedis');
 const { logItemCreate, itemUpdateChanges, logCatalogChanges } = require('../lib/catalogChangeLog');
 const { validateCategoryCodigo, afterItemCodigoSaved } = require('../lib/catalogCodigo');
+const { assertUniqueDescription } = require('../lib/catalogItemUniqueness');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -204,6 +205,13 @@ router.post('/', requireRole('COMERCIAL'), createBody, async (req, res) => {
           error: { code: 'DUPLICATE_CODIGO', message: 'Ya existe un ítem con ese código en la categoría' },
         });
       }
+      const descCheck = await assertUniqueDescription(descripcion);
+      if (!descCheck.ok) {
+        return res.status(409).json({
+          success: false,
+          error: { code: descCheck.code, message: descCheck.message },
+        });
+      }
       const { rows: pending } = await pool.query(
         `SELECT id FROM catalog_item_requests
          WHERE status = 'PENDING' AND kind = 'CREATE' AND category_id = $1 AND LOWER(codigo) = LOWER($2)`,
@@ -267,6 +275,16 @@ router.post('/', requireRole('COMERCIAL'), createBody, async (req, res) => {
         success: false,
         error: { code: 'NO_CHANGES', message: 'Indique un nombre o precio distinto al actual' },
       });
+    }
+
+    if (descChanged) {
+      const descCheck = await assertUniqueDescription(nextDesc, catalogItemId);
+      if (!descCheck.ok) {
+        return res.status(409).json({
+          success: false,
+          error: { code: descCheck.code, message: descCheck.message },
+        });
+      }
     }
 
     const { rows: pendingUpd } = await pool.query(
@@ -418,6 +436,14 @@ router.put(
               error: { code: 'DUPLICATE_CODIGO', message: 'Ya existe un ítem con ese código' },
             });
           }
+          const descCheck = await assertUniqueDescription(descripcion, null, client);
+          if (!descCheck.ok) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({
+              success: false,
+              error: { code: descCheck.code, message: descCheck.message },
+            });
+          }
           const { rows: ins } = await client.query(
             `INSERT INTO catalog_items (category_id, codigo, descripcion, unidad, tipo, unit_price, created_by)
              VALUES ($1, $2, $3, $4, $5, $6, $7) RETURNING *`,
@@ -429,6 +455,14 @@ router.put(
             await afterItemCodigoSaved(categoryId, catRows[0].codigo_prefix, codigo, client);
           }
         } else {
+          const descCheck = await assertUniqueDescription(descripcion, row.catalog_item_id, client);
+          if (!descCheck.ok) {
+            await client.query('ROLLBACK');
+            return res.status(409).json({
+              success: false,
+              error: { code: descCheck.code, message: descCheck.message },
+            });
+          }
           const { rows: itemBefore } = await client.query(`SELECT * FROM catalog_items WHERE id = $1`, [
             row.catalog_item_id,
           ]);

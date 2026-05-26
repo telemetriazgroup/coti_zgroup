@@ -1,7 +1,9 @@
 /**
  * Import idempotente del catálogo ZGROUP (filas tipo HTML v12: code, name, cat, tipo, unit, price, detalle).
- * Unicidad BD: (category_id, codigo).
+ * Unicidad BD: (category_id, codigo) y descripción activa global.
  */
+
+const { normalizeDescriptionKey } = require('./catalogItemUniqueness');
 
 const CATEGORY_SORT = {
   'Trab. Estructura': 0,
@@ -69,6 +71,19 @@ async function importZgroupHtmlCatalogRows(client, rows, options = {}) {
       continue;
     }
 
+    const descripcion = buildDescripcion(it);
+    const descKey = normalizeDescriptionKey(descripcion);
+    if (descKey) {
+      const { rows: exDesc } = await client.query(
+        `SELECT id FROM catalog_items WHERE active IS NOT FALSE AND LOWER(TRIM(descripcion)) = $1 LIMIT 1`,
+        [descKey]
+      );
+      if (exDesc.length) {
+        skipped++;
+        continue;
+      }
+    }
+
     const { rows: so } = await client.query(
       `SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM catalog_items WHERE category_id = $1`,
       [categoryId]
@@ -81,7 +96,7 @@ async function importZgroupHtmlCatalogRows(client, rows, options = {}) {
       [
         categoryId,
         codigo,
-        buildDescripcion(it),
+        descripcion,
         normalizeUnidad(it.unit),
         normalizeTipo(it.tipo),
         it.price,

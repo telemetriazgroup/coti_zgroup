@@ -169,7 +169,6 @@ async function resolveDependencyBundle(rootItemId, rootQty = 1, client = null) {
       qty: qtyMain,
       isMain: true,
       included: true,
-      required: true,
     },
   ];
 
@@ -185,8 +184,7 @@ async function resolveDependencyBundle(rootItemId, rootQty = 1, client = null) {
       unitPrice: Number(it.unit_price),
       qty: Math.round(qty * 1000) / 1000,
       isMain: false,
-      included: true,
-      required: false,
+      included: false,
     });
   }
 

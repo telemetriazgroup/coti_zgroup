@@ -1113,6 +1113,15 @@ export function ProjectBudgetPage() {
                       <span className="budget-badge budget-badge--cat mono" title={catNombre}>
                         {catNombre}
                       </span>
+                      {(it.dependencyCount ?? 0) > 0 && (
+                        <span
+                          className="budget-badge mono"
+                          style={{ borderColor: 'var(--violet)', color: 'var(--violet)' }}
+                          title={`${it.dependencyCount} dependencia(s)`}
+                        >
+                          BOM {it.dependencyCount}
+                        </span>
+                      )}
                     </div>
                     <span className="budget-cat-code mono">{it.codigo}</span>
                     <span className="budget-cat-desc">{it.descripcion}</span>
