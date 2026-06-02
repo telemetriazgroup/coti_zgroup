@@ -15,6 +15,11 @@ const {
   buildProjectItemsExportSheet,
   buildProjectItemsExportCsv,
 } = require('../lib/budgetItemsExcel');
+const { isKitItem } = require('../lib/catalogKit');
+const {
+  suggestNextInstanceLabel,
+  createProjectBundle,
+} = require('../lib/projectItemBundles');
 
 const uploadBudgetImport = multer({
   storage: multer.memoryStorage(),
@@ -40,10 +45,12 @@ router.use(requireAuth);
 
 /** Lista ítems con nombre de categoría (LEFT JOIN). */
 const ITEMS_SELECT = `
-  SELECT pi.*, cc.nombre AS category_nombre, u.email AS created_by_email
+  SELECT pi.*, cc.nombre AS category_nombre, u.email AS created_by_email,
+    b.display_name AS bundle_display_name, b.instance_label AS bundle_instance_label
   FROM project_items pi
   LEFT JOIN catalog_categories cc ON cc.id = pi.category_id
   LEFT JOIN users u ON u.id = pi.created_by
+  LEFT JOIN project_item_bundles b ON b.id = pi.bundle_id
 `;
 
 function mapItem(row) {
@@ -67,6 +74,11 @@ function mapItem(row) {
     createdByEmail: row.created_by_email ?? null,
     sortOrder: row.sort_order,
     applyAdjustment: row.apply_adjustment !== false,
+    bundleId: row.bundle_id ?? null,
+    isBundleHeader: row.is_bundle_header === true,
+    isBundleComponent: row.is_bundle_component === true,
+    bundleDisplayName: row.bundle_display_name ?? null,
+    bundleInstanceLabel: row.bundle_instance_label ?? null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -80,6 +92,7 @@ function totalsFromRows(rows) {
   let activosExempt = 0;
   let consumiblesExempt = 0;
   for (const r of rows) {
+    if (r.is_bundle_component === true) continue;
     const st = r.subtotal != null ? Number(r.subtotal) : 0;
     const applies = r.apply_adjustment !== false;
     if (r.tipo === 'ACTIVO') {
@@ -177,6 +190,7 @@ async function addCatalogItemToProject(client, { projectId, userId, catalogItemI
   const { rows: exist } = await client.query(
     `SELECT id, qty FROM project_items
      WHERE project_id = $1 AND catalog_item_id = $2 AND unit_price = $3
+       AND bundle_id IS NULL
      LIMIT 1`,
     [projectId, catalogItemId, unitPrice]
   );
@@ -902,6 +916,136 @@ router.post(
   }
 );
 
+// ─── GET /api/projects/:id/bundles/next-label — sugerir etiqueta instancia KIT
+router.get(
+  '/:id/bundles/next-label',
+  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  async (req, res) => {
+    try {
+      const catalogItemId = req.query.catalogItemId;
+      if (!catalogItemId) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'VALIDATION_ERROR', message: 'catalogItemId requerido' },
+        });
+      }
+      const project = await loadProject(req, res, req.params.id);
+      if (!project) return;
+      if (!(await isKitItem(catalogItemId))) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'NOT_KIT_ITEM', message: 'El ítem no es un producto final (KIT)' },
+        });
+      }
+      const label = await suggestNextInstanceLabel(req.params.id, catalogItemId);
+      return res.json({ success: true, data: { label } });
+    } catch (err) {
+      console.error('[PROJECT_ITEMS] bundle next-label:', err);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
+  }
+);
+
+// ─── POST /api/projects/:id/bundles — instancia de conjunto KIT
+router.post(
+  '/:id/bundles',
+  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  [
+    body('catalogItemId').isUUID(),
+    body('instanceLabel').optional().isString(),
+    body('displayName').optional().isString(),
+    body('qty').optional().isFloat({ min: 0.001 }),
+    body('lines').isArray({ min: 1 }),
+    body('lines.*.catalogItemId').isUUID(),
+    body('lines.*.qty').isFloat({ min: 0.001 }),
+    body('lines.*.unitPrice').optional().isFloat({ min: 0 }),
+    body('lines.*.included').optional().isBoolean(),
+  ],
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
+      });
+    }
+    const ip = getClientIp(req);
+    let client;
+    try {
+      const project = await loadProject(req, res, req.params.id);
+      if (!project) return;
+      if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      }
+      if (project.deleted_at) {
+        return res
+          .status(400)
+          .json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
+      }
+
+      client = await pool.connect();
+      const { rows: cntRows } = await client.query(
+        `SELECT COUNT(*)::int AS n FROM project_items WHERE project_id = $1 AND is_bundle_component IS NOT TRUE`,
+        [req.params.id]
+      );
+      const wasEmpty = cntRows[0].n === 0;
+
+      await client.query('BEGIN');
+      const result = await createProjectBundle(client, {
+        projectId: req.params.id,
+        userId: req.user.id,
+        catalogItemId: req.body.catalogItemId,
+        instanceLabel: req.body.instanceLabel,
+        displayName: req.body.displayName,
+        qty: req.body.qty,
+        lines: req.body.lines,
+        ip,
+      });
+      if (result.errorCode) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          success: false,
+          error: { code: result.errorCode, message: result.message || 'Error al crear conjunto' },
+        });
+      }
+
+      if (wasEmpty) {
+        await client.query(
+          `UPDATE projects SET status = 'EN_SEGUIMIENTO', updated_at = NOW() WHERE id = $1 AND status = 'BORRADOR'`,
+          [req.params.id]
+        );
+      } else {
+        await touchProjectUpdated(req.params.id, client);
+      }
+      await client.query('COMMIT');
+
+      const { rows: all } = await pool.query(
+        `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
+        [req.params.id]
+      );
+      const { rows: st } = await pool.query(`SELECT status FROM projects WHERE id = $1`, [req.params.id]);
+
+      return res.status(201).json({
+        success: true,
+        data: {
+          bundleId: result.bundleId,
+          displayName: result.displayName,
+          unitPrice: result.unitPrice,
+          items: all.map(mapItem),
+          totals: totalsFromRows(all),
+          projectStatus: st[0]?.status,
+        },
+      });
+    } catch (err) {
+      if (client) await client.query('ROLLBACK').catch(() => {});
+      console.error('[PROJECT_ITEMS] bundle create:', err);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    } finally {
+      if (client) client.release();
+    }
+  }
+);
+
 const putItemValidation = [
   body('qty').optional().isFloat({ min: 0.001 }),
   body('unitPrice').optional().isFloat({ min: 0 }),
@@ -950,6 +1094,16 @@ router.put(
         return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
       }
 
+      if (cur[0].is_bundle_component) {
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'BUNDLE_COMPONENT_READONLY',
+            message: 'Los componentes de un conjunto KIT no se editan individualmente',
+          },
+        });
+      }
+
       const prevSnap = mapItem(cur[0]);
       const nextQty = qty != null ? Number(qty) : Number(cur[0].qty);
       const nextPrice = unitPrice != null ? Number(unitPrice) : Number(cur[0].unit_price);
@@ -961,6 +1115,14 @@ router.put(
          WHERE id = $4 AND project_id = $5`,
         [nextQty, nextPrice, nextApply, req.params.itemId, req.params.id]
       );
+
+      if (cur[0].is_bundle_header && cur[0].bundle_id) {
+        await pool.query(
+          `UPDATE project_item_bundles SET qty = $1, unit_price = $2, updated_at = NOW()
+           WHERE id = $3 AND project_id = $4`,
+          [nextQty, nextPrice, cur[0].bundle_id, req.params.id]
+        );
+      }
 
       const { rows: upRows } = await pool.query(`${ITEMS_SELECT} WHERE pi.id = $1`, [req.params.itemId]);
 
@@ -1017,15 +1179,25 @@ router.delete('/:id/items/:itemId', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
     }
 
-    await pool.query(`DELETE FROM project_items WHERE id = $1`, [req.params.itemId]);
+    const prevSnap = mapItem(cur[0]);
+
+    if (cur[0].bundle_id) {
+      await pool.query(`DELETE FROM project_item_bundles WHERE id = $1 AND project_id = $2`, [
+        cur[0].bundle_id,
+        req.params.id,
+      ]);
+    } else {
+      await pool.query(`DELETE FROM project_items WHERE id = $1`, [req.params.itemId]);
+    }
+
     await touchProjectUpdated(req.params.id);
 
     logAuditEvent({
       projectId: req.params.id,
       eventType: 'BUDGET_ITEM_DELETE',
       actorId: req.user.id,
-      prevData: mapItem(cur[0]),
-      newData: null,
+      prevData: prevSnap,
+      newData: cur[0].bundle_id ? { bundleId: cur[0].bundle_id, bundleDeleted: true } : null,
       ip,
     });
 
@@ -1061,6 +1233,7 @@ router.delete('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), asyn
       return res.status(400).json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
     }
 
+    await pool.query(`DELETE FROM project_item_bundles WHERE project_id = $1`, [req.params.id]);
     const { rowCount } = await pool.query(`DELETE FROM project_items WHERE project_id = $1`, [req.params.id]);
     await touchProjectUpdated(req.params.id);
 

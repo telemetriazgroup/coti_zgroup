@@ -77,6 +77,7 @@ async function loadExportPayload(projectId) {
   let activosExempt = 0;
   let consumiblesExempt = 0;
   for (const r of items) {
+    if (r.is_bundle_component === true) continue;
     const st = r.subtotal != null ? Number(r.subtotal) : 0;
     const applies = r.apply_adjustment !== false;
     if (r.tipo === 'ACTIVO') {
@@ -522,8 +523,11 @@ function buildGerenciaResumenKpis(fin, totals, items) {
 }
 
 function buildGerenciaPartidasBloque(items, m1) {
-  const actItems = (items || []).filter((i) => i.tipo !== 'CONSUMIBLE');
-  const consItems = (items || []).filter((i) => i.tipo === 'CONSUMIBLE');
+  const billable = (items || []).filter((i) => i.is_bundle_component !== true);
+  const actItems = billable.filter((i) => i.tipo !== 'CONSUMIBLE');
+  const consItems = billable.filter((i) => i.tipo === 'CONSUMIBLE');
+  const bundleHeaders = billable.filter((i) => i.is_bundle_header === true);
+  const hasBundles = bundleHeaders.length > 0;
   const base = Number(m1.baseAdj ?? m1.base) || 0;
   const exempt = Number(m1.baseExempt) || 0;
   const adjMag = Math.abs(Number(m1.ventaAdj) || 0);
@@ -586,10 +590,80 @@ function buildGerenciaPartidasBloque(items, m1) {
       : '';
   const refNote =
     '<p style="font-size:7.5pt;color:#718096;margin:0 0 5pt 0;max-width:100%"><strong>Referencias de precio:</strong> <em>P. lista (ref.)</em> = precio de catálogo al incorporar la partida; <em>P. asumido</em> = precio unitario usado en el presupuesto y en subtotales (el motor y la lista comercial se calculan con el asumido). Si se corrigió el precio oficial, el ref. queda tachado y el asumido refleja la trazabilidad.</p>';
+
+  let bundleBlock = '';
+  if (hasBundles) {
+    const byBundle = new Map();
+    for (const it of items || []) {
+      if (!it.bundle_id) continue;
+      if (!byBundle.has(it.bundle_id)) byBundle.set(it.bundle_id, []);
+      byBundle.get(it.bundle_id).push(it);
+    }
+    const bundleSections = [];
+    for (const [, lines] of byBundle) {
+      const sorted = [...lines].sort((a, b) => {
+        if (a.is_bundle_header && !b.is_bundle_header) return -1;
+        if (!a.is_bundle_header && b.is_bundle_header) return 1;
+        return 0;
+      });
+      const header = sorted.find((x) => x.is_bundle_header) || sorted[0];
+      const sub = sorted.reduce((s, it) => {
+        if (it.is_bundle_header) return s + (Number(it.subtotal) || 0);
+        return s;
+      }, 0);
+      bundleSections.push(
+        `<div style="font-weight:700;font-size:9pt;color:#805ad5;margin:8pt 0 3pt">CONJUNTO — ${esc(header.descripcion || header.bundle_display_name || 'KIT')}</div>
+        <table style="width:100%;border-collapse:collapse;border:1pt solid #e2e8f0;margin-bottom:6pt">${rowsHdr}${sorted.map(oneRow).join('')}${subtot('Subtotal conjunto', sub)}</table>`
+      );
+    }
+    bundleBlock = `<div style="font-weight:700;font-size:10pt;color:#553c9a;margin:0 0 4pt">PARTIDAS POR CONJUNTOS (KIT)</div>${bundleSections.join('')}`;
+  }
+
+  const aggMap = new Map();
+  for (const it of items || []) {
+    if (it.is_bundle_header) continue;
+    const key = String(it.codigo || it.descripcion || it.id).trim();
+    if (!key) continue;
+    const prev = aggMap.get(key) || {
+      codigo: it.codigo,
+      descripcion: it.descripcion,
+      unidad: it.unidad,
+      tipo: it.tipo,
+      qty: 0,
+      subtotal: 0,
+    };
+    prev.qty += Number(it.qty) || 0;
+    prev.subtotal += Number(it.qty) * Number(it.unit_price);
+    aggMap.set(key, prev);
+  }
+  const aggRows = [...aggMap.values()].sort((a, b) => String(a.codigo).localeCompare(String(b.codigo)));
+  const aggAct = aggRows.filter((r) => r.tipo !== 'CONSUMIBLE');
+  const aggCons = aggRows.filter((r) => r.tipo === 'CONSUMIBLE');
+  const aggOneRow = (it) =>
+    `<tr>
+    <td style="padding:3pt 6pt;font-family:monospace;font-size:8pt;border-bottom:0.4pt solid #e2e8f0;color:#2b6cb0">${esc(it.codigo || '—')}</td>
+    <td style="padding:3pt 6pt;font-size:8.5pt;border-bottom:0.4pt solid #e2e8f0">${esc(it.descripcion)}</td>
+    <td style="padding:3pt 6pt;text-align:center;font-size:8pt;border-bottom:0.4pt solid #e2e8f0">${esc(it.unidad || 'und')}</td>
+    <td colspan="2" style="padding:3pt 6pt;text-align:center;font-size:8pt;border-bottom:0.4pt solid #e2e8f0;color:#718096">—</td>
+    <td style="padding:3pt 6pt;text-align:center;font-family:monospace;font-size:8.5pt;border-bottom:0.4pt solid #e2e8f0">${esc(String(Math.round(it.qty * 1000) / 1000))}</td>
+    <td style="padding:3pt 6pt;text-align:center;font-size:8pt;border-bottom:0.4pt solid #e2e8f0">—</td>
+    <td style="padding:3pt 6pt;text-align:right;font-family:monospace;font-size:8.5pt;border-bottom:0.4pt solid #e2e8f0">${fmtUsd(Math.round(it.subtotal * 100) / 100)}</td>
+  </tr>`;
+  const aggBlock =
+    aggRows.length > 0
+      ? `<div style="font-weight:700;font-size:10pt;color:#2b6cb0;margin:10pt 0 4pt">RESUMEN CONSOLIDADO (todos los ítems)</div>
+  ${aggAct.length ? `<div style="font-weight:700;font-size:9pt;color:#2b6cb0;margin:6pt 0 3pt">ACTIVOS consolidados</div>
+  <table style="width:100%;border-collapse:collapse;border:1pt solid #e2e8f0">${rowsHdr}${aggAct.map(aggOneRow).join('')}</table>` : ''}
+  ${aggCons.length ? `<div style="font-weight:700;font-size:9pt;color:#c27803;margin:8pt 0 3pt">CONSUMIBLES consolidados</div>
+  <table style="width:100%;border-collapse:collapse;border:1pt solid #e2e8f0">${rowsHdr}${aggCons.map(aggOneRow).join('')}</table>` : ''}`
+      : '';
+
   return `${pdfV12NumSec('', 'PARTIDAS DEL PRESUPUESTO (detalle)')}
   ${refNote}
+  ${bundleBlock}
   ${aBlock}
   ${cBlock}
+  ${aggBlock}
   <table style="width:100%;border-collapse:collapse;margin-top:6pt;border:1pt solid #e2e8f0">
     ${pdfClienteRow('TOTAL LISTA (con ajuste ✓)', fmtUsd(base))}
     ${exempt > 0 ? pdfClienteRow('Líneas sin ajuste M1', fmtUsd(exempt)) : ''}

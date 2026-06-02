@@ -200,6 +200,7 @@ CREATE TABLE catalog_categories (
   sort_order  INTEGER NOT NULL DEFAULT 0,
   active      BOOLEAN NOT NULL DEFAULT true,
   default_apply_adjustment BOOLEAN NOT NULL DEFAULT true,
+  is_kit_category BOOLEAN NOT NULL DEFAULT false,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -327,6 +328,9 @@ CREATE TABLE project_items (
   category_id     UUID REFERENCES catalog_categories(id) ON DELETE SET NULL,
   sort_order      INTEGER NOT NULL DEFAULT 0,
   apply_adjustment BOOLEAN NOT NULL DEFAULT true,
+  bundle_id       UUID,
+  is_bundle_header BOOLEAN NOT NULL DEFAULT false,
+  is_bundle_component BOOLEAN NOT NULL DEFAULT false,
   created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -336,6 +340,29 @@ CREATE INDEX idx_project_items_project_id ON project_items(project_id);
 CREATE INDEX idx_project_items_created_by ON project_items(created_by);
 CREATE INDEX idx_project_items_tipo ON project_items(tipo);
 CREATE INDEX idx_project_items_category_id ON project_items(category_id);
+CREATE INDEX idx_project_items_bundle ON project_items(bundle_id);
+
+-- ─── PROJECT ITEM BUNDLES (KIT / productos finales) ────────────
+
+CREATE TABLE project_item_bundles (
+  id              UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id      UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  catalog_item_id UUID REFERENCES catalog_items(id) ON DELETE SET NULL,
+  instance_label  VARCHAR(50) NOT NULL DEFAULT '1',
+  display_name    VARCHAR(300) NOT NULL,
+  unit_price      NUMERIC(12,2) NOT NULL DEFAULT 0,
+  qty             NUMERIC(10,3) NOT NULL DEFAULT 1,
+  sort_order      INTEGER NOT NULL DEFAULT 0,
+  created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_project_item_bundles_project ON project_item_bundles(project_id);
+
+ALTER TABLE project_items
+  ADD CONSTRAINT project_items_bundle_id_fkey
+  FOREIGN KEY (bundle_id) REFERENCES project_item_bundles(id) ON DELETE CASCADE;
 
 -- ─── PROJECT PLANS (Technical drawings) ────────────────────────
 

@@ -3620,6 +3620,20 @@ select.form-input {
   opacity: 0.35;
 }
 
+.budget-panel--table .data-table tbody tr.budget-row--kit-header td {
+  border-top: 1px solid rgba(206, 147, 216, 0.45);
+  background: rgba(206, 147, 216, 0.06);
+}
+.budget-panel--table .data-table tbody tr.budget-row--kit-component td {
+  background: rgba(206, 147, 216, 0.03);
+}
+.budget-panel--table .data-table tbody tr.budget-row--kit-component .budget-td-desc {
+  padding-left: 18px;
+}
+.kit-line--off {
+  opacity: 0.45;
+}
+
 /* ─── Dependencias de ítem (catálogo / BOM) ─── */
 .catalog-deps-editor {
   margin-top: 12px;

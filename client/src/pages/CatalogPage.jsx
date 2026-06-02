@@ -48,7 +48,14 @@ export function CatalogPage() {
 
   const [modalCat, setModalCat] = useState(null);
   const [modalItem, setModalItem] = useState(null);
-  const [catForm, setCatForm] = useState({ nombre: '', sortOrder: '', codigoPrefix: '', active: true });
+  const [catForm, setCatForm] = useState({
+    nombre: '',
+    sortOrder: '',
+    codigoPrefix: '',
+    active: true,
+    defaultApplyAdjustment: true,
+    isKitCategory: false,
+  });
   const [itemForm, setItemForm] = useState({
     categoryId: '',
     codigo: '',
@@ -215,7 +222,14 @@ export function CatalogPage() {
   }, [items, filterCat, q, filterTipo]);
 
   function openNewCategory() {
-    setCatForm({ nombre: '', sortOrder: '', codigoPrefix: '', active: true, defaultApplyAdjustment: true });
+    setCatForm({
+      nombre: '',
+      sortOrder: '',
+      codigoPrefix: '',
+      active: true,
+      defaultApplyAdjustment: true,
+      isKitCategory: false,
+    });
     setModalCat('new');
   }
 
@@ -226,6 +240,7 @@ export function CatalogPage() {
       codigoPrefix: c.codigoPrefix || '',
       active: c.active,
       defaultApplyAdjustment: c.defaultApplyAdjustment !== false,
+      isKitCategory: c.isKitCategory === true,
       _id: c.id,
     });
     setModalCat('edit');
@@ -262,6 +277,7 @@ export function CatalogPage() {
       codigoPrefix: catForm.codigoPrefix.trim() || null,
       active: catForm.active,
       defaultApplyAdjustment: catForm.defaultApplyAdjustment !== false,
+      isKitCategory: catForm.isKitCategory === true,
     };
     const orig = categories.find((c) => c.id === catForm._id);
     const willDeactivate =
@@ -419,17 +435,32 @@ export function CatalogPage() {
   async function saveItem(e) {
     e.preventDefault();
     setErr(null);
-    const unitPrice = parseFloat(String(itemForm.unitPrice).replace(',', '.'));
-    if (!Number.isFinite(unitPrice) || unitPrice < 0) {
-      setErr('Precio inválido');
-      return;
-    }
+    const cat = categories.find((c) => c.id === itemForm.categoryId);
+    const isKit = cat?.isKitCategory === true;
     const deps = (itemForm.dependencies || [])
       .filter((d) => d.childItemId)
       .map((d) => ({
         childItemId: d.childItemId,
         qty: parseFloat(String(d.qty).replace(',', '.')) || 1,
       }));
+    if (isKit && deps.length < 1) {
+      setErr('Un producto final (KIT) debe tener al menos un componente.');
+      return;
+    }
+    let unitPrice = 0;
+    if (!isKit) {
+      unitPrice = parseFloat(String(itemForm.unitPrice).replace(',', '.'));
+      if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+        setErr('Precio inválido');
+        return;
+      }
+    } else {
+      unitPrice = deps.reduce((s, d) => {
+        const it = items.find((x) => x.id === d.childItemId);
+        return s + (Number(d.qty) || 0) * (Number(it?.unitPrice) || 0);
+      }, 0);
+      unitPrice = Math.round(unitPrice * 100) / 100;
+    }
     const body = {
       categoryId: itemForm.categoryId,
       codigo: itemForm.codigo.trim(),
@@ -935,6 +966,18 @@ export function CatalogPage() {
             <label className="chk-row">
               <input
                 type="checkbox"
+                checked={catForm.isKitCategory === true}
+                onChange={(e) => setCatForm((f) => ({ ...f, isKitCategory: e.target.checked }))}
+              />
+              <span>Productos finales (KIT)</span>
+            </label>
+            <p className="muted mono" style={{ fontSize: 11, margin: '-4px 0 0', lineHeight: 1.45 }}>
+              Ítems de esta categoría tienen precio calculado por componentes y se agregan al presupuesto como
+              conjuntos configurables (instancias).
+            </p>
+            <label className="chk-row">
+              <input
+                type="checkbox"
                 checked={catForm.defaultApplyAdjustment !== false}
                 onChange={(e) =>
                   setCatForm((f) => ({ ...f, defaultApplyAdjustment: e.target.checked }))
@@ -1114,8 +1157,26 @@ export function CatalogPage() {
                 <option value="CONSUMIBLE">CONSUMIBLE</option>
               </select>
             </label>
+            {(() => {
+              const itemCat = categories.find((c) => c.id === itemForm.categoryId);
+              const isKitItem = itemCat?.isKitCategory === true;
+              const kitPreview = isKitItem
+                ? (itemForm.dependencies || [])
+                    .filter((d) => d.childItemId)
+                    .reduce((s, d) => {
+                      const it = items.find((x) => x.id === d.childItemId);
+                      const q = parseFloat(String(d.qty).replace(',', '.')) || 0;
+                      return s + q * (Number(it?.unitPrice) || 0);
+                    }, 0)
+                : 0;
+              return (
             <label>
-              <span className="fg-lbl">Precio unitario (USD) *</span>
+              <span className="fg-lbl">Precio unitario (USD) {isKitItem ? '— calculado' : '*'}</span>
+              {isKitItem ? (
+                <div className="form-input mono" style={{ opacity: 0.9 }}>
+                  {Number.isFinite(kitPreview) ? kitPreview.toFixed(2) : '0.00'} (suma componentes)
+                </div>
+              ) : (
               <input
                 type="number"
                 step="0.01"
@@ -1125,7 +1186,10 @@ export function CatalogPage() {
                 value={itemForm.unitPrice}
                 onChange={(e) => setItemForm((f) => ({ ...f, unitPrice: e.target.value }))}
               />
+              )}
             </label>
+              );
+            })()}
             <label>
               <span className="fg-lbl">Orden (opcional)</span>
               <input

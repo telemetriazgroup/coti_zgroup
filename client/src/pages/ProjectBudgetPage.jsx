@@ -14,6 +14,7 @@ import { ProjectShareModal } from '../components/ProjectShareModal';
 import { SearchableSelect } from '../components/SearchableSelect';
 import { ClientPicker } from '../components/ClientPicker';
 import { CatalogDependencyAddModal } from '../components/CatalogDependencyAddModal';
+import { KitInstanceModal } from '../components/KitInstanceModal';
 import { fetchCategoryNextCodigo } from '../lib/catalogCodigoApi';
 import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
 
@@ -70,6 +71,8 @@ export function ProjectBudgetPage() {
   const [addQty, setAddQty] = useState('1');
   const [depAddModal, setDepAddModal] = useState(null);
   const [depAddBusy, setDepAddBusy] = useState(false);
+  const [kitModal, setKitModal] = useState(null);
+  const [kitAddBusy, setKitAddBusy] = useState(false);
   const [addPriceOverride, setAddPriceOverride] = useState('');
 
   const [modal, setModal] = useState(null);
@@ -329,13 +332,19 @@ export function ProjectBudgetPage() {
   }, [catItems, filterCat, qDebounced, filterTipo]);
 
   const displayBudgetItems = useMemo(() => {
-    let list = [...items].sort((a, b) => Number(b.subtotal || 0) - Number(a.subtotal || 0));
+    let list = [...items].sort((a, b) => {
+      const sa = Number(a.sortOrder ?? 0);
+      const sb = Number(b.sortOrder ?? 0);
+      if (sa !== sb) return sa - sb;
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+    });
     const qq = budgetLineQ.trim().toLowerCase();
     if (qq) {
       list = list.filter(
         (row) =>
           (row.codigo && row.codigo.toLowerCase().includes(qq)) ||
-          (row.descripcion && row.descripcion.toLowerCase().includes(qq))
+          (row.descripcion && row.descripcion.toLowerCase().includes(qq)) ||
+          (row.bundleDisplayName && row.bundleDisplayName.toLowerCase().includes(qq))
       );
     }
     return list;
@@ -422,6 +431,14 @@ export function ProjectBudgetPage() {
       if (!Number.isNaN(p) && p >= 0) unitPrice = p;
     }
     try {
+      if (catalogItem.isKit) {
+        const [template, labelData] = await Promise.all([
+          api.get(`/api/catalog/items/${catalogItem.id}/kit-template?qty=${qty}`),
+          api.get(`/api/projects/${projectId}/bundles/next-label?catalogItemId=${catalogItem.id}`),
+        ]);
+        setKitModal({ template, suggestedLabel: labelData.label });
+        return;
+      }
       const bundle = await api.get(`/api/catalog/items/${catalogItem.id}/dependency-bundle?qty=${qty}`);
       if (!bundle?.dependencyCount) {
         const line = { catalogItemId: catalogItem.id, qty };
@@ -432,6 +449,30 @@ export function ProjectBudgetPage() {
       setDepAddModal({ bundle, mainUnitPrice: unitPrice });
     } catch (e) {
       setErr(e.message);
+    }
+  }
+
+  async function confirmKitAdd(payload) {
+    if (!canWrite || !kitModal) return;
+    setKitAddBusy(true);
+    setErr(null);
+    try {
+      const data = await api.post(`/api/projects/${projectId}/bundles`, {
+        catalogItemId: kitModal.template.catalogItemId,
+        instanceLabel: payload.instanceLabel,
+        displayName: payload.displayName,
+        qty: payload.qty,
+        lines: payload.lines,
+      });
+      setItems(data.items);
+      setTotals(data.totals);
+      if (data.projectStatus != null) setProjectStatus(data.projectStatus);
+      syncDraftFromItems(data.items);
+      setKitModal(null);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setKitAddBusy(false);
     }
   }
 
@@ -1122,6 +1163,15 @@ export function ProjectBudgetPage() {
                           BOM {it.dependencyCount}
                         </span>
                       )}
+                      {it.isKit && (
+                        <span
+                          className="budget-badge mono"
+                          style={{ borderColor: 'var(--green)', color: 'var(--green)' }}
+                          title="Producto final (KIT)"
+                        >
+                          KIT
+                        </span>
+                      )}
                     </div>
                     <span className="budget-cat-code mono">{it.codigo}</span>
                     <span className="budget-cat-desc">{it.descripcion}</span>
@@ -1221,18 +1271,33 @@ export function ProjectBudgetPage() {
                         : row.tipo === 'CONSUMIBLE'
                           ? ' budget-row--consumible'
                           : '';
+                    const isComponent = row.isBundleComponent;
+                    const isHeader = row.isBundleHeader;
+                    const rowEditable = canEditBudgetLines && !isComponent;
+                    const bundleClass = isHeader
+                      ? ' budget-row--kit-header'
+                      : isComponent
+                        ? ' budget-row--kit-component'
+                        : '';
                     return (
                       <tr
                         key={row.id}
                         className={
-                          (deletingId === row.id ? 'budget-row-deleting' : '') + rowTipoClass
+                          (deletingId === row.id ? 'budget-row-deleting' : '') + rowTipoClass + bundleClass
                         }
                       >
                         <td className="num mono budget-col-idx" title={`Partida ${nPart}`}>
-                          {nPart}
+                          {isComponent ? '↳' : nPart}
                         </td>
                         <td className="mono budget-td-codigo">{row.codigo}</td>
-                        <td className="budget-td-desc">{row.descripcion}</td>
+                        <td className="budget-td-desc">
+                          {isHeader && (
+                            <span className="tag tag--ok" style={{ marginRight: 6, fontSize: 9 }}>
+                              KIT
+                            </span>
+                          )}
+                          {row.descripcion}
+                        </td>
                         <td className="budget-col-meta">
                           <div className="budget-line-meta">
                             <button
@@ -1315,7 +1380,7 @@ export function ProjectBudgetPage() {
                                     {formatUsd(row.officialUnitPrice)}
                                   </div>
                                 )}
-                                {canEditBudgetLines ? (
+                                {rowEditable ? (
                                   <input
                                     className="form-input table-input mono"
                                     value={dr.unitPrice}
@@ -1330,7 +1395,7 @@ export function ProjectBudgetPage() {
                           })()}
                         </td>
                         <td className="num">
-                          {canEditBudgetLines ? (
+                          {rowEditable ? (
                             <input
                               className="form-input table-input mono"
                               value={dr.qty}
@@ -1340,8 +1405,19 @@ export function ProjectBudgetPage() {
                             row.qty
                           )}
                         </td>
-                        <td className="num mono">{formatUsd(row.subtotal)}</td>
+                        <td className="num mono">
+                          {isComponent ? (
+                            <span className="muted" title="Incluido en el total del conjunto">
+                              {formatUsd(Number(row.qty) * Number(row.unitPrice))}
+                            </span>
+                          ) : (
+                            formatUsd(row.subtotal)
+                          )}
+                        </td>
                         <td className="num budget-col-adj">
+                          {isComponent ? (
+                            <span className="muted">—</span>
+                          ) : (
                           <label
                             className="budget-adj-chk mono"
                             title={
@@ -1358,13 +1434,15 @@ export function ProjectBudgetPage() {
                               aria-label={`Ajuste partida ${row.codigo || nPart}`}
                             />
                           </label>
+                          )}
                         </td>
                         {canEditBudgetLines && (
                           <td className="actions-cell budget-actions-cell">
+                            {!isComponent && (
                             <button
                               type="button"
                               className="budget-row-remove"
-                              title="Quitar esta línea del presupuesto"
+                              title={isHeader ? 'Quitar conjunto completo' : 'Quitar esta línea del presupuesto'}
                               aria-label={`Quitar línea ${row.codigo}`}
                               disabled={deletingId === row.id}
                               onClick={() => removeItem(row.id)}
@@ -1378,6 +1456,7 @@ export function ProjectBudgetPage() {
                                 />
                               </svg>
                             </button>
+                            )}
                           </td>
                         )}
                       </tr>
@@ -2023,6 +2102,16 @@ export function ProjectBudgetPage() {
         busy={depAddBusy}
         onClose={() => !depAddBusy && setDepAddModal(null)}
         onConfirm={confirmDependencyAdd}
+      />
+
+      <KitInstanceModal
+        open={!!kitModal}
+        template={kitModal?.template}
+        suggestedLabel={kitModal?.suggestedLabel}
+        catalogItems={catItems}
+        busy={kitAddBusy}
+        onClose={() => !kitAddBusy && setKitModal(null)}
+        onConfirm={confirmKitAdd}
       />
 
       {modal === 'clear' && canEditBudgetLines && (

@@ -37,6 +37,12 @@ const {
   setItemDependencies,
   resolveDependencyBundle,
 } = require('../lib/catalogItemDependencies');
+const {
+  isKitCategory,
+  recalcKitItemPrice,
+  assertKitDependencies,
+  resolveKitTemplate,
+} = require('../lib/catalogKit');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -64,6 +70,7 @@ function mapCategory(row) {
     sortOrder: row.sort_order,
     active: normalizeBool(row.active, true),
     defaultApplyAdjustment: row.default_apply_adjustment !== false,
+    isKitCategory: row.is_kit_category === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -83,6 +90,7 @@ function mapItem(row) {
     sortOrder: row.sort_order,
     dependencyCount: row.dependency_count != null ? Number(row.dependency_count) : 0,
     hasDependencies: row.dependency_count != null ? Number(row.dependency_count) > 0 : false,
+    isKit: row.is_kit_category === true,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -99,14 +107,14 @@ async function fetchCatalogFromDb(includeInactive) {
   let itemSql;
   if (includeInactive) {
     itemSql = `
-      SELECT i.*, c.nombre AS category_nombre,
+      SELECT i.*, c.nombre AS category_nombre, c.is_kit_category,
         (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
       FROM catalog_items i
       JOIN catalog_categories c ON c.id = i.category_id
       ORDER BY c.sort_order ASC, i.sort_order ASC, i.codigo ASC`;
   } else {
     itemSql = `
-      SELECT i.*, c.nombre AS category_nombre,
+      SELECT i.*, c.nombre AS category_nombre, c.is_kit_category,
         (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
       FROM catalog_items i
       INNER JOIN catalog_categories c ON c.id = i.category_id
@@ -329,6 +337,7 @@ const catBody = [
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
   body('defaultApplyAdjustment').optional().isBoolean(),
+  body('isKitCategory').optional().isBoolean(),
 ];
 
 // ─── POST /api/catalog/categories — ADMIN ───────────────────────
@@ -341,9 +350,10 @@ router.post('/categories', requireRole('ADMIN', 'SUPERUSER'), catBody, async (re
     });
   }
 
-  const { nombre, codigoPrefix, sortOrder, active, defaultApplyAdjustment } = req.body;
+  const { nombre, codigoPrefix, sortOrder, active, defaultApplyAdjustment, isKitCategory: isKit } = req.body;
   const prefix = normalizePrefix(codigoPrefix);
   const defaultAdj = defaultApplyAdjustment !== false;
+  const kitCat = isKit === true;
 
   try {
     let so = sortOrder;
@@ -353,9 +363,9 @@ router.post('/categories', requireRole('ADMIN', 'SUPERUSER'), catBody, async (re
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO catalog_categories (nombre, codigo_prefix, sort_order, active, default_apply_adjustment)
-       VALUES ($1, $2, $3, COALESCE($4, true), $5) RETURNING *`,
-      [nombre.trim(), prefix, so, active, defaultAdj]
+      `INSERT INTO catalog_categories (nombre, codigo_prefix, sort_order, active, default_apply_adjustment, is_kit_category)
+       VALUES ($1, $2, $3, COALESCE($4, true), $5, $6) RETURNING *`,
+      [nombre.trim(), prefix, so, active, defaultAdj, kitCat]
     );
     if (prefix) {
       await syncCategoryNextSeq(rows[0].id, prefix);
@@ -385,6 +395,7 @@ const catPutValidators = [
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
   body('defaultApplyAdjustment').optional().isBoolean(),
+  body('isKitCategory').optional().isBoolean(),
   body('confirmPassword').optional().isString(),
 ];
 
@@ -482,7 +493,7 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
     });
   }
 
-  const { nombre, codigoPrefix, sortOrder, active, defaultApplyAdjustment, confirmPassword } = req.body;
+  const { nombre, codigoPrefix, sortOrder, active, defaultApplyAdjustment, isKitCategory: isKit, confirmPassword } = req.body;
   try {
     const { rows: before } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
     if (!before[0]) {
@@ -548,6 +559,10 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
       if (defaultApplyAdjustment !== undefined) {
         fields.push(`default_apply_adjustment = $${i++}`);
         vals.push(!!defaultApplyAdjustment);
+      }
+      if (isKit !== undefined) {
+        fields.push(`is_kit_category = $${i++}`);
+        vals.push(!!isKit);
       }
 
       let after = before[0];
@@ -723,6 +738,9 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
       return res.status(409).json({ success: false, error: { code: descCheck.code, message: descCheck.message } });
     }
 
+    const isKitCat = cat.is_kit_category === true;
+    const priceToInsert = isKitCat ? 0 : unitPrice;
+
     const { rows } = await pool.query(
       `INSERT INTO catalog_items
         (category_id, codigo, descripcion, unidad, tipo, unit_price, sort_order, active, created_by)
@@ -734,7 +752,7 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
         descripcion.trim(),
         unidad || 'UND',
         tipo,
-        unitPrice,
+        priceToInsert,
         so,
         active,
         req.user.id,
@@ -751,6 +769,21 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
           error: { code: depErr.code || 'INVALID_DEPS', message: depErr.message },
         });
       }
+    }
+    if (isKitCat) {
+      const kitCheck = await assertKitDependencies(rows[0].id);
+      if (!kitCheck.ok) {
+        await pool.query(`UPDATE catalog_items SET active = false WHERE id = $1`, [rows[0].id]);
+        return res.status(400).json({ success: false, error: { code: kitCheck.code, message: kitCheck.message } });
+      }
+      await recalcKitItemPrice(rows[0].id);
+      const { rows: refreshed } = await pool.query(
+        `SELECT i.*, c.nombre AS category_nombre, c.is_kit_category,
+          (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
+         FROM catalog_items i JOIN catalog_categories c ON c.id = i.category_id WHERE i.id = $1`,
+        [rows[0].id]
+      );
+      rows[0] = refreshed[0];
     }
     if (cat.codigo_prefix) {
       await afterItemCodigoSaved(categoryId, cat.codigo_prefix, rows[0].codigo);
@@ -803,6 +836,13 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
     }
 
+    const targetCatId = categoryId !== undefined ? categoryId : cur[0].category_id;
+    const { rows: catKitRows } = await pool.query(
+      `SELECT is_kit_category FROM catalog_categories WHERE id = $1`,
+      [targetCatId]
+    );
+    const isKitItemCat = catKitRows[0]?.is_kit_category === true;
+
     const fields = [];
     const vals = [];
     let i = 1;
@@ -827,7 +867,7 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
       fields.push(`tipo = $${i++}`);
       vals.push(tipo);
     }
-    if (unitPrice !== undefined) {
+    if (unitPrice !== undefined && !isKitItemCat) {
       fields.push(`unit_price = $${i++}`);
       vals.push(unitPrice);
     }
@@ -908,10 +948,29 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
           error: { code: depErr.code || 'INVALID_DEPS', message: depErr.message },
         });
       }
+      const kitCheck = await assertKitDependencies(req.params.id);
+      if (!kitCheck.ok) {
+        return res.status(400).json({ success: false, error: { code: kitCheck.code, message: kitCheck.message } });
+      }
+      if (await isKitCategory((await pool.query(`SELECT category_id FROM catalog_items WHERE id = $1`, [req.params.id])).rows[0]?.category_id)) {
+        await recalcKitItemPrice(req.params.id);
+        const { rows: refreshed } = await pool.query(`SELECT * FROM catalog_items WHERE id = $1`, [req.params.id]);
+        updatedRow = refreshed[0];
+      }
+    } else if (isKitItemCat) {
+      await recalcKitItemPrice(req.params.id);
+      const { rows: refreshed } = await pool.query(`SELECT * FROM catalog_items WHERE id = $1`, [req.params.id]);
+      updatedRow = refreshed[0];
     }
 
     await invalidateCatalogCache();
-    return res.json({ success: true, data: mapItem(updatedRow) });
+    const { rows: outItem } = await pool.query(
+      `SELECT i.*, c.nombre AS category_nombre, c.is_kit_category,
+        (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
+       FROM catalog_items i JOIN catalog_categories c ON c.id = i.category_id WHERE i.id = $1`,
+      [req.params.id]
+    );
+    return res.json({ success: true, data: mapItem(outItem[0] || updatedRow) });
   } catch (err) {
     if (err.code === '23505') {
       return res.status(409).json({
@@ -935,6 +994,24 @@ router.get('/items/:id/dependencies', requireRole('ADMIN', 'SUPERUSER'), [param(
     return res.json({ success: true, data: { dependencies: deps } });
   } catch (err) {
     console.error('[CATALOG] item dependencies get:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/catalog/items/:id/kit-template — presupuesto (productos finales)
+router.get('/items/:id/kit-template', requireAuth, [param('id').isUUID()], async (req, res) => {
+  try {
+    const qty = req.query.qty != null ? Number(req.query.qty) : 1;
+    const template = await resolveKitTemplate(req.params.id, qty);
+    if (!template) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
+    }
+    return res.json({ success: true, data: template });
+  } catch (err) {
+    if (err.code === 'NOT_KIT_ITEM') {
+      return res.status(400).json({ success: false, error: { code: err.code, message: err.message } });
+    }
+    console.error('[CATALOG] kit template:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
@@ -978,6 +1055,17 @@ router.put(
         return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
       }
       const count = await setItemDependencies(req.params.id, req.body.dependencies);
+      const kitCheck = await assertKitDependencies(req.params.id);
+      if (!kitCheck.ok) {
+        return res.status(400).json({ success: false, error: { code: kitCheck.code, message: kitCheck.message } });
+      }
+      const { rows: catRow } = await pool.query(
+        `SELECT c.is_kit_category FROM catalog_items i JOIN catalog_categories c ON c.id = i.category_id WHERE i.id = $1`,
+        [req.params.id]
+      );
+      if (catRow[0]?.is_kit_category) {
+        await recalcKitItemPrice(req.params.id);
+      }
       await invalidateCatalogCache();
       const deps = await fetchDirectDependencies(req.params.id);
       return res.json({ success: true, data: { count, dependencies: deps } });
