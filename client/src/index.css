@@ -3630,6 +3630,25 @@ select.form-input {
 .budget-panel--table .data-table tbody tr.budget-row--kit-component .budget-td-desc {
   padding-left: 18px;
 }
+.budget-row-edit-kit {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 4px;
+  margin-right: 2px;
+  border: none;
+  background: transparent;
+  color: var(--violet);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.budget-row-edit-kit:hover {
+  background: rgba(206, 147, 216, 0.15);
+}
+.budget-row-edit-kit:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
 .kit-line--off {
   opacity: 0.45;
 }

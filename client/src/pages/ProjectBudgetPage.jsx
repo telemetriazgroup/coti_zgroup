@@ -457,13 +457,23 @@ export function ProjectBudgetPage() {
     setKitAddBusy(true);
     setErr(null);
     try {
-      const data = await api.post(`/api/projects/${projectId}/bundles`, {
-        catalogItemId: kitModal.template.catalogItemId,
-        instanceLabel: payload.instanceLabel,
-        displayName: payload.displayName,
-        qty: payload.qty,
-        lines: payload.lines,
-      });
+      let data;
+      if (kitModal.bundleId) {
+        data = await api.put(`/api/projects/${projectId}/bundles/${kitModal.bundleId}`, {
+          instanceLabel: payload.instanceLabel,
+          displayName: payload.displayName,
+          qty: payload.qty,
+          lines: payload.lines,
+        });
+      } else {
+        data = await api.post(`/api/projects/${projectId}/bundles`, {
+          catalogItemId: kitModal.template.catalogItemId,
+          instanceLabel: payload.instanceLabel,
+          displayName: payload.displayName,
+          qty: payload.qty,
+          lines: payload.lines,
+        });
+      }
       setItems(data.items);
       setTotals(data.totals);
       if (data.projectStatus != null) setProjectStatus(data.projectStatus);
@@ -473,6 +483,22 @@ export function ProjectBudgetPage() {
       setErr(e.message);
     } finally {
       setKitAddBusy(false);
+    }
+  }
+
+  async function openEditKitBundle(row) {
+    if (!canWrite || !row.bundleId) return;
+    setErr(null);
+    try {
+      const data = await api.get(`/api/projects/${projectId}/bundles/${row.bundleId}`);
+      setKitModal({
+        template: data,
+        bundleId: data.bundleId,
+        suggestedLabel: data.instanceLabel,
+        editMode: true,
+      });
+    } catch (e) {
+      setErr(e.message);
     }
   }
 
@@ -1273,7 +1299,8 @@ export function ProjectBudgetPage() {
                           : '';
                     const isComponent = row.isBundleComponent;
                     const isHeader = row.isBundleHeader;
-                    const rowEditable = canEditBudgetLines && !isComponent;
+                    const rowQtyEditable = canEditBudgetLines && !isComponent;
+                    const rowPriceEditable = canEditBudgetLines && !isComponent && !isHeader;
                     const bundleClass = isHeader
                       ? ' budget-row--kit-header'
                       : isComponent
@@ -1292,9 +1319,22 @@ export function ProjectBudgetPage() {
                         <td className="mono budget-td-codigo">{row.codigo}</td>
                         <td className="budget-td-desc">
                           {isHeader && (
-                            <span className="tag tag--ok" style={{ marginRight: 6, fontSize: 9 }}>
-                              KIT
-                            </span>
+                            <>
+                              <span className="tag tag--ok" style={{ marginRight: 6, fontSize: 9 }}>
+                                KIT
+                              </span>
+                              {canEditBudgetLines && (
+                                <button
+                                  type="button"
+                                  className="btn-link mono budget-kit-edit-link"
+                                  style={{ fontSize: 11, marginRight: 8 }}
+                                  disabled={kitAddBusy}
+                                  onClick={() => openEditKitBundle(row)}
+                                >
+                                  Editar conjunto
+                                </button>
+                              )}
+                            </>
                           )}
                           {row.descripcion}
                         </td>
@@ -1365,7 +1405,7 @@ export function ProjectBudgetPage() {
                         <td className="mono">{row.unidad}</td>
                         <td className="num budget-td-punit">
                           {(() => {
-                            const cur = canEditBudgetLines
+                            const cur = rowPriceEditable
                               ? parsePriceDraft(dr.unitPrice) ?? Number(row.unitPrice)
                               : Number(row.unitPrice);
                             const showListRef =
@@ -1380,7 +1420,7 @@ export function ProjectBudgetPage() {
                                     {formatUsd(row.officialUnitPrice)}
                                   </div>
                                 )}
-                                {rowEditable ? (
+                                {rowPriceEditable ? (
                                   <input
                                     className="form-input table-input mono"
                                     value={dr.unitPrice}
@@ -1388,14 +1428,19 @@ export function ProjectBudgetPage() {
                                     onChange={(e) => setDraft(row.id, 'unitPrice', e.target.value)}
                                   />
                                 ) : (
-                                  <span className="budget-punit-shown mono">{formatUsd(row.unitPrice)}</span>
+                                  <span
+                                    className="budget-punit-shown mono"
+                                    title={isHeader ? 'Precio del conjunto (edite componentes con «Editar conjunto»)' : undefined}
+                                  >
+                                    {formatUsd(row.unitPrice)}
+                                  </span>
                                 )}
                               </>
                             );
                           })()}
                         </td>
                         <td className="num">
-                          {rowEditable ? (
+                          {rowQtyEditable ? (
                             <input
                               className="form-input table-input mono"
                               value={dr.qty}
@@ -1438,6 +1483,32 @@ export function ProjectBudgetPage() {
                         </td>
                         {canEditBudgetLines && (
                           <td className="actions-cell budget-actions-cell">
+                            {isHeader && (
+                              <button
+                                type="button"
+                                className="budget-row-edit-kit"
+                                title="Editar componentes del conjunto"
+                                aria-label={`Editar conjunto ${row.descripcion}`}
+                                disabled={kitAddBusy}
+                                onClick={() => openEditKitBundle(row)}
+                              >
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" aria-hidden="true">
+                                  <path
+                                    d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                  />
+                                  <path
+                                    d="M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  />
+                                </svg>
+                              </button>
+                            )}
                             {!isComponent && (
                             <button
                               type="button"
@@ -2108,6 +2179,7 @@ export function ProjectBudgetPage() {
         open={!!kitModal}
         template={kitModal?.template}
         suggestedLabel={kitModal?.suggestedLabel}
+        editMode={!!kitModal?.editMode}
         catalogItems={catItems}
         busy={kitAddBusy}
         onClose={() => !kitAddBusy && setKitModal(null)}

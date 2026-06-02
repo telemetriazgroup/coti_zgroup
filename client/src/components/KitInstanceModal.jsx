@@ -16,11 +16,12 @@ function buildDisplayNameClient(baseDesc, instanceLabel) {
   return `${base} ${label}`;
 }
 
-/** Modal al agregar producto final (KIT) al presupuesto. */
+/** Modal al agregar o editar producto final (KIT) en presupuesto. */
 export function KitInstanceModal({
   open,
   template,
   suggestedLabel = '1',
+  editMode = false,
   catalogItems = [],
   onClose,
   onConfirm,
@@ -36,18 +37,24 @@ export function KitInstanceModal({
   useEffect(() => {
     if (open && template) {
       setLines((template.lines || []).map((l) => ({ ...l })));
-      setInstanceLabel(suggestedLabel || '1');
-      setDisplayName(buildDisplayNameClient(template.descripcion, suggestedLabel || '1'));
-      setDisplayEdited(false);
+      if (editMode) {
+        setInstanceLabel(template.instanceLabel || suggestedLabel || '1');
+        setDisplayName(template.displayName || '');
+        setDisplayEdited(true);
+      } else {
+        setInstanceLabel(suggestedLabel || '1');
+        setDisplayName(buildDisplayNameClient(template.descripcion, suggestedLabel || '1'));
+        setDisplayEdited(false);
+      }
       setAddItemId('');
       setPickErr(null);
     }
-  }, [open, template, suggestedLabel]);
+  }, [open, template, suggestedLabel, editMode]);
 
   useEffect(() => {
-    if (!open || !template || displayEdited) return;
+    if (!open || !template || displayEdited || editMode) return;
     setDisplayName(buildDisplayNameClient(template.descripcion, instanceLabel));
-  }, [open, template, instanceLabel, displayEdited]);
+  }, [open, template, instanceLabel, displayEdited, editMode]);
 
   const total = useMemo(() => {
     const included = lines.filter((l) => l.included !== false);
@@ -107,8 +114,8 @@ export function KitInstanceModal({
     setAddItemId('');
   }
 
-  function removeExtraLine(catalogItemId) {
-    setLines((prev) => prev.filter((l) => l.catalogItemId !== catalogItemId || l.fromTemplate !== false));
+  function removeLine(catalogItemId) {
+    setLines((prev) => prev.filter((l) => l.catalogItemId !== catalogItemId));
   }
 
   function submit(e) {
@@ -137,7 +144,7 @@ export function KitInstanceModal({
   return (
     <Modal
       wide
-      title={`Producto final — ${template.descripcion}`}
+      title={`${editMode ? 'Editar conjunto' : 'Producto final'} — ${template.descripcion}`}
       onClose={() => !busy && onClose()}
       footer={
         <>
@@ -145,14 +152,21 @@ export function KitInstanceModal({
             Cancelar
           </button>
           <button type="submit" form="kit-instance-form" className="btn btn-primary" disabled={busy}>
-            {busy ? 'Agregando…' : `Agregar conjunto (${formatUsd(total)})`}
+            {busy
+              ? editMode
+                ? 'Guardando…'
+                : 'Agregando…'
+              : editMode
+                ? `Guardar cambios (${formatUsd(total)})`
+                : `Agregar conjunto (${formatUsd(total)})`}
           </button>
         </>
       }
     >
       <p className="muted mono" style={{ fontSize: 12, marginBottom: 12, lineHeight: 1.45 }}>
-        Configure los componentes de esta instancia. Puede cambiar cantidades, desmarcar ítems o agregar
-        componentes adicionales. El precio del conjunto es la suma de los componentes seleccionados.
+        {editMode
+          ? 'Modifique componentes, cantidades o agregue ítems al conjunto. El precio se recalcula automáticamente.'
+          : 'Configure los componentes de esta instancia. Puede cambiar cantidades, desmarcar ítems o agregar componentes adicionales. El precio del conjunto es la suma de los componentes seleccionados.'}
       </p>
       <div className="stack-form" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -234,13 +248,13 @@ export function KitInstanceModal({
                     <td className="num mono">{formatUsd(l.unitPrice)}</td>
                     <td className="num mono">{l.included !== false ? formatUsd(sub) : '—'}</td>
                     <td>
-                      {!l.fromTemplate && (
+                      {(editMode || !l.fromTemplate) && (
                         <button
                           type="button"
                           className="btn btn-ghost btn-icon"
                           disabled={busy}
-                          title="Quitar"
-                          onClick={() => removeExtraLine(l.catalogItemId)}
+                          title="Quitar del conjunto"
+                          onClick={() => removeLine(l.catalogItemId)}
                         >
                           ×
                         </button>
