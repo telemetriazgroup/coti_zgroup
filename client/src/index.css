@@ -3700,6 +3700,9 @@ select.form-input {
   opacity: 0.4;
   cursor: not-allowed;
 }
+.budget-td-desc--kit-header {
+  font-weight: 700;
+}
 .budget-kit-name-btn {
   display: inline;
   padding: 0;
@@ -3708,6 +3711,7 @@ select.form-input {
   background: none;
   color: inherit;
   font: inherit;
+  font-weight: 700;
   text-align: left;
   cursor: pointer;
   border-radius: 2px;

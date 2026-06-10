@@ -1465,7 +1465,7 @@ export function ProjectBudgetPage() {
                           {isComponent ? '↳' : nPart}
                         </td>
                         <td className="mono budget-td-codigo">{row.codigo}</td>
-                        <td className="budget-td-desc">
+                        <td className={`budget-td-desc${isHeader ? ' budget-td-desc--kit-header' : ''}`}>
                           {isHeader && (
                             <span className="tag tag--ok" style={{ marginRight: 6, fontSize: 9 }}>
                               KIT
