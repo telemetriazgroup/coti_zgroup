@@ -10,6 +10,28 @@ const {
 } = require('./catalogKit');
 const { resolveUnitPrice, getProjectQuotationMarket } = require('./pricingMarket');
 
+const INSTANCE_LABEL_MAX = 50;
+
+function parseInstanceLabel(raw, fallback) {
+  if (raw === undefined || raw === null) {
+    return fallback ?? null;
+  }
+  const label = String(raw).trim();
+  if (!label) {
+    return {
+      errorCode: 'INSTANCE_LABEL_INVALID',
+      message: 'Indique una etiqueta de instancia (zona)',
+    };
+  }
+  if (label.length > INSTANCE_LABEL_MAX) {
+    return {
+      errorCode: 'INSTANCE_LABEL_INVALID',
+      message: `La etiqueta no puede superar ${INSTANCE_LABEL_MAX} caracteres`,
+    };
+  }
+  return label;
+}
+
 async function suggestNextInstanceLabel(projectId, _catalogItemId, client = null) {
   const q = client ? client.query.bind(client) : pool.query.bind(pool);
   const { rows } = await q(
@@ -112,7 +134,8 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
   const deps = bundle.catalog_item_id
     ? await fetchDirectDependencies(bundle.catalog_item_id, client)
     : [];
-  const templateIds = new Set(deps.map((d) => d.childItemId));
+
+  const mainQty = bundle.qty != null ? Number(bundle.qty) : 1;
 
   const { rows: compRows } = await q(
     `SELECT * FROM project_items
@@ -121,22 +144,59 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
     [bundleId, projectId]
   );
 
-  const lines = compRows.map((r) => ({
-    catalogItemId: r.catalog_item_id,
-    codigo: r.codigo,
-    descripcion: r.descripcion,
-    unidad: r.unidad,
-    tipo: r.tipo,
-    unitPrice: r.unit_price != null ? Number(r.unit_price) : 0,
-    qty: r.qty != null ? Number(r.qty) : 1,
-    included: true,
-    fromTemplate: templateIds.has(r.catalog_item_id),
-  }));
+  const compByCatalogId = new Map(compRows.map((r) => [r.catalog_item_id, r]));
+  const lines = [];
+
+  for (const dep of deps) {
+    const existing = compByCatalogId.get(dep.childItemId);
+    if (existing) {
+      lines.push({
+        catalogItemId: existing.catalog_item_id,
+        codigo: existing.codigo,
+        descripcion: existing.descripcion,
+        unidad: existing.unidad,
+        tipo: existing.tipo,
+        unitPrice: existing.unit_price != null ? Number(existing.unit_price) : 0,
+        qty: existing.qty != null ? Number(existing.qty) : 1,
+        included: true,
+        fromTemplate: true,
+      });
+      compByCatalogId.delete(dep.childItemId);
+    } else {
+      lines.push({
+        catalogItemId: dep.childItemId,
+        codigo: dep.child?.codigo || '',
+        descripcion: dep.child?.descripcion || '',
+        unidad: dep.child?.unidad || 'UND',
+        tipo: dep.child?.tipo || 'ACTIVO',
+        unitPrice: dep.child?.unitPrice != null ? Number(dep.child.unitPrice) : 0,
+        qtyPerMain: Number(dep.qty) || 1,
+        qty: Math.round(Number(dep.qty) * mainQty * 1000) / 1000,
+        included: false,
+        fromTemplate: true,
+      });
+    }
+  }
+
+  for (const r of compByCatalogId.values()) {
+    lines.push({
+      catalogItemId: r.catalog_item_id,
+      codigo: r.codigo,
+      descripcion: r.descripcion,
+      unidad: r.unidad,
+      tipo: r.tipo,
+      unitPrice: r.unit_price != null ? Number(r.unit_price) : 0,
+      qty: r.qty != null ? Number(r.qty) : 1,
+      included: true,
+      fromTemplate: false,
+    });
+  }
 
   return {
     bundleId: bundle.id,
     catalogItemId: bundle.catalog_item_id,
     codigo: bundle.codigo || '',
+    kitBaseDesc: bundle.kit_descripcion || '',
     descripcion: bundle.kit_descripcion || bundle.display_name,
     unidad: bundle.unidad || 'UND',
     tipo: bundle.tipo || 'ACTIVO',
@@ -162,12 +222,12 @@ async function createProjectBundle(
 
   const market = await getProjectQuotationMarket(projectId, client);
   const included = await resolveKitLinesForMarket(client, lines, market, { preserveOverrides: false });
-  if (included.length < 1) {
-    return { errorCode: 'KIT_EMPTY', message: 'Seleccione al menos un componente para el conjunto' };
-  }
 
-  const label = String(instanceLabel || '').trim() || 'ZONA 1';
-  const name = String(displayName || '').trim() || buildDisplayName(kit.descripcion, label);
+  const parsedLabel = parseInstanceLabel(instanceLabel, 'ZONA 1');
+  if (typeof parsedLabel === 'object' && parsedLabel.errorCode) return parsedLabel;
+  const label = parsedLabel;
+  const kitBase = String(kit.descripcion || '').trim();
+  const name = buildDisplayName(kitBase, label);
   const bundleQty = Math.max(0.001, Number(qty) || 1);
   const unitPrice = computeLinesTotal(included);
 
@@ -276,14 +336,12 @@ async function updateProjectBundle(
   const included = await resolveKitLinesForMarket(client, lines, market, {
     preserveOverrides: preservePriceOverrides,
   });
-  if (included.length < 1) {
-    return { errorCode: 'KIT_EMPTY', message: 'Seleccione al menos un componente para el conjunto' };
-  }
 
-  const label = String(instanceLabel || '').trim() || bundle.instance_label || 'ZONA 1';
-  const name =
-    String(displayName || '').trim() ||
-    buildDisplayName(bundle.kit_descripcion || bundle.display_name, label);
+  const parsedLabel = parseInstanceLabel(instanceLabel, bundle.instance_label || 'ZONA 1');
+  if (typeof parsedLabel === 'object' && parsedLabel.errorCode) return parsedLabel;
+  const label = parsedLabel;
+  const kitBase = String(bundle.kit_descripcion || '').trim();
+  const name = buildDisplayName(kitBase, label);
   const bundleQty = Math.max(0.001, Number(qty) || Number(bundle.qty) || 1);
   const unitPrice = computeLinesTotal(included);
 

@@ -3651,29 +3651,31 @@ select.form-input {
   padding-left: 18px;
 }
 .budget-td-unidad {
-  font-weight: 600;
+  font-weight: 500;
   text-align: center;
 }
 .budget-td-unidad--activo {
-  background: rgba(0, 229, 255, 0.14) !important;
-  box-shadow: inset 3px 0 0 var(--cyan);
-  color: var(--cyan);
+  background: rgba(0, 229, 255, 0.05) !important;
+  box-shadow: inset 2px 0 0 rgba(0, 229, 255, 0.28);
+  color: rgba(0, 229, 255, 0.55);
 }
 .budget-td-unidad--consumible {
-  background: rgba(255, 215, 0, 0.14) !important;
-  box-shadow: inset 3px 0 0 var(--amber);
-  color: var(--amber);
+  background: rgba(255, 215, 0, 0.05) !important;
+  box-shadow: inset 2px 0 0 rgba(255, 215, 0, 0.28);
+  color: rgba(255, 215, 0, 0.55);
 }
 [data-theme='light'] .budget-panel--table .data-table tbody tr.budget-row--standalone td {
   background: rgba(0, 0, 0, 0.02);
 }
 [data-theme='light'] .budget-td-unidad--activo {
-  background: rgba(0, 160, 180, 0.16) !important;
-  color: #00838f;
+  background: rgba(0, 160, 180, 0.06) !important;
+  box-shadow: inset 2px 0 0 rgba(0, 160, 180, 0.22);
+  color: rgba(0, 131, 143, 0.72);
 }
 [data-theme='light'] .budget-td-unidad--consumible {
-  background: rgba(180, 140, 0, 0.14) !important;
-  color: #8a6d00;
+  background: rgba(180, 140, 0, 0.06) !important;
+  box-shadow: inset 2px 0 0 rgba(180, 140, 0, 0.22);
+  color: rgba(138, 109, 0, 0.72);
 }
 .budget-panel--table .data-table tbody tr.budget-row-deleting td {
   opacity: 0.35;
@@ -3696,6 +3698,32 @@ select.form-input {
 }
 .budget-row-edit-kit:disabled {
   opacity: 0.4;
+  cursor: not-allowed;
+}
+.budget-kit-name-btn {
+  display: inline;
+  padding: 0;
+  margin: 0;
+  border: none;
+  background: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  border-radius: 2px;
+}
+.budget-kit-name-btn:hover:not(:disabled) {
+  color: var(--violet);
+  text-decoration: underline;
+  text-decoration-color: rgba(206, 147, 216, 0.65);
+  text-underline-offset: 2px;
+}
+.budget-kit-name-btn:focus-visible {
+  outline: 2px solid rgba(206, 147, 216, 0.45);
+  outline-offset: 2px;
+}
+.budget-kit-name-btn:disabled {
+  opacity: 0.5;
   cursor: not-allowed;
 }
 .kit-line--off {

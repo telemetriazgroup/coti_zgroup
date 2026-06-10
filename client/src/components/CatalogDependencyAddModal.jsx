@@ -22,18 +22,45 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
   if (!open || !bundle) return null;
 
   function toggleLine(catalogItemId) {
+    const row = lines.find((l) => l.catalogItemId === catalogItemId);
+    if (row?.isMain) return;
     setPickErr(null);
     setLines((prev) =>
       prev.map((l) => (l.catalogItemId === catalogItemId ? { ...l, included: !l.included } : l))
     );
   }
 
+  function setLineQty(catalogItemId, rawQty) {
+    setPickErr(null);
+    setLines((prev) =>
+      prev.map((l) => {
+        if (l.catalogItemId !== catalogItemId) return l;
+        return { ...l, qty: rawQty };
+      })
+    );
+  }
+
   function submit(e) {
     e.preventDefault();
-    const selected = lines.filter((l) => l.included);
-    if (selected.length === 0) {
-      setPickErr('Seleccione al menos un ítem para agregar.');
+    const main = lines.find((l) => l.isMain);
+    if (!main) {
+      setPickErr('No se encontró el ítem principal.');
       return;
+    }
+    const mainQty = parseFloat(String(main.qty).replace(',', '.'));
+    if (!Number.isFinite(mainQty) || mainQty < 0.001) {
+      setPickErr('Cantidad del ítem principal inválida.');
+      return;
+    }
+    const selected = [{ ...main, qty: mainQty, included: true }];
+    for (const l of lines) {
+      if (l.isMain || !l.included) continue;
+      const q = parseFloat(String(l.qty).replace(',', '.'));
+      if (!Number.isFinite(q) || q < 0.001) {
+        setPickErr(`Cantidad inválida en ${l.codigo || 'dependencia'}.`);
+        return;
+      }
+      selected.push({ ...l, qty: q });
     }
     onConfirm(selected);
   }
@@ -55,9 +82,8 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
       }
     >
       <p className="muted mono" style={{ fontSize: 12, marginBottom: 12, lineHeight: 1.45 }}>
-        Marque o desmarque cada fila para incluirla en el presupuesto. Por defecto vienen seleccionados el ítem
-        principal y sus dependencias. Las cantidades se calculan según la cantidad del principal y las reglas del
-        catálogo.
+        El ítem principal siempre se agrega. Marque las dependencias opcionales que desee incluir (puede elegir
+        ninguna, una o varias) y ajuste las cantidades antes de confirmar.
       </p>
       {pickErr && (
         <div className="banner banner--err mono" style={{ marginBottom: 12 }}>
@@ -69,7 +95,7 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
           <table className="data-table data-table--compact">
             <thead>
               <tr>
-                <th style={{ width: 36 }} title="Incluir en presupuesto">
+                <th style={{ width: 36 }} title="Incluir dependencia">
                   +
                 </th>
                 <th>Código</th>
@@ -84,10 +110,10 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
                   <td>
                     <input
                       type="checkbox"
-                      checked={l.included}
-                      disabled={busy}
+                      checked={l.isMain ? true : l.included}
+                      disabled={busy || l.isMain}
                       onChange={() => toggleLine(l.catalogItemId)}
-                      title={l.isMain ? 'Ítem principal' : 'Incluir dependencia'}
+                      title={l.isMain ? 'Ítem principal (siempre incluido)' : 'Incluir dependencia'}
                     />
                   </td>
                   <td className="mono">
@@ -99,7 +125,18 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
                     )}
                   </td>
                   <td>{l.descripcion}</td>
-                  <td className="num mono">{l.qty}</td>
+                  <td className="num">
+                    <input
+                      type="number"
+                      min="0.001"
+                      step="any"
+                      className="form-input table-input mono"
+                      style={{ width: 72 }}
+                      value={l.qty}
+                      disabled={busy || (!l.isMain && !l.included)}
+                      onChange={(e) => setLineQty(l.catalogItemId, e.target.value)}
+                    />
+                  </td>
                   {!hidePrices && <td className="num mono">{formatUsd(l.unitPrice)}</td>}
                 </tr>
               ))}

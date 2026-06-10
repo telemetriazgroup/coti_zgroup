@@ -466,8 +466,10 @@ export function ProjectBudgetPage() {
     }
   }
 
-  async function commitBudgetLines(lines) {
-    const data = await api.post(`/api/projects/${projectId}/items/batch`, { lines });
+  async function commitBudgetLines(lines, opts = {}) {
+    const body = { lines };
+    if (opts.source) body.source = opts.source;
+    const data = await api.post(`/api/projects/${projectId}/items/batch`, body);
     setItems(data.items);
     setTotals(data.totals);
     if (data.projectStatus != null) setProjectStatus(data.projectStatus);
@@ -495,10 +497,8 @@ export function ProjectBudgetPage() {
           api.get(`/api/catalog/items/${catalogItem.id}/kit-template?qty=${qty}`),
           api.get(`/api/projects/${projectId}/bundles/next-label?catalogItemId=${catalogItem.id}`),
         ]);
-        if (!template?.lines?.length) {
-          setErr(
-            'Este producto final no tiene componentes en catálogo. Configure las dependencias en Catálogo antes de agregarlo.'
-          );
+        if (!template?.catalogItemId) {
+          setErr('No se pudo cargar la plantilla del producto final.');
           return;
         }
         setKitModal({ template, suggestedLabel: labelData.label });
@@ -577,11 +577,11 @@ export function ProjectBudgetPage() {
     setErr(null);
     try {
       const lines = selectedLines.map((l) => {
-        const row = { catalogItemId: l.catalogItemId, qty: l.qty };
+        const row = { catalogItemId: l.catalogItemId, qty: Number(l.qty) };
         if (l.isMain && depAddModal.mainUnitPrice != null) row.unitPrice = depAddModal.mainUnitPrice;
         return row;
       });
-      await commitBudgetLines(lines);
+      await commitBudgetLines(lines, { source: 'dependencies' });
       setDepAddModal(null);
     } catch (e) {
       setErr(e.message);
@@ -1467,24 +1467,24 @@ export function ProjectBudgetPage() {
                         <td className="mono budget-td-codigo">{row.codigo}</td>
                         <td className="budget-td-desc">
                           {isHeader && (
-                            <>
-                              <span className="tag tag--ok" style={{ marginRight: 6, fontSize: 9 }}>
-                                KIT
-                              </span>
-                              {canEditBudgetLines && (
-                                <button
-                                  type="button"
-                                  className="btn-link mono budget-kit-edit-link"
-                                  style={{ fontSize: 11, marginRight: 8 }}
-                                  disabled={kitAddBusy}
-                                  onClick={() => openEditKitBundle(row)}
-                                >
-                                  Editar conjunto
-                                </button>
-                              )}
-                            </>
+                            <span className="tag tag--ok" style={{ marginRight: 6, fontSize: 9 }}>
+                              KIT
+                            </span>
                           )}
-                          {row.descripcion}
+                          {isHeader && canEditBudgetLines ? (
+                            <button
+                              type="button"
+                              className="budget-kit-name-btn"
+                              disabled={kitAddBusy}
+                              title="Editar conjunto"
+                              aria-label={`Editar conjunto ${row.descripcion}`}
+                              onClick={() => openEditKitBundle(row)}
+                            >
+                              {row.descripcion}
+                            </button>
+                          ) : (
+                            row.descripcion
+                          )}
                         </td>
                         <td className="budget-col-meta">
                           <div className="budget-line-meta">
@@ -1599,7 +1599,7 @@ export function ProjectBudgetPage() {
                                   ) : (
                                     <span
                                       className="budget-punit-shown mono"
-                                      title={isHeader ? 'Precio del conjunto (edite componentes con «Editar conjunto»)' : undefined}
+                                      title={isHeader ? 'Precio del conjunto (clic en el nombre o icono de edición)' : undefined}
                                     >
                                       {formatUsd(row.unitPrice)}
                                     </span>
@@ -2437,6 +2437,9 @@ export function ProjectBudgetPage() {
         catalogItems={catItems}
         busy={kitAddBusy}
         hidePrices={hideItemPrices}
+        fetchDependencyBundle={(id, qty) =>
+          api.get(`/api/catalog/items/${id}/dependency-bundle?qty=${qty}`)
+        }
         onClose={() => !kitAddBusy && setKitModal(null)}
         onConfirm={confirmKitAdd}
       />

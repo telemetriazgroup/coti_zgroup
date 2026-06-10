@@ -215,7 +215,10 @@ async function assertFlatCatalogAddAllowed(client, catalogItemId) {
   return { ok: true };
 }
 
-async function addCatalogItemToProject(client, { projectId, userId, catalogItemId, qty, unitPriceOverride, ip }) {
+async function addCatalogItemToProject(
+  client,
+  { projectId, userId, catalogItemId, qty, unitPriceOverride, ip, skipDependencyGuard = false }
+) {
   const { rows: catRows } = await client.query(
     `SELECT * FROM catalog_items WHERE id = $1 AND active = true`,
     [catalogItemId]
@@ -223,9 +226,18 @@ async function addCatalogItemToProject(client, { projectId, userId, catalogItemI
   if (!catRows[0]) {
     return { merged: false, outRow: null, errorCode: 'INVALID_CATALOG' };
   }
-  const flatCheck = await assertFlatCatalogAddAllowed(client, catalogItemId);
-  if (!flatCheck.ok) {
-    return { merged: false, outRow: null, errorCode: flatCheck.errorCode, message: flatCheck.message };
+  if (!skipDependencyGuard) {
+    const flatCheck = await assertFlatCatalogAddAllowed(client, catalogItemId);
+    if (!flatCheck.ok) {
+      return { merged: false, outRow: null, errorCode: flatCheck.errorCode, message: flatCheck.message };
+    }
+  } else if (await isKitItem(catalogItemId, client)) {
+    return {
+      merged: false,
+      outRow: null,
+      errorCode: 'KIT_REQUIRES_BUNDLE',
+      message: 'Los productos finales (KIT) deben agregarse con el modal de conjunto',
+    };
   }
   const cat = catRows[0];
   const market = await getProjectQuotationMarket(projectId, client);
@@ -888,6 +900,7 @@ router.post(
     body('lines.*.catalogItemId').isUUID(),
     body('lines.*.qty').isFloat({ min: 0.001 }),
     body('lines.*.unitPrice').optional().isFloat({ min: 0 }),
+    body('source').optional().isIn(['dependencies']),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -919,6 +932,7 @@ router.post(
       const wasEmpty = cntRows[0].n === 0;
 
       await client.query('BEGIN');
+      const fromDependencyPicker = req.body.source === 'dependencies';
       let added = 0;
       for (const line of req.body.lines) {
         const u =
@@ -930,6 +944,7 @@ router.post(
           qty: Number(line.qty),
           unitPriceOverride: u,
           ip,
+          skipDependencyGuard: fromDependencyPicker,
         });
         if (r.errorCode) {
           await client.query('ROLLBACK');
@@ -1020,10 +1035,10 @@ router.post(
   requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
   [
     body('catalogItemId').isUUID(),
-    body('instanceLabel').optional().isString(),
+    body('instanceLabel').optional().isString().trim().isLength({ min: 1, max: 50 }).withMessage('Etiqueta de instancia inválida (1–50 caracteres)'),
     body('displayName').optional().isString(),
     body('qty').optional().isFloat({ min: 0.001 }),
-    body('lines').isArray({ min: 1 }),
+    body('lines').isArray(),
     body('lines.*.catalogItemId').isUUID(),
     body('lines.*.qty').isFloat({ min: 0.001 }),
     body('lines.*.unitPrice').optional().isFloat({ min: 0 }),
@@ -1141,10 +1156,10 @@ router.put(
   '/:id/bundles/:bundleId',
   requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
   [
-    body('instanceLabel').optional().isString(),
+    body('instanceLabel').optional().isString().trim().isLength({ min: 1, max: 50 }).withMessage('Etiqueta de instancia inválida (1–50 caracteres)'),
     body('displayName').optional().isString(),
     body('qty').optional().isFloat({ min: 0.001 }),
-    body('lines').isArray({ min: 1 }),
+    body('lines').isArray(),
     body('lines.*.catalogItemId').isUUID(),
     body('lines.*.qty').isFloat({ min: 0.001 }),
     body('lines.*.unitPrice').optional().isFloat({ min: 0 }),

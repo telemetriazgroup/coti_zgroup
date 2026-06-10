@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { CatalogDependencyAddModal } from './CatalogDependencyAddModal';
 import { Modal } from './Modal';
 import { SearchableSelect } from './SearchableSelect';
 
@@ -16,6 +17,17 @@ function buildDisplayNameClient(baseDesc, instanceLabel) {
   return `${label} - ${base}`;
 }
 
+function kitBaseFromTemplate(template) {
+  if (!template) return '';
+  if (template.kitBaseDesc) return String(template.kitBaseDesc).trim();
+  const desc = String(template.descripcion || '').trim();
+  const label = String(template.instanceLabel || '').trim();
+  if (label && desc.startsWith(`${label} - `)) {
+    return desc.slice(label.length + 3).trim();
+  }
+  return desc;
+}
+
 /** Modal al agregar o editar producto final (KIT) en presupuesto. */
 export function KitInstanceModal({
   open,
@@ -25,37 +37,36 @@ export function KitInstanceModal({
   catalogItems = [],
   onClose,
   onConfirm,
+  fetchDependencyBundle,
   busy = false,
   hidePrices = false,
 }) {
   const [lines, setLines] = useState([]);
   const [instanceLabel, setInstanceLabel] = useState('ZONA 1');
   const [displayName, setDisplayName] = useState('');
-  const [displayEdited, setDisplayEdited] = useState(false);
   const [addItemId, setAddItemId] = useState('');
   const [pickErr, setPickErr] = useState(null);
+  const [extraAddBusy, setExtraAddBusy] = useState(false);
+  const [pendingExtraDep, setPendingExtraDep] = useState(null);
+
+  const kitBase = useMemo(() => kitBaseFromTemplate(template), [template]);
 
   useEffect(() => {
     if (open && template) {
       setLines((template.lines || []).map((l) => ({ ...l })));
-      if (editMode) {
-        setInstanceLabel(template.instanceLabel || suggestedLabel || 'ZONA 1');
-        setDisplayName(template.displayName || '');
-        setDisplayEdited(true);
-      } else {
-        setInstanceLabel(suggestedLabel || 'ZONA 1');
-        setDisplayName(buildDisplayNameClient(template.descripcion, suggestedLabel || 'ZONA 1'));
-        setDisplayEdited(false);
-      }
+      const initLabel =
+        (editMode ? template.instanceLabel : suggestedLabel) || suggestedLabel || 'ZONA 1';
+      setInstanceLabel(initLabel);
+      setDisplayName(buildDisplayNameClient(kitBase, initLabel));
       setAddItemId('');
       setPickErr(null);
     }
-  }, [open, template, suggestedLabel, editMode]);
+  }, [open, template, suggestedLabel, editMode, kitBase]);
 
   useEffect(() => {
-    if (!open || !template || displayEdited || editMode) return;
-    setDisplayName(buildDisplayNameClient(template.descripcion, instanceLabel));
-  }, [open, template, instanceLabel, displayEdited, editMode]);
+    if (!open || !template) return;
+    setDisplayName(buildDisplayNameClient(kitBase, instanceLabel));
+  }, [open, template, kitBase, instanceLabel]);
 
   const total = useMemo(() => {
     const included = lines.filter((l) => l.included !== false);
@@ -84,22 +95,72 @@ export function KitInstanceModal({
   }
 
   function setLineQty(catalogItemId, qty) {
+    setPickErr(null);
     setLines((prev) =>
       prev.map((l) => (l.catalogItemId === catalogItemId ? { ...l, qty } : l))
     );
   }
 
-  function addExtraLine() {
-    if (!addItemId) return;
+  function appendExtraLines(selectedLines) {
+    const used = new Set(lines.map((l) => l.catalogItemId));
+    for (const l of selectedLines) {
+      if (used.has(l.catalogItemId)) {
+        setPickErr(`El ítem ${l.codigo || ''} ya está en el conjunto.`.trim());
+        return false;
+      }
+      used.add(l.catalogItemId);
+    }
+    setPickErr(null);
+    setLines((prev) => [
+      ...prev,
+      ...selectedLines.map((l) => ({
+        catalogItemId: l.catalogItemId,
+        codigo: l.codigo,
+        descripcion: l.descripcion,
+        unidad: l.unidad,
+        tipo: l.tipo,
+        unitPrice: Number(l.unitPrice) || 0,
+        qty: Number(l.qty) || 1,
+        included: true,
+        fromTemplate: false,
+      })),
+    ]);
+    return true;
+  }
+
+  async function addExtraLine() {
+    if (!addItemId || extraAddBusy) return;
     const it = catalogItems.find((x) => x.id === addItemId);
     if (!it) return;
     if (lines.some((l) => l.catalogItemId === addItemId)) {
       setPickErr('Ese ítem ya está en la lista.');
       return;
     }
+
+    const depCount = Number(it.dependencyCount) || 0;
+    const hasDeps = depCount > 0 || it.hasDependencies === true;
+
+    if (hasDeps && fetchDependencyBundle) {
+      setExtraAddBusy(true);
+      setPickErr(null);
+      try {
+        const bundle = await fetchDependencyBundle(it.id, 1);
+        const hasOptionalDeps = (bundle?.lines || []).some((l) => !l.isMain);
+        if (hasOptionalDeps) {
+          setPendingExtraDep({ bundle });
+          setAddItemId('');
+          return;
+        }
+      } catch (e) {
+        setPickErr(e.message || 'No se pudieron cargar las dependencias.');
+        return;
+      } finally {
+        setExtraAddBusy(false);
+      }
+    }
+
     setPickErr(null);
-    setLines((prev) => [
-      ...prev,
+    appendExtraLines([
       {
         catalogItemId: it.id,
         codigo: it.codigo,
@@ -108,11 +169,15 @@ export function KitInstanceModal({
         tipo: it.tipo,
         unitPrice: Number(it.unitPrice) || 0,
         qty: 1,
-        included: true,
-        fromTemplate: false,
       },
     ]);
     setAddItemId('');
+  }
+
+  function confirmExtraDepAdd(selectedLines) {
+    if (appendExtraLines(selectedLines)) {
+      setPendingExtraDep(null);
+    }
   }
 
   function removeLine(catalogItemId) {
@@ -121,28 +186,50 @@ export function KitInstanceModal({
 
   function submit(e) {
     e.preventDefault();
-    const selected = lines.filter((l) => l.included !== false);
-    if (selected.length === 0) {
-      setPickErr('Seleccione al menos un componente para el conjunto.');
+    const selected = [];
+    for (const l of lines) {
+      if (l.included === false) continue;
+      const q = parseFloat(String(l.qty).replace(',', '.'));
+      if (!Number.isFinite(q) || q < 0.001) {
+        setPickErr(`Cantidad inválida en ${l.codigo || 'dependencia'}.`);
+        return;
+      }
+      selected.push({
+        catalogItemId: l.catalogItemId,
+        qty: q,
+        ...(hidePrices ? {} : { unitPrice: Number(l.unitPrice) }),
+        included: true,
+      });
+    }
+    const label = instanceLabel.trim();
+    if (!label) {
+      setPickErr('Indique una etiqueta de instancia (zona).');
       return;
     }
-    const label = instanceLabel.trim() || 'ZONA 1';
-    const name = displayName.trim() || buildDisplayNameClient(template.descripcion, label);
+    if (label.length > 50) {
+      setPickErr('La etiqueta no puede superar 50 caracteres.');
+      return;
+    }
+    const name = buildDisplayNameClient(kitBase, label);
     onConfirm({
       instanceLabel: label,
       displayName: name,
       qty: template.mainQty || 1,
-      lines: selected.map((l) => ({
-        catalogItemId: l.catalogItemId,
-        qty: Number(l.qty) || 0,
-        ...(hidePrices ? {} : { unitPrice: Number(l.unitPrice) }),
-        included: true,
-      })),
+      lines: selected,
       ...(hidePrices ? {} : { unitPrice: total }),
     });
   }
 
+  const helpText = editMode
+    ? hidePrices
+      ? 'El producto final siempre permanece en el presupuesto. Marque las dependencias opcionales, ajuste cantidades o agregue ítems extra.'
+      : 'El producto final siempre permanece en el presupuesto. Marque las dependencias opcionales (ninguna, una o varias), ajuste cantidades o agregue ítems extra; el precio se recalcula automáticamente.'
+    : hidePrices
+      ? 'El producto final siempre se agrega al presupuesto. Marque las dependencias opcionales que desee incluir (puede elegir ninguna, una o varias) y ajuste las cantidades antes de confirmar.'
+      : 'El producto final siempre se agrega al presupuesto. Marque las dependencias opcionales que desee incluir (puede elegir ninguna, una o varias), ajuste las cantidades; el precio del conjunto es la suma de los componentes seleccionados.';
+
   return (
+    <>
     <Modal
       wide
       title={`${editMode ? 'Editar conjunto' : 'Producto final'} — ${template.descripcion}`}
@@ -169,13 +256,7 @@ export function KitInstanceModal({
       }
     >
       <p className="muted mono" style={{ fontSize: 12, marginBottom: 12, lineHeight: 1.45 }}>
-        {editMode
-          ? hidePrices
-            ? 'Modifique componentes, cantidades o agregue ítems al conjunto.'
-            : 'Modifique componentes, cantidades o agregue ítems al conjunto. El precio se recalcula automáticamente.'
-          : hidePrices
-            ? 'Configure los componentes de esta instancia. Marque o desmarque cada fila para incluirla en el conjunto.'
-            : 'Configure los componentes de esta instancia. Marque o desmarque cada fila; el precio del conjunto es la suma de los componentes seleccionados.'}
+        {helpText}
       </p>
       <div className="stack-form" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
@@ -185,12 +266,11 @@ export function KitInstanceModal({
               className="form-input mono"
               value={instanceLabel}
               disabled={busy}
-              placeholder="ZONA 1, ZONA 2…"
+              maxLength={50}
+              placeholder="ZONA 1, Bodega A, Sala fría…"
               onChange={(e) => {
+                setPickErr(null);
                 setInstanceLabel(e.target.value);
-                if (!displayEdited) {
-                  setDisplayName(buildDisplayNameClient(template.descripcion, e.target.value));
-                }
               }}
             />
           </label>
@@ -199,11 +279,9 @@ export function KitInstanceModal({
             <input
               className="form-input"
               value={displayName}
-              disabled={busy}
-              onChange={(e) => {
-                setDisplayEdited(true);
-                setDisplayName(e.target.value);
-              }}
+              disabled
+              readOnly
+              title="Se genera como: etiqueta — nombre del producto final"
             />
           </label>
         </div>
@@ -218,7 +296,9 @@ export function KitInstanceModal({
           <table className="data-table data-table--compact">
             <thead>
               <tr>
-                <th style={{ width: 36 }}>+</th>
+                <th style={{ width: 36 }} title="Incluir dependencia">
+                  +
+                </th>
                 <th>Código</th>
                 <th>Descripción</th>
                 <th className="num">Cant.</th>
@@ -228,6 +308,27 @@ export function KitInstanceModal({
               </tr>
             </thead>
             <tbody>
+              <tr className="catalog-dep-row--main">
+                <td>
+                  <input
+                    type="checkbox"
+                    checked
+                    disabled
+                    title="Producto final (siempre incluido)"
+                  />
+                </td>
+                <td className="mono">
+                  {template.codigo}
+                  <span className="tag tag--ok" style={{ marginLeft: 6, fontSize: 9 }}>
+                    principal
+                  </span>
+                </td>
+                <td>{template.descripcion}</td>
+                <td className="num mono">{template.mainQty || 1}</td>
+                {!hidePrices && <td className="num mono">—</td>}
+                {!hidePrices && <td className="num mono">—</td>}
+                <td />
+              </tr>
               {lines.map((l) => {
                 const sub = (Number(l.qty) || 0) * (Number(l.unitPrice) || 0);
                 return (
@@ -238,6 +339,7 @@ export function KitInstanceModal({
                         checked={l.included !== false}
                         disabled={busy}
                         onChange={() => toggleLine(l.catalogItemId)}
+                        title="Incluir dependencia"
                       />
                     </td>
                     <td className="mono">{l.codigo}</td>
@@ -290,11 +392,26 @@ export function KitInstanceModal({
               disabled={busy}
             />
           </label>
-          <button type="button" className="btn btn-ghost" disabled={busy || !addItemId} onClick={addExtraLine}>
-            + Agregar
+          <button
+            type="button"
+            className="btn btn-ghost"
+            disabled={busy || extraAddBusy || !addItemId}
+            onClick={addExtraLine}
+          >
+            {extraAddBusy ? 'Cargando…' : '+ Agregar'}
           </button>
         </div>
       </form>
     </Modal>
+
+      <CatalogDependencyAddModal
+        open={!!pendingExtraDep}
+        bundle={pendingExtraDep?.bundle}
+        busy={false}
+        hidePrices={hidePrices}
+        onClose={() => setPendingExtraDep(null)}
+        onConfirm={confirmExtraDepAdd}
+      />
+    </>
   );
 }

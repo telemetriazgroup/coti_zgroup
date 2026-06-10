@@ -126,7 +126,7 @@ async function setItemDependencies(parentItemId, deps, client = null) {
 }
 
 /**
- * Expande dependencias transitivas para agregar al presupuesto.
+ * Expande dependencias directas para el modal de presupuesto (sin transitivas).
  * @param {string} rootItemId
  * @param {number} rootQty cantidad del ítem principal
  */
@@ -140,23 +140,7 @@ async function resolveDependencyBundle(rootItemId, rootQty = 1, client = null) {
   }
   const root = rootRows[0];
 
-  const qtyByItem = new Map();
-
-  async function walk(parentId, multiplier) {
-    const deps = await fetchDirectDependencies(parentId, client);
-    for (const dep of deps) {
-      if (dep.childItemId === rootItemId) continue;
-      const addQty = multiplier * dep.qty;
-      qtyByItem.set(dep.childItemId, (qtyByItem.get(dep.childItemId) || 0) + addQty);
-      await walk(dep.childItemId, addQty);
-    }
-  }
-
-  await walk(rootItemId, qtyMain);
-
-  const allIds = [rootItemId, ...qtyByItem.keys()];
-  const { rows: itemRows } = await q(`SELECT * FROM catalog_items WHERE id = ANY($1::uuid[])`, [allIds]);
-  const byId = new Map(itemRows.map((r) => [r.id, r]));
+  const deps = await fetchDirectDependencies(rootItemId, client);
 
   const lines = [
     {
@@ -172,19 +156,22 @@ async function resolveDependencyBundle(rootItemId, rootQty = 1, client = null) {
     },
   ];
 
-  for (const [childId, qty] of qtyByItem.entries()) {
-    const it = byId.get(childId);
-    if (!it || it.active === false) continue;
+  for (const dep of deps) {
+    if (dep.childItemId === rootItemId) continue;
+    const child = dep.child;
+    if (!child || child.active === false) continue;
+    const perMain = Number(dep.qty) || 1;
     lines.push({
-      catalogItemId: childId,
-      codigo: it.codigo,
-      descripcion: it.descripcion,
-      unidad: it.unidad,
-      tipo: it.tipo,
-      unitPrice: Number(it.unit_price),
-      qty: Math.round(qty * 1000) / 1000,
+      catalogItemId: dep.childItemId,
+      codigo: child.codigo || '',
+      descripcion: child.descripcion || '',
+      unidad: child.unidad || 'UND',
+      tipo: child.tipo || 'ACTIVO',
+      unitPrice: child.unitPrice != null ? Number(child.unitPrice) : 0,
+      qty: Math.round(perMain * qtyMain * 1000) / 1000,
+      qtyPerMain: perMain,
       isMain: false,
-      included: true,
+      included: false,
     });
   }
 

@@ -91,8 +91,9 @@ async function resolveKitTemplate(catalogItemId, rootQty = 1, client = null) {
     unidad: dep.child?.unidad || 'UND',
     tipo: dep.child?.tipo || 'ACTIVO',
     unitPrice: dep.child?.unitPrice != null ? Number(dep.child.unitPrice) : 0,
+    qtyPerMain: Number(dep.qty) || 1,
     qty: Math.round(Number(dep.qty) * qtyMain * 1000) / 1000,
-    included: true,
+    included: false,
     fromTemplate: true,
   }));
 
@@ -102,6 +103,7 @@ async function resolveKitTemplate(catalogItemId, rootQty = 1, client = null) {
     catalogItemId,
     codigo: item.codigo,
     descripcion: item.descripcion,
+    kitBaseDesc: item.descripcion,
     unidad: item.unidad,
     tipo: item.tipo,
     categoryId: item.category_id,
