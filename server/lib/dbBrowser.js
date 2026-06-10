@@ -5,6 +5,8 @@ const { normalizeBool } = require('./catalogNormalize');
 const ALLOWED_TABLES = [
   'users',
   'admin_commercial_assignments',
+  'admin_groups',
+  'admin_group_members',
   'employees',
   'clients',
   'projects',
@@ -19,11 +21,17 @@ const ALLOWED_TABLES = [
   'project_plans',
   'project_budget_snapshots',
   'project_audit_log',
+  'login_lockouts',
   'refresh_tokens',
 ];
 
 /** Tablas solo lectura (auditoría / tokens). */
-const READONLY_TABLES = new Set(['catalog_change_log', 'project_audit_log', 'refresh_tokens']);
+const READONLY_TABLES = new Set([
+  'catalog_change_log',
+  'project_audit_log',
+  'refresh_tokens',
+  'login_lockouts',
+]);
 
 const BLOCKED_UPDATE_COLUMNS = {
   users: new Set(['password_hash']),

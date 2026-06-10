@@ -40,6 +40,12 @@ export const DEFAULT_FINANCE_PARAMS = {
   pdfIncludeIgv: false,
   pdfLogoUrl: '',
   pdfFooter: '',
+
+  /** Presupuesto: qué módulos puede ver el comercial (solo montos finales) */
+  commercialShowM1: false,
+  commercialShowCp: false,
+  commercialShowLp: false,
+  commercialShowEst: false,
 };
 
 export function mergeFinanceParams(stored) {

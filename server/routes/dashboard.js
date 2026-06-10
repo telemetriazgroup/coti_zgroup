@@ -1,6 +1,7 @@
 const express = require('express');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { sqlAdminTeamAndGroupAccess } = require('../lib/adminGroups');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -28,18 +29,13 @@ router.get('/summary', async (req, res) => {
 
     if (role === 'ADMIN') {
       const { rows: cRows } = await pool.query(`SELECT COUNT(*)::int AS n FROM clients`);
-      const adminTeam = `EXISTS (
-        SELECT 1 FROM users ucm WHERE ucm.id = p.created_by AND ucm.role = 'COMERCIAL' AND ucm.created_by = $1::uuid
-      ) OR EXISTS (
-        SELECT 1 FROM admin_commercial_assignments aca
-        WHERE aca.admin_id = $1::uuid AND aca.commercial_id = p.created_by
-      )`;
+      const adminExtended = sqlAdminTeamAndGroupAccess('$1');
       const { rows: pRows } = await pool.query(
         `SELECT COUNT(*)::int AS n FROM projects p
          WHERE p.deleted_at IS NULL AND (
            p.created_by = $1::uuid OR
            EXISTS (SELECT 1 FROM project_shares ps WHERE ps.project_id = p.id AND ps.user_id = $1::uuid) OR
-           ${adminTeam}
+           ${adminExtended}
          )`,
         [uid]
       );

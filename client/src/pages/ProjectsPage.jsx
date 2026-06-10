@@ -30,6 +30,8 @@ export function ProjectsPage() {
   const [auditRows, setAuditRows] = useState([]);
 
   const [formNew, setFormNew] = useState({ nombre: '', odooRef: '', clientId: '' });
+  const [formEdit, setFormEdit] = useState({ nombre: '', odooRef: '', clientId: '' });
+  const [editBusy, setEditBusy] = useState(false);
   const [formViewer, setFormViewer] = useState({ assignedViewerId: '' });
   const [formShare, setFormShare] = useState([]);
   const [shareUsers, setShareUsers] = useState([]);
@@ -103,6 +105,36 @@ export function ProjectsPage() {
       load();
     } catch (e2) {
       setErr(e2.message);
+    }
+  }
+
+  function openEdit(row) {
+    setSel(row);
+    setFormEdit({
+      nombre: row.nombre || '',
+      odooRef: row.odooRef || '',
+      clientId: row.clientId || '',
+    });
+    setModal('edit');
+  }
+
+  async function saveEditProject(e) {
+    e.preventDefault();
+    if (!sel) return;
+    setEditBusy(true);
+    setErr(null);
+    try {
+      await api.put(`/api/projects/${sel.id}`, {
+        nombre: formEdit.nombre.trim(),
+        odooRef: formEdit.odooRef.trim() || null,
+        clientId: formEdit.clientId || null,
+      });
+      setModal(null);
+      load();
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setEditBusy(false);
     }
   }
 
@@ -242,6 +274,12 @@ export function ProjectsPage() {
     return isAdmin() && row.createdBy === user?.id;
   }
 
+  function canEditProjectMeta(row) {
+    if (isSuperuser()) return true;
+    if (!isAdmin()) return false;
+    return row.accessKind === 'own' || row.accessKind === 'team';
+  }
+
   function accessLabel(row) {
     if (row.accessKind === 'own') return null;
     if (row.accessKind === 'shared') {
@@ -251,6 +289,10 @@ export function ProjectsPage() {
     if (row.accessKind === 'team') {
       const who = row.createdByName || row.createdByEmail || 'comercial';
       return `Equipo: ${who}`;
+    }
+    if (row.accessKind === 'group') {
+      const who = row.createdByName || row.createdByEmail || 'admin/comercial';
+      return `Grupo: ${who}`;
     }
     if (isSuperuser()) return row.createdByName || row.createdByEmail || '—';
     return null;
@@ -387,6 +429,11 @@ export function ProjectsPage() {
                           Equipo
                         </span>
                       )}
+                      {row.accessKind === 'group' && (
+                        <span className="tag" style={{ borderColor: 'var(--cyan)', color: 'var(--cyan)' }}>
+                          Grupo
+                        </span>
+                      )}
                       {accessLabel(row) && row.accessKind !== 'own' && (
                         <span className="muted" style={{ display: 'block', marginTop: 4 }}>
                           {accessLabel(row)}
@@ -447,6 +494,22 @@ export function ProjectsPage() {
                               </svg>
                             </span>
                             Compartir
+                          </button>
+                        )}
+                        {canEditProjectMeta(row) && !row.deletedAt && (
+                          <button
+                            type="button"
+                            className="btn-action"
+                            title="Editar nombre, cliente u Odoo"
+                            onClick={() => openEdit(row)}
+                          >
+                            <span className="btn-action__ic" aria-hidden>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <path d="M12 20h9" />
+                                <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                              </svg>
+                            </span>
+                            Editar
                           </button>
                         )}
                         {canManageRow(row) && !row.deletedAt && (
@@ -549,6 +612,54 @@ export function ProjectsPage() {
                 onChange={(clientId) => setFormNew((f) => ({ ...f, clientId }))}
                 onClientsChange={setClients}
                 canCreate={canWrite}
+                optional
+              />
+            </label>
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'edit' && sel && (
+        <Modal
+          title="Editar proyecto"
+          onClose={() => !editBusy && setModal(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" disabled={editBusy} onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+              <button type="submit" form="proj-edit-form" className="btn btn-primary" disabled={editBusy}>
+                {editBusy ? 'Guardando…' : 'Guardar'}
+              </button>
+            </>
+          }
+        >
+          <form id="proj-edit-form" className="stack-form" onSubmit={saveEditProject}>
+            <label>
+              <span className="fg-lbl">Nombre *</span>
+              <input
+                className="form-input"
+                required
+                value={formEdit.nombre}
+                onChange={(e) => setFormEdit((f) => ({ ...f, nombre: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Referencia Odoo</span>
+              <input
+                className="form-input mono"
+                value={formEdit.odooRef}
+                onChange={(e) => setFormEdit((f) => ({ ...f, odooRef: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Cliente (opcional)</span>
+              <ClientPicker
+                clients={clients}
+                value={formEdit.clientId}
+                onChange={(clientId) => setFormEdit((f) => ({ ...f, clientId }))}
+                onClientsChange={setClients}
+                canCreate={isAdmin()}
                 optional
               />
             </label>

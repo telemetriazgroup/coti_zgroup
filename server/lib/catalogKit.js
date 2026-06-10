@@ -64,7 +64,7 @@ function buildDisplayName(baseDesc, instanceLabel) {
   const label = String(instanceLabel || '').trim();
   if (!label) return base;
   if (!base) return label;
-  return `${base} ${label}`;
+  return `${label} - ${base}`;
 }
 
 /**

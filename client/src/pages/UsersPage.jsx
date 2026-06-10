@@ -30,6 +30,11 @@ const emptyCreate = {
   cargo: '',
   telefono: '',
   dni: '',
+  canSeeFinanceSummary: false,
+  canSeeFinanceM1: false,
+  canSeeFinanceCp: false,
+  canSeeFinanceLp: false,
+  canSeeFinanceEst: false,
 };
 
 export function UsersPage() {
@@ -94,6 +99,12 @@ export function UsersPage() {
       if (createForm.telefono) body.telefono = createForm.telefono;
       if (createForm.dni) body.dni = createForm.dni;
     }
+    if (canAssignRoles && createForm.role === 'COMERCIAL') {
+      body.canSeeFinanceM1 = !!createForm.canSeeFinanceM1;
+      body.canSeeFinanceCp = !!createForm.canSeeFinanceCp;
+      body.canSeeFinanceLp = !!createForm.canSeeFinanceLp;
+      body.canSeeFinanceEst = !!createForm.canSeeFinanceEst;
+    }
     try {
       await api.post('/api/users', body);
       setModal(null);
@@ -119,6 +130,12 @@ export function UsersPage() {
         telefono: data.telefono || '',
         dni: data.dni || '',
         notas: data.notas || '',
+        pricingMarket: data.pricingMarket || 'NACIONAL',
+        canSeeFinanceSummary: data.canSeeFinanceSummary === true,
+        canSeeFinanceM1: data.canSeeFinanceM1 === true,
+        canSeeFinanceCp: data.canSeeFinanceCp === true,
+        canSeeFinanceLp: data.canSeeFinanceLp === true,
+        canSeeFinanceEst: data.canSeeFinanceEst === true,
       });
       setModal('edit');
     } catch (e2) {
@@ -143,6 +160,15 @@ export function UsersPage() {
       };
       if (editForm.password && editForm.password.length >= 8) {
         body.password = editForm.password;
+      }
+      if (isSuperuser() && editForm.pricingMarket) {
+        body.pricingMarket = editForm.pricingMarket;
+      }
+      if (canAssignRoles && editForm.role === 'COMERCIAL') {
+        body.canSeeFinanceM1 = !!editForm.canSeeFinanceM1;
+        body.canSeeFinanceCp = !!editForm.canSeeFinanceCp;
+        body.canSeeFinanceLp = !!editForm.canSeeFinanceLp;
+        body.canSeeFinanceEst = !!editForm.canSeeFinanceEst;
       }
       await api.put(`/api/users/${editForm.id}`, body);
       setModal(null);
@@ -297,6 +323,7 @@ export function UsersPage() {
                 <th>Email</th>
                 <th>Rol</th>
                 <th>Nombre</th>
+                {canAssignRoles && <th>Presupuesto</th>}
                 <th>Estado</th>
                 <th className="actions-col">Acciones</th>
               </tr>
@@ -304,7 +331,7 @@ export function UsersPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={5} className="muted mono">
+                  <td colSpan={canAssignRoles ? 6 : 5} className="muted mono">
                     Cargando…
                   </td>
                 </tr>
@@ -322,6 +349,28 @@ export function UsersPage() {
                         ? `${row.nombres} ${row.apellidos || ''}`.trim()
                         : '—'}
                     </td>
+                    {canAssignRoles && (
+                      <td className="mono" style={{ fontSize: 11 }}>
+                        {row.role === 'COMERCIAL' ? (
+                          [
+                            row.can_see_finance_m1 && 'M1',
+                            row.can_see_finance_cp && 'CP',
+                            row.can_see_finance_lp && 'LP',
+                            row.can_see_finance_est && 'Est',
+                          ]
+                            .filter(Boolean)
+                            .join(', ') || (
+                            row.can_see_finance_summary ? (
+                              <span className="tag tag--ok">Todo</span>
+                            ) : (
+                              <span className="muted">Ninguno</span>
+                            )
+                          )
+                        ) : (
+                          '—'
+                        )}
+                      </td>
+                    )}
                     <td>{row.active ? <span className="tag tag--ok">Activo</span> : <span className="tag tag--off">Inactivo</span>}</td>
                     <td className="actions-cell">
                       <button type="button" className="btn-link mono" onClick={() => openEdit(row)}>
@@ -533,6 +582,31 @@ export function UsersPage() {
                 Los usuarios VIEWER no tienen ficha de empleado; solo acceso de lectura a proyectos asignados.
               </p>
             )}
+            {canAssignRoles && createForm.role === 'COMERCIAL' && (
+              <fieldset className="stack-form" style={{ gap: 8, border: '1px solid var(--border-dim)', padding: 12, borderRadius: 8 }}>
+                <legend className="fg-lbl" style={{ padding: '0 6px' }}>
+                  Resumen financiero para comercial (solo montos finales)
+                </legend>
+                <p className="muted mono" style={{ fontSize: 11, margin: '0 0 6px' }}>
+                  Autoriza qué módulos puede ver en presupuesto. En cada cotización debe activar también «Vista comercial» del módulo.
+                </p>
+                {[
+                  ['canSeeFinanceM1', 'Venta directa (total venta)'],
+                  ['canSeeFinanceCp', 'Corto plazo (cuota/mes y plazo)'],
+                  ['canSeeFinanceLp', 'Largo plazo (cuotas y plazos)'],
+                  ['canSeeFinanceEst', 'Estacionalidad (ingreso anual y calendario)'],
+                ].map(([key, label]) => (
+                  <label key={key} className="chk-row">
+                    <input
+                      type="checkbox"
+                      checked={!!createForm[key]}
+                      onChange={(e) => setCreateForm((f) => ({ ...f, [key]: e.target.checked }))}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
           </form>
         </Modal>
       )}
@@ -608,6 +682,44 @@ export function UsersPage() {
               <label className="chk-row">
                 <input type="checkbox" checked={editForm.active} disabled />
                 <span>Usuario activo</span>
+              </label>
+            )}
+            {canAssignRoles && editForm.role === 'COMERCIAL' && (
+              <fieldset className="stack-form" style={{ gap: 8, border: '1px solid var(--border-dim)', padding: 12, borderRadius: 8 }}>
+                <legend className="fg-lbl" style={{ padding: '0 6px' }}>
+                  Resumen financiero para comercial (solo montos finales)
+                </legend>
+                <p className="muted mono" style={{ fontSize: 11, margin: '0 0 6px' }}>
+                  Autoriza qué módulos puede ver en presupuesto. En cada cotización debe activar también «Vista comercial» del módulo.
+                </p>
+                {[
+                  ['canSeeFinanceM1', 'Venta directa (total venta)'],
+                  ['canSeeFinanceCp', 'Corto plazo (cuota/mes y plazo)'],
+                  ['canSeeFinanceLp', 'Largo plazo (cuotas y plazos)'],
+                  ['canSeeFinanceEst', 'Estacionalidad (ingreso anual y calendario)'],
+                ].map(([key, label]) => (
+                  <label key={key} className="chk-row">
+                    <input
+                      type="checkbox"
+                      checked={!!editForm[key]}
+                      onChange={(e) => setEditForm((f) => ({ ...f, [key]: e.target.checked }))}
+                    />
+                    <span>{label}</span>
+                  </label>
+                ))}
+              </fieldset>
+            )}
+            {isSuperuser() && editForm.role === 'COMERCIAL' && (
+              <label>
+                <span className="fg-lbl">Mercado del comercial</span>
+                <select
+                  className="form-input"
+                  value={editForm.pricingMarket || 'NACIONAL'}
+                  onChange={(e) => setEditForm((f) => ({ ...f, pricingMarket: e.target.value }))}
+                >
+                  <option value="NACIONAL">Nacional (proyectos nuevos)</option>
+                  <option value="INTERNACIONAL">Internacional (proyectos nuevos)</option>
+                </select>
               </label>
             )}
             {canAssignRoles && editForm.role !== 'VIEWER' && (

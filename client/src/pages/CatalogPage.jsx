@@ -30,6 +30,7 @@ export function CatalogPage() {
   const { canManageCatalog, hasRole, isSuperuser } = useAuth();
   const isAdmin = canManageCatalog();
   const isCommercial = hasRole('COMERCIAL');
+  const hideCatalogPrices = isCommercial;
   const superuser = isSuperuser();
   const showRequests = isAdmin || isCommercial;
 
@@ -63,6 +64,8 @@ export function CatalogPage() {
     unidad: 'UND',
     tipo: 'ACTIVO',
     unitPrice: '',
+    unitPriceIntl: '',
+    hasDualPrice: false,
     sortOrder: '',
     active: true,
     dependencies: [],
@@ -200,6 +203,13 @@ export function CatalogPage() {
       cancelled = true;
     };
   }, [modalItem, itemForm.categoryId, itemForm._id]);
+
+  const catalogTableColSpan = useMemo(() => {
+    let n = 6;
+    if (!hideCatalogPrices) n += 1;
+    if (isAdmin) n += 1;
+    return n;
+  }, [hideCatalogPrices, isAdmin]);
 
   const sortedCats = useMemo(
     () => [...categories].sort((a, b) => (a.sortOrder ?? 0) - (b.sortOrder ?? 0)),
@@ -395,6 +405,8 @@ export function CatalogPage() {
       unidad: 'UND',
       tipo: 'ACTIVO',
       unitPrice: '',
+      unitPriceIntl: '',
+      hasDualPrice: false,
       sortOrder: '',
       active: true,
       dependencies: [],
@@ -411,6 +423,8 @@ export function CatalogPage() {
       unidad: row.unidad || 'UND',
       tipo: row.tipo,
       unitPrice: String(row.unitPrice ?? 0),
+      unitPriceIntl: row.unitPriceIntl != null ? String(row.unitPriceIntl) : String(row.unitPrice ?? 0),
+      hasDualPrice: row.hasDualPrice === true,
       sortOrder: String(row.sortOrder ?? 0),
       active: row.active,
       _id: row.id,
@@ -468,6 +482,11 @@ export function CatalogPage() {
       unidad: itemForm.unidad || 'UND',
       tipo: itemForm.tipo,
       unitPrice,
+      hasDualPrice: !isKit && itemForm.hasDualPrice === true,
+      unitPriceIntl:
+        !isKit && itemForm.hasDualPrice
+          ? parseFloat(String(itemForm.unitPriceIntl).replace(',', '.')) || unitPrice
+          : undefined,
       sortOrder: itemForm.sortOrder === '' ? undefined : parseInt(itemForm.sortOrder, 10),
       active: itemForm.active,
       dependencies: deps,
@@ -803,7 +822,7 @@ export function CatalogPage() {
                 <th>Categoría</th>
                 <th>Unidad</th>
                 <th>Tipo</th>
-                <th className="num">P. unit.</th>
+                {!hideCatalogPrices && <th className="num">P. unit.</th>}
                 <th>Dependencias</th>
                 {isAdmin && <th />}
               </tr>
@@ -811,7 +830,7 @@ export function CatalogPage() {
             <tbody>
               {filteredItems.length === 0 ? (
                 <tr>
-                  <td colSpan={isAdmin ? 8 : 7} className="muted">
+                  <td colSpan={catalogTableColSpan} className="muted">
                     Sin ítems
                   </td>
                 </tr>
@@ -834,9 +853,11 @@ export function CatalogPage() {
                           {row.tipo}
                         </span>
                       </td>
-                      <td className="num mono">
-                        {Number(row.unitPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })}
-                      </td>
+                      {!hideCatalogPrices && (
+                        <td className="num mono">
+                          {Number(row.unitPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                        </td>
+                      )}
                       <td className="mono" style={{ fontSize: 11 }}>
                         {(row.dependencyCount ?? 0) > 0 ? (
                           <span
@@ -1170,8 +1191,9 @@ export function CatalogPage() {
                     }, 0)
                 : 0;
               return (
+                <>
             <label>
-              <span className="fg-lbl">Precio unitario (USD) {isKitItem ? '— calculado' : '*'}</span>
+              <span className="fg-lbl">Precio unitario nacional (USD) {isKitItem ? '— calculado' : '*'}</span>
               {isKitItem ? (
                 <div className="form-input mono" style={{ opacity: 0.9 }}>
                   {Number.isFinite(kitPreview) ? kitPreview.toFixed(2) : '0.00'} (suma componentes)
@@ -1188,6 +1210,32 @@ export function CatalogPage() {
               />
               )}
             </label>
+            {!isKitItem && (
+              <>
+                <label className="chk-row">
+                  <input
+                    type="checkbox"
+                    checked={!!itemForm.hasDualPrice}
+                    onChange={(e) => setItemForm((f) => ({ ...f, hasDualPrice: e.target.checked }))}
+                  />
+                  <span>Precio internacional distinto al nacional</span>
+                </label>
+                {itemForm.hasDualPrice && (
+                  <label>
+                    <span className="fg-lbl">Precio internacional (USD)</span>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      className="form-input mono"
+                      value={itemForm.unitPriceIntl}
+                      onChange={(e) => setItemForm((f) => ({ ...f, unitPriceIntl: e.target.value }))}
+                    />
+                  </label>
+                )}
+              </>
+            )}
+                </>
               );
             })()}
             <label>

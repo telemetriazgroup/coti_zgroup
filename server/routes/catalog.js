@@ -43,6 +43,7 @@ const {
   assertKitDependencies,
   resolveKitTemplate,
 } = require('../lib/catalogKit');
+const { sanitizeCatalogData, loadUserFlags, sanitizeKitTemplate, sanitizeDependencyBundle } = require('../lib/commercialVisibility');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -86,6 +87,8 @@ function mapItem(row) {
     unidad: row.unidad,
     tipo: row.tipo,
     unitPrice: row.unit_price != null ? Number(row.unit_price) : 0,
+    unitPriceIntl: row.unit_price_intl != null ? Number(row.unit_price_intl) : null,
+    hasDualPrice: row.has_dual_price === true,
     active: normalizeBool(row.active, true),
     sortOrder: row.sort_order,
     dependencyCount: row.dependency_count != null ? Number(row.dependency_count) : 0,
@@ -230,13 +233,22 @@ router.get('/', async (req, res) => {
     }
 
     const cached = fresh ? null : await getCached(includeInactive);
+    const userFlags = await loadUserFlags(req.user.id);
     if (cached) {
-      return res.json({ success: true, data: cached, cached: true });
+      return res.json({
+        success: true,
+        data: sanitizeCatalogData(userFlags, cached),
+        cached: true,
+      });
     }
 
     const data = await fetchCatalogFromDb(includeInactive);
     await setCached(includeInactive, data);
-    return res.json({ success: true, data, cached: false });
+    return res.json({
+      success: true,
+      data: sanitizeCatalogData(userFlags, data),
+      cached: false,
+    });
   } catch (err) {
     console.error('[CATALOG] GET:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
@@ -687,6 +699,8 @@ const itemBody = [
   body('unidad').optional().isString(),
   body('tipo').isIn(['ACTIVO', 'CONSUMIBLE']).withMessage('Tipo inválido'),
   body('unitPrice').isFloat({ min: 0 }).withMessage('Precio inválido'),
+  body('unitPriceIntl').optional({ nullable: true }).isFloat({ min: 0 }),
+  body('hasDualPrice').optional().isBoolean(),
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
 ];
@@ -701,7 +715,7 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
     });
   }
 
-  const { categoryId, codigo, descripcion, unidad, tipo, unitPrice, sortOrder, active } = req.body;
+  const { categoryId, codigo, descripcion, unidad, tipo, unitPrice, unitPriceIntl, hasDualPrice, sortOrder, active } = req.body;
 
   try {
     const { rows: catRows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [categoryId]);
@@ -740,11 +754,13 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
 
     const isKitCat = cat.is_kit_category === true;
     const priceToInsert = isKitCat ? 0 : unitPrice;
+    const dual = hasDualPrice === true && !isKitCat;
+    const intlPrice = dual && unitPriceIntl != null ? unitPriceIntl : priceToInsert;
 
     const { rows } = await pool.query(
       `INSERT INTO catalog_items
-        (category_id, codigo, descripcion, unidad, tipo, unit_price, sort_order, active, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, COALESCE($8, true), $9)
+        (category_id, codigo, descripcion, unidad, tipo, unit_price, unit_price_intl, has_dual_price, sort_order, active, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, true), $11)
        RETURNING *`,
       [
         categoryId,
@@ -753,6 +769,8 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
         unidad || 'UND',
         tipo,
         priceToInsert,
+        intlPrice,
+        dual,
         so,
         active,
         req.user.id,
@@ -819,6 +837,8 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
     unidad,
     tipo,
     unitPrice,
+    unitPriceIntl,
+    hasDualPrice,
     sortOrder,
     active,
   } = req.body;
@@ -870,6 +890,14 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
     if (unitPrice !== undefined && !isKitItemCat) {
       fields.push(`unit_price = $${i++}`);
       vals.push(unitPrice);
+    }
+    if (hasDualPrice !== undefined && !isKitItemCat) {
+      fields.push(`has_dual_price = $${i++}`);
+      vals.push(!!hasDualPrice);
+    }
+    if (unitPriceIntl !== undefined && !isKitItemCat) {
+      fields.push(`unit_price_intl = $${i++}`);
+      vals.push(unitPriceIntl);
     }
     if (sortOrder !== undefined) {
       fields.push(`sort_order = $${i++}`);
@@ -1006,7 +1034,8 @@ router.get('/items/:id/kit-template', requireAuth, [param('id').isUUID()], async
     if (!template) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
     }
-    return res.json({ success: true, data: template });
+    const userFlags = await loadUserFlags(req.user.id);
+    return res.json({ success: true, data: sanitizeKitTemplate(userFlags, template) });
   } catch (err) {
     if (err.code === 'NOT_KIT_ITEM') {
       return res.status(400).json({ success: false, error: { code: err.code, message: err.message } });
@@ -1024,7 +1053,8 @@ router.get('/items/:id/dependency-bundle', requireAuth, [param('id').isUUID()], 
     if (!bundle) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
     }
-    return res.json({ success: true, data: bundle });
+    const userFlags = await loadUserFlags(req.user.id);
+    return res.json({ success: true, data: sanitizeDependencyBundle(userFlags, bundle) });
   } catch (err) {
     console.error('[CATALOG] dependency bundle:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });

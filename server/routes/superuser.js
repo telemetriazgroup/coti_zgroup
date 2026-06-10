@@ -11,6 +11,11 @@ const {
   updateTableRow,
 } = require('../lib/dbBrowser');
 const { verifyUserPassword: verifySuperPassword } = require('../lib/verifyUserPassword');
+const {
+  listLoginLockouts,
+  clearLoginLockout,
+  clearLoginLockoutByUserId,
+} = require('../lib/loginLockout');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -197,6 +202,49 @@ router.put('/db/tables/:table/rows', async (req, res) => {
     }
     console.error('[SUPERUSER] db update:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message || 'Error interno' } });
+  }
+});
+
+// ─── GET /api/superuser/login-lockouts — cuentas bloqueadas por intentos ─
+router.get('/login-lockouts', async (req, res) => {
+  try {
+    const activeOnly = req.query.all !== 'true';
+    const rows = await listLoginLockouts({ activeOnly });
+    return res.json({ success: true, data: rows });
+  } catch (err) {
+    console.error('[SUPERUSER] login-lockouts list:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/superuser/login-lockouts/reset — desbloquear cuenta ─
+router.post('/login-lockouts/reset', async (req, res) => {
+  const { email, userId } = req.body || {};
+  try {
+    let cleared = false;
+    if (userId) {
+      cleared = await clearLoginLockoutByUserId(userId);
+    } else if (email) {
+      cleared = await clearLoginLockout(email);
+    } else {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Indique email o userId' },
+      });
+    }
+    if (!cleared) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'No hay bloqueo registrado para esa cuenta' },
+      });
+    }
+    return res.json({
+      success: true,
+      data: { message: 'Contador de intentos reiniciado. La cuenta puede iniciar sesión.' },
+    });
+  } catch (err) {
+    console.error('[SUPERUSER] login-lockouts reset:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
 

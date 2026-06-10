@@ -1,7 +1,6 @@
 const express = require('express');
 const bcrypt  = require('bcrypt');
 const crypto  = require('crypto');
-const rateLimit = require('express-rate-limit');
 const { body, validationResult } = require('express-validator');
 const { pool }  = require('../config/db');
 const {
@@ -10,6 +9,13 @@ const {
   verifyRefreshToken,
   requireAuth,
 } = require('../middleware/auth');
+const { mapAuthUser, AUTH_USER_SELECT } = require('../lib/userProfile');
+const {
+  checkLoginLockout,
+  recordFailedLogin,
+  clearLoginLockout,
+  normalizeLoginEmail,
+} = require('../lib/loginLockout');
 
 const router = express.Router();
 
@@ -31,8 +37,7 @@ async function resolveRefresh(req) {
   const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
   const { rows } = await pool.query(
-    `SELECT rt.id, u.id as user_id, u.email, u.role, u.active,
-            e.nombres, e.apellidos, e.cargo, e.foto_url
+    `SELECT rt.id, ${AUTH_USER_SELECT.replace(/\n/g, ' ')}
      FROM refresh_tokens rt
      JOIN users u ON u.id = rt.user_id
      LEFT JOIN employees e ON e.user_id = u.id
@@ -48,24 +53,16 @@ async function resolveRefresh(req) {
 
   const user = rows[0];
   const accessToken = signAccessToken({
-    id:    user.user_id,
+    id: user.id,
     email: user.email,
-    role:  user.role,
+    role: user.role,
   });
 
   return {
     ok: true,
     data: {
       accessToken,
-      user: {
-        id:        user.user_id,
-        email:     user.email,
-        role:      user.role,
-        nombres:   user.nombres,
-        apellidos: user.apellidos,
-        cargo:     user.cargo,
-        fotoUrl:   user.foto_url,
-      },
+      user: mapAuthUser(user),
     },
   };
 }
@@ -76,28 +73,8 @@ const REFRESH_ERR_MSG = {
   SESSION_EXPIRED: 'Sesión expirada. Por favor inicia sesión.',
 };
 
-// Rate limit login: por IP (req.ip respeta trust proxy si TRUST_PROXY=1). Ajustar con LOGIN_RATE_LIMIT_*.
-const LOGIN_RATE_LIMIT_MAX = Math.max(1, parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '5', 10) || 5);
-const LOGIN_RATE_LIMIT_WINDOW_MS = Math.max(
-  60_000,
-  parseInt(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000), 10) || 15 * 60 * 1000
-);
-const loginLimiter =
-  process.env.NODE_ENV === 'test'
-    ? (req, res, next) => next()
-    : rateLimit({
-        windowMs: LOGIN_RATE_LIMIT_WINDOW_MS,
-        max: LOGIN_RATE_LIMIT_MAX,
-        standardHeaders: true,
-        legacyHeaders: false,
-        message: {
-          success: false,
-          error: { code: 'TOO_MANY_REQUESTS', message: 'Demasiados intentos. Intenta en unos minutos.' }
-        }
-      });
-
 // ─── POST /api/auth/login ───────────────────────────────────────
-router.post('/login', loginLimiter, async (req, res) => {
+router.post('/login', async (req, res) => {
   const { email, password } = req.body;
 
   if (!email || !password) {
@@ -107,20 +84,34 @@ router.post('/login', loginLimiter, async (req, res) => {
     });
   }
 
+  const emailNorm = normalizeLoginEmail(email);
+
   try {
+    const lock = await checkLoginLockout(emailNorm);
+    if (lock.locked) {
+      return res.status(429).json({
+        success: false,
+        error: {
+          code: 'TOO_MANY_REQUESTS',
+          message: lock.message,
+          retryAfterMs: lock.retryAfterMs,
+        },
+      });
+    }
+
     // Buscar usuario activo
     const { rows } = await pool.query(
-      `SELECT u.id, u.email, u.password_hash, u.role, u.active,
-              e.nombres, e.apellidos, e.cargo, e.foto_url
+      `SELECT u.password_hash, ${AUTH_USER_SELECT.replace(/\n/g, ' ')}
        FROM users u
        LEFT JOIN employees e ON e.user_id = u.id
        WHERE u.email = $1`,
-      [email.toLowerCase().trim()]
+      [emailNorm]
     );
 
     const user = rows[0];
 
     if (!user || !user.active) {
+      await recordFailedLogin(emailNorm, null);
       return res.status(401).json({
         success: false,
         error: { code: 'INVALID_CREDENTIALS', message: 'Credenciales incorrectas' }
@@ -129,11 +120,24 @@ router.post('/login', loginLimiter, async (req, res) => {
 
     const passwordMatch = await bcrypt.compare(password, user.password_hash);
     if (!passwordMatch) {
+      const fail = await recordFailedLogin(emailNorm, user.id);
+      if (fail.locked) {
+        return res.status(429).json({
+          success: false,
+          error: {
+            code: 'TOO_MANY_REQUESTS',
+            message: fail.message,
+            retryAfterMs: fail.retryAfterMs,
+          },
+        });
+      }
       return res.status(401).json({
         success: false,
         error: { code: 'INVALID_CREDENTIALS', message: 'Credenciales incorrectas' }
       });
     }
+
+    await clearLoginLockout(emailNorm);
 
     // Generar tokens
     const accessToken  = signAccessToken(user);
@@ -162,15 +166,7 @@ router.post('/login', loginLimiter, async (req, res) => {
       success: true,
       data: {
         accessToken,
-        user: {
-          id:       user.id,
-          email:    user.email,
-          role:     user.role,
-          nombres:  user.nombres,
-          apellidos: user.apellidos,
-          cargo:    user.cargo,
-          fotoUrl:  user.foto_url,
-        }
+        user: mapAuthUser(user),
       }
     });
 
@@ -258,8 +254,7 @@ router.post('/logout', requireAuth, async (req, res) => {
 router.get('/me', requireAuth, async (req, res) => {
   try {
     const { rows } = await pool.query(
-      `SELECT u.id, u.email, u.role,
-              e.nombres, e.apellidos, e.cargo, e.telefono, e.dni, e.foto_url, e.fecha_ingreso
+      `SELECT ${AUTH_USER_SELECT.replace(/\n/g, ' ')}
        FROM users u
        LEFT JOIN employees e ON e.user_id = u.id
        WHERE u.id = $1 AND u.active = true`,
@@ -277,15 +272,9 @@ router.get('/me', requireAuth, async (req, res) => {
     return res.json({
       success: true,
       data: {
-        id:        u.id,
-        email:     u.email,
-        role:      u.role,
-        nombres:   u.nombres,
-        apellidos: u.apellidos,
-        cargo:     u.cargo,
-        telefono:  u.telefono,
-        dni:       u.dni,
-        fotoUrl:   u.foto_url,
+        ...mapAuthUser(u),
+        telefono: u.telefono,
+        dni: u.dni,
         fechaIngreso: u.fecha_ingreso,
       }
     });

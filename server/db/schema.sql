@@ -27,6 +27,8 @@ CREATE TYPE project_status AS ENUM (
 
 CREATE TYPE item_tipo AS ENUM ('ACTIVO', 'CONSUMIBLE');
 
+CREATE TYPE pricing_market AS ENUM ('NACIONAL', 'INTERNACIONAL');
+
 CREATE TYPE snapshot_kind AS ENUM ('CLIENTE', 'GERENCIA', 'INTERNO');
 
 CREATE TYPE audit_event AS ENUM (
@@ -55,6 +57,8 @@ CREATE TABLE users (
   password_hash VARCHAR(255) NOT NULL,
   role        user_role NOT NULL DEFAULT 'COMERCIAL',
   active      BOOLEAN NOT NULL DEFAULT true,
+  pricing_market pricing_market NOT NULL DEFAULT 'NACIONAL',
+  can_see_finance_summary BOOLEAN NOT NULL DEFAULT false,
   created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
@@ -77,6 +81,28 @@ CREATE TABLE admin_commercial_assignments (
 
 CREATE INDEX idx_admin_commercial_admin ON admin_commercial_assignments(admin_id);
 CREATE INDEX idx_admin_commercial_com ON admin_commercial_assignments(commercial_id);
+
+-- ─── GRUPOS DE ADMIN (visibilidad cruzada de proyectos) ─────────
+
+CREATE TABLE admin_groups (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  nombre      VARCHAR(120) NOT NULL,
+  created_by  UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE TABLE admin_group_members (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  group_id    UUID NOT NULL REFERENCES admin_groups(id) ON DELETE CASCADE,
+  admin_id    UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  assigned_by UUID NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (group_id, admin_id)
+);
+
+CREATE INDEX idx_admin_group_members_group ON admin_group_members(group_id);
+CREATE INDEX idx_admin_group_members_admin ON admin_group_members(admin_id);
 
 -- ─── EMPLOYEES ─────────────────────────────────────────────────
 
@@ -113,6 +139,20 @@ CREATE TABLE refresh_tokens (
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+
+-- ─── LOGIN LOCKOUTS (por email, no por IP) ─────────────────────
+
+CREATE TABLE login_lockouts (
+  email_normalized VARCHAR(255) PRIMARY KEY,
+  user_id          UUID REFERENCES users(id) ON DELETE SET NULL,
+  failed_count     INTEGER NOT NULL DEFAULT 0,
+  locked_until     TIMESTAMPTZ,
+  last_attempt_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_login_lockouts_locked_until ON login_lockouts(locked_until);
+CREATE INDEX idx_login_lockouts_user_id ON login_lockouts(user_id);
 
 -- ─── CLIENTS ───────────────────────────────────────────────────
 
@@ -164,6 +204,7 @@ CREATE TABLE projects (
   assigned_viewer UUID REFERENCES users(id) ON DELETE SET NULL,
   currency        VARCHAR(3) NOT NULL DEFAULT 'USD',
   tc              NUMERIC(8,4) DEFAULT 3.75,
+  quotation_market pricing_market NOT NULL DEFAULT 'NACIONAL',
   finance_params  JSONB NOT NULL DEFAULT '{}',
   deleted_at      TIMESTAMPTZ,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -215,6 +256,8 @@ CREATE TABLE catalog_items (
   unidad        VARCHAR(30) NOT NULL DEFAULT 'UND',
   tipo          item_tipo NOT NULL DEFAULT 'ACTIVO',
   unit_price    NUMERIC(12,2) NOT NULL DEFAULT 0,
+  unit_price_intl NUMERIC(12,2),
+  has_dual_price BOOLEAN NOT NULL DEFAULT false,
   active        BOOLEAN NOT NULL DEFAULT true,
   sort_order    INTEGER NOT NULL DEFAULT 0,
   created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
@@ -333,11 +376,13 @@ CREATE TABLE project_items (
   is_bundle_component BOOLEAN NOT NULL DEFAULT false,
   created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_by      UUID REFERENCES users(id) ON DELETE SET NULL,
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 CREATE INDEX idx_project_items_project_id ON project_items(project_id);
 CREATE INDEX idx_project_items_created_by ON project_items(created_by);
+CREATE INDEX idx_project_items_updated_by ON project_items(updated_by);
 CREATE INDEX idx_project_items_tipo ON project_items(tipo);
 CREATE INDEX idx_project_items_category_id ON project_items(category_id);
 CREATE INDEX idx_project_items_bundle ON project_items(bundle_id);

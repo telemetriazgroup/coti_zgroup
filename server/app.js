@@ -21,6 +21,7 @@ const planRoutes = require('./routes/plans');
 const exportRoutes = require('./routes/export');
 const superuserRoutes = require('./routes/superuser');
 const adminAssignmentsRoutes = require('./routes/adminAssignments');
+const adminGroupsRoutes = require('./routes/adminGroups');
 
 const app = express();
 
@@ -147,6 +148,7 @@ web.use('/api/catalog', catalogRoutes);
 web.use('/api/export', exportRoutes);
 web.use('/api/superuser', superuserRoutes);
 web.use('/api/admin-assignments', adminAssignmentsRoutes);
+web.use('/api/admin-groups', adminGroupsRoutes);
 
 web.get('/api/health', (req, res) => {
   res.json({

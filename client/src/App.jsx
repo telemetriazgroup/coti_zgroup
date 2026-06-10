@@ -15,6 +15,7 @@ import { UserGuidePage } from './pages/UserGuidePage';
 import { SuperuserPage } from './pages/SuperuserPage';
 import { DbBrowserPage } from './pages/DbBrowserPage';
 import { AdminAssignmentsPage } from './pages/AdminAssignmentsPage';
+import { AdminGroupsPage } from './pages/AdminGroupsPage';
 import { MeasuresPage } from './pages/MeasuresPage';
 import { ProfilePage } from './pages/ProfilePage';
 
@@ -95,6 +96,7 @@ export function App() {
             <Route path="superusuario" element={<SuperuserPage />} />
             <Route path="superusuario/datos" element={<DbBrowserPage />} />
             <Route path="superusuario/asignaciones" element={<AdminAssignmentsPage />} />
+            <Route path="superusuario/grupos" element={<AdminGroupsPage />} />
           </Route>
           <Route element={<RequireUserManager />}>
             <Route path="users" element={<UsersPage />} />

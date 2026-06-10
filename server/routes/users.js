@@ -13,6 +13,22 @@ const {
   applyUserImport,
 } = require('../lib/usersExcel');
 const { buildDefaultPassword } = require('../lib/defaultPassword');
+const { normalizeMarket, MARKETS } = require('../lib/pricingMarket');
+
+function commercialFinanceFromBody(body) {
+  const m1 = body.canSeeFinanceM1 === true;
+  const cp = body.canSeeFinanceCp === true;
+  const lp = body.canSeeFinanceLp === true;
+  const est = body.canSeeFinanceEst === true;
+  const legacy = body.canSeeFinanceSummary === true;
+  return {
+    m1: legacy || m1,
+    cp: legacy || cp,
+    lp: legacy || lp,
+    est: legacy || est,
+    summary: legacy || m1 || cp || lp || est,
+  };
+}
 
 async function userManagedBy(actor, targetId) {
   if (actor.id === targetId) return true;
@@ -96,7 +112,7 @@ router.get('/managed-commercials', requireRole('ADMIN', 'SUPERUSER'), async (req
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     const { rows } = await pool.query(
-      `SELECT u.id, u.email, u.active, u.created_by,
+      `SELECT u.id, u.email, u.active, u.created_by, u.pricing_market, u.can_see_finance_summary,
               TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre,
               (u.created_by = $1::uuid) AS created_by_me,
               EXISTS (
@@ -161,6 +177,8 @@ router.get('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res)
   try {
     let sql = `
       SELECT u.id, u.email, u.role, u.active, u.created_by, u.created_at,
+              u.pricing_market, u.can_see_finance_summary,
+              u.can_see_finance_m1, u.can_see_finance_cp, u.can_see_finance_lp, u.can_see_finance_est,
               e.nombres, e.apellidos, e.cargo, e.telefono, e.foto_url,
               cb.email AS created_by_email
        FROM users u
@@ -348,7 +366,8 @@ router.get('/:id', async (req, res) => {
 
   try {
     const { rows } = await pool.query(
-      `SELECT u.id, u.email, u.role, u.active, u.created_at,
+      `SELECT u.id, u.email, u.role, u.active, u.created_at, u.pricing_market, u.can_see_finance_summary,
+              u.can_see_finance_m1, u.can_see_finance_cp, u.can_see_finance_lp, u.can_see_finance_est,
               e.nombres, e.apellidos, e.cargo, e.telefono, e.dni,
               e.foto_url, e.fecha_ingreso, e.notas
        FROM users u
@@ -359,7 +378,31 @@ router.get('/:id', async (req, res) => {
 
     if (!rows[0]) return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Usuario no encontrado' } });
 
-    return res.json({ success: true, data: rows[0] });
+    const r = rows[0];
+    return res.json({
+      success: true,
+      data: {
+        id: r.id,
+        email: r.email,
+        role: r.role,
+        active: r.active,
+        createdAt: r.created_at,
+        pricingMarket: r.pricing_market || 'NACIONAL',
+        canSeeFinanceSummary: r.can_see_finance_summary === true,
+        canSeeFinanceM1: r.can_see_finance_m1 === true,
+        canSeeFinanceCp: r.can_see_finance_cp === true,
+        canSeeFinanceLp: r.can_see_finance_lp === true,
+        canSeeFinanceEst: r.can_see_finance_est === true,
+        nombres: r.nombres,
+        apellidos: r.apellidos,
+        cargo: r.cargo,
+        telefono: r.telefono,
+        dni: r.dni,
+        fotoUrl: r.foto_url,
+        fechaIngreso: r.fecha_ingreso,
+        notas: r.notas,
+      },
+    });
   } catch (err) {
     console.error('[USERS] Get error:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
@@ -390,7 +433,23 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), createValidatio
     });
   }
 
-  const { email, password, role, nombres, apellidos, cargo, telefono, dni, fechaIngreso } = req.body;
+  const {
+    email,
+    password,
+    role,
+    nombres,
+    apellidos,
+    cargo,
+    telefono,
+    dni,
+    fechaIngreso,
+    canSeeFinanceSummary,
+    canSeeFinanceM1,
+    canSeeFinanceCp,
+    canSeeFinanceLp,
+    canSeeFinanceEst,
+  } = req.body;
+  const isElevated = ['ADMIN', 'SUPERUSER'].includes(req.user.role);
 
   if (!canCreateRole(req.user.role, role)) {
     return res.status(403).json({
@@ -421,9 +480,34 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), createValidatio
     try {
       await client.query('BEGIN');
 
+      const financeAccess =
+        role === 'COMERCIAL' && isElevated
+          ? commercialFinanceFromBody({
+              canSeeFinanceSummary,
+              canSeeFinanceM1,
+              canSeeFinanceCp,
+              canSeeFinanceLp,
+              canSeeFinanceEst,
+            })
+          : { m1: false, cp: false, lp: false, est: false, summary: false };
+
       const { rows: userRows } = await client.query(
-        `INSERT INTO users (email, password_hash, role, created_by) VALUES ($1, $2, $3, $4) RETURNING id`,
-        [email.toLowerCase().trim(), passwordHash, role, req.user.id]
+        `INSERT INTO users (
+           email, password_hash, role, created_by,
+           can_see_finance_summary, can_see_finance_m1, can_see_finance_cp,
+           can_see_finance_lp, can_see_finance_est
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+        [
+          email.toLowerCase().trim(),
+          passwordHash,
+          role,
+          req.user.id,
+          financeAccess.summary,
+          financeAccess.m1,
+          financeAccess.cp,
+          financeAccess.lp,
+          financeAccess.est,
+        ]
       );
       const userId = userRows[0].id;
 
@@ -463,8 +547,31 @@ router.put('/:id', async (req, res) => {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
   }
 
-  const { nombres, apellidos, cargo, telefono, dni, fechaIngreso, notas, password, role, active } = req.body;
+  const {
+    nombres,
+    apellidos,
+    cargo,
+    telefono,
+    dni,
+    fechaIngreso,
+    notas,
+    password,
+    role,
+    active,
+    pricingMarket,
+    canSeeFinanceSummary,
+    canSeeFinanceM1,
+    canSeeFinanceCp,
+    canSeeFinanceLp,
+    canSeeFinanceEst,
+  } = req.body;
   const isElevated = ['ADMIN', 'SUPERUSER'].includes(req.user.role);
+  const hasFinanceUpdate =
+    canSeeFinanceSummary !== undefined ||
+    canSeeFinanceM1 !== undefined ||
+    canSeeFinanceCp !== undefined ||
+    canSeeFinanceLp !== undefined ||
+    canSeeFinanceEst !== undefined;
 
   try {
     if (active === false && isSelf) {
@@ -474,10 +581,66 @@ router.put('/:id', async (req, res) => {
       });
     }
 
-    if (password || (role && isElevated) || (active !== undefined && (isElevated || req.user.role === 'COMERCIAL'))) {
+    if (
+      password ||
+      (role && isElevated) ||
+      (active !== undefined && (isElevated || req.user.role === 'COMERCIAL')) ||
+      pricingMarket !== undefined ||
+      hasFinanceUpdate
+    ) {
       const updates = [];
       const params = [];
       let idx = 1;
+
+      if (pricingMarket !== undefined) {
+        if (req.user.role !== 'SUPERUSER') {
+          return res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Solo el superusuario puede cambiar el mercado del usuario' },
+          });
+        }
+        if (!MARKETS.includes(pricingMarket)) {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'Mercado inválido' },
+          });
+        }
+        updates.push(`pricing_market = $${idx++}`);
+        params.push(normalizeMarket(pricingMarket));
+      }
+
+      if (hasFinanceUpdate) {
+        if (!isElevated) {
+          return res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Acceso denegado' },
+          });
+        }
+        const { rows: targetRows } = await pool.query(`SELECT role FROM users WHERE id = $1`, [req.params.id]);
+        if (!targetRows[0] || targetRows[0].role !== 'COMERCIAL') {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'Solo aplica a usuarios comerciales' },
+          });
+        }
+        const access = commercialFinanceFromBody({
+          canSeeFinanceSummary,
+          canSeeFinanceM1,
+          canSeeFinanceCp,
+          canSeeFinanceLp,
+          canSeeFinanceEst,
+        });
+        updates.push(`can_see_finance_summary = $${idx++}`);
+        params.push(access.summary);
+        updates.push(`can_see_finance_m1 = $${idx++}`);
+        params.push(access.m1);
+        updates.push(`can_see_finance_cp = $${idx++}`);
+        params.push(access.cp);
+        updates.push(`can_see_finance_lp = $${idx++}`);
+        params.push(access.lp);
+        updates.push(`can_see_finance_est = $${idx++}`);
+        params.push(access.est);
+      }
 
       if (password) {
         if (isSelf) {

@@ -10,7 +10,7 @@ function canReadProject(user, row, ctx = {}) {
   if (user.role === 'VIEWER' && row.assigned_viewer === user.id) return true;
   if (row.created_by === user.id) return true;
   if (ctx.isSharedWithMe) return true;
-  if (user.role === 'ADMIN' && ctx.isTeamCommercial) return true;
+  if (user.role === 'ADMIN' && (ctx.isTeamCommercial || ctx.isGroupAccess)) return true;
   return false;
 }
 
@@ -18,7 +18,7 @@ function canWriteProject(user, row, ctx = {}) {
   if (isSuperuser(user)) return true;
   if (row.created_by === user.id) return true;
   if (ctx.isSharedWithMe && (user.role === 'ADMIN' || user.role === 'COMERCIAL')) return true;
-  if (user.role === 'ADMIN' && ctx.isTeamCommercial) return true;
+  if (user.role === 'ADMIN' && (ctx.isTeamCommercial || ctx.isGroupAccess)) return true;
   return false;
 }
 
@@ -33,10 +33,24 @@ function canCloneProject(user, row, ctx = {}) {
   return canWriteProject(user, row, ctx);
 }
 
+/** Editar nombre, cliente u Odoo: propio admin, superusuario o proyecto de comercial del equipo (no otros ADMIN). */
+function canEditProjectMetadata(user, row, ctx = {}) {
+  if (isSuperuser(user)) return true;
+  if (row.created_by === user.id) return true;
+  if (user.role === 'ADMIN' && ctx.isTeamCommercial === true) return true;
+  return false;
+}
+
+function canViewProjectAudit(user, row, ctx = {}) {
+  return canEditProjectMetadata(user, row, ctx);
+}
+
 module.exports = {
   isProjectOwner,
   canReadProject,
   canWriteProject,
   canManageProject,
   canCloneProject,
+  canEditProjectMetadata,
+  canViewProjectAudit,
 };

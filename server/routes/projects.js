@@ -4,11 +4,16 @@ const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
-const { canReadProject, canWriteProject, canManageProject, canCloneProject } = require('../utils/projectAccess');
+const { canReadProject, canWriteProject, canManageProject, canCloneProject, canEditProjectMetadata, canViewProjectAudit } = require('../utils/projectAccess');
 const { loadProjectAccessContext } = require('../utils/projectShare');
 const { isSuperuser } = require('../utils/userRoles');
 const { mapProject, PROJECT_SELECT, projectVisibilityWhere } = require('../utils/projectHelpers');
 const { isValidStatusTransition } = require('../utils/projectStatusTransitions');
+const {
+  getUserPricingMarket,
+  normalizeMarket,
+  recalcProjectPricesForMarket,
+} = require('../lib/pricingMarket');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -67,19 +72,26 @@ router.get('/', async (req, res) => {
       ORDER BY p.updated_at DESC`;
 
     const { rows } = await pool.query(sql, params);
-    return res.json({ success: true, data: rows.map((r) => mapProject(r, uid)) });
+    return res.json({ success: true, data: rows.map((r) => mapProject(r, uid, role)) });
   } catch (err) {
     console.error('[PROJECTS] list:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
 
-// ─── GET /api/projects/:id/audit — solo SUPERUSER ───────────────
-router.get('/:id/audit', requireRole('SUPERUSER'), async (req, res) => {
+// ─── GET /api/projects/:id/audit — admin (propio/equipo) o superusuario ─
+router.get('/:id/audit', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
     if (!pr[0]) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+    }
+    const shareCtx = await loadProjectAccessContext(req.user, pr[0]);
+    if (!canViewProjectAudit(req.user, pr[0], shareCtx)) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'No puede ver el historial de este proyecto' },
+      });
     }
 
     const { rows } = await pool.query(
@@ -395,7 +407,7 @@ router.post(
         [req.user.id, req.user.role, newId]
       );
 
-      return res.status(201).json({ success: true, data: mapProject(full[0], req.user.id) });
+      return res.status(201).json({ success: true, data: mapProject(full[0], req.user.id, req.user.role) });
     } catch (err) {
       await client.query('ROLLBACK');
       console.error('[PROJECTS] clone:', err);
@@ -461,7 +473,7 @@ router.patch(
       });
 
       const { rows: full } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [req.user.id, req.user.role, req.params.id]);
-      return res.json({ success: true, data: mapProject(full[0], req.user.id) });
+      return res.json({ success: true, data: mapProject(full[0], req.user.id, req.user.role) });
     } catch (err) {
       console.error('[PROJECTS] viewer:', err);
       return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
@@ -517,11 +529,13 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), createValidatio
       }
     }
 
+    const creatorMarket = await getUserPricingMarket(req.user.id);
+
     const { rows } = await pool.query(
-      `INSERT INTO projects (nombre, odoo_ref, client_id, status, created_by)
-       VALUES ($1, $2, $3, COALESCE($4::project_status, 'BORRADOR'::project_status), $5)
+      `INSERT INTO projects (nombre, odoo_ref, client_id, status, created_by, quotation_market)
+       VALUES ($1, $2, $3, COALESCE($4::project_status, 'BORRADOR'::project_status), $5, $6)
        RETURNING *`,
-      [nombre.trim(), odooRefNorm, clientId || null, status || null, req.user.id]
+      [nombre.trim(), odooRefNorm, clientId || null, status || null, req.user.id, creatorMarket]
     );
 
     const ip = getClientIp(req);
@@ -539,7 +553,7 @@ router.post('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), createValidatio
       console.error('[PROJECTS] create: fila no encontrada tras INSERT', rows[0]?.id);
       return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
     }
-    return res.status(201).json({ success: true, data: mapProject(full[0], req.user.id) });
+    return res.status(201).json({ success: true, data: mapProject(full[0], req.user.id, req.user.role) });
   } catch (err) {
     const code = err && err.code;
     console.error('[PROJECTS] create:', code || err.message, err.detail || '');
@@ -581,6 +595,7 @@ const updateValidation = [
   body('currency').optional().isString(),
   body('tc').optional().isNumeric(),
   body('financeParams').optional().isObject(),
+  body('quotationMarket').optional().isIn(['NACIONAL', 'INTERNACIONAL']),
 ];
 
 // ─── PUT /api/projects/:id ─────────────────────────────────────
@@ -609,7 +624,7 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), updateValidat
       });
     }
 
-    const { nombre, odooRef, clientId, status, currency, tc, financeParams } = req.body;
+    const { nombre, odooRef, clientId, status, currency, tc, financeParams, quotationMarket } = req.body;
 
     if (clientId) {
       const { rows: c } = await pool.query(`SELECT id FROM clients WHERE id = $1`, [clientId]);
@@ -621,11 +636,32 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), updateValidat
       }
     }
 
-    const prevSnapshot = mapProject(pr[0], req.user.id);
+    const prevSnapshot = mapProject(pr[0], req.user.id, req.user.role);
 
     const fields = [];
     const vals = [];
     let i = 1;
+
+    const metadataChange =
+      nombre !== undefined || odooRef !== undefined || clientId !== undefined;
+
+    if (metadataChange) {
+      if (req.user.role === 'COMERCIAL') {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Solo administradores pueden editar nombre, cliente u Odoo' },
+        });
+      }
+      if (!canEditProjectMetadata(req.user, pr[0], shareCtx)) {
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Solo puede editar proyectos propios o de comerciales de su equipo',
+          },
+        });
+      }
+    }
 
     if (nombre !== undefined) {
       fields.push(`nombre = $${i++}`);
@@ -661,17 +697,44 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), updateValidat
       vals.push(tc);
     }
     if (financeParams !== undefined) {
-      fields.push(`finance_params = $${i++}`);
-      vals.push(JSON.stringify(financeParams));
+      if (req.user.role === 'COMERCIAL') {
+        /* Comercial no altera módulos financieros ni «Vista comercial» del proyecto */
+      } else {
+        fields.push(`finance_params = $${i++}`);
+        vals.push(JSON.stringify(financeParams));
+      }
+    }
+    if (quotationMarket !== undefined) {
+      if (!isSuperuser(req.user)) {
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Solo el superusuario puede cambiar el mercado de la cotización',
+          },
+        });
+      }
+      const nextMarket = normalizeMarket(quotationMarket);
+      if (nextMarket !== normalizeMarket(pr[0].quotation_market)) {
+        fields.push(`quotation_market = $${i++}`);
+        vals.push(nextMarket);
+      }
     }
 
     if (fields.length === 0) {
       const { rows: full } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [req.user.id, req.user.role, req.params.id]);
-      return res.json({ success: true, data: mapProject(full[0], req.user.id) });
+      return res.json({ success: true, data: mapProject(full[0], req.user.id, req.user.role) });
     }
 
     vals.push(req.params.id);
     await pool.query(`UPDATE projects SET ${fields.join(', ')} WHERE id = $${i}`, vals);
+
+    if (quotationMarket !== undefined && isSuperuser(req.user)) {
+      const nextMarket = normalizeMarket(quotationMarket);
+      if (nextMarket !== normalizeMarket(pr[0].quotation_market)) {
+        await recalcProjectPricesForMarket(req.params.id, nextMarket);
+      }
+    }
 
     const { rows: newRows } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
     const ip = getClientIp(req);
@@ -680,12 +743,12 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), updateValidat
       eventType: 'PROJECT_UPDATE',
       actorId: req.user.id,
       prevData: prevSnapshot,
-      newData: mapProject(newRows[0], req.user.id),
+      newData: mapProject(newRows[0], req.user.id, req.user.role),
       ip,
     });
 
     const { rows: full } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [req.user.id, req.user.role, req.params.id]);
-    return res.json({ success: true, data: mapProject(full[0], req.user.id) });
+    return res.json({ success: true, data: mapProject(full[0], req.user.id, req.user.role) });
   } catch (err) {
     console.error('[PROJECTS] update:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
@@ -713,7 +776,7 @@ router.delete('/:id', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
       projectId: req.params.id,
       eventType: 'PROJECT_DELETE',
       actorId: req.user.id,
-      prevData: mapProject(pr[0], req.user.id),
+      prevData: mapProject(pr[0], req.user.id, req.user.role),
       newData: { deletedAt: new Date().toISOString() },
       ip,
     });
@@ -744,7 +807,7 @@ router.get('/:id', async (req, res) => {
       }
     }
 
-    return res.json({ success: true, data: mapProject(rows[0], req.user.id) });
+    return res.json({ success: true, data: mapProject(rows[0], req.user.id, req.user.role) });
   } catch (err) {
     console.error('[PROJECTS] get:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });

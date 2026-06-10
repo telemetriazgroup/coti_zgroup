@@ -53,7 +53,7 @@ export function LoginPage() {
     } catch (err) {
       const code = err.code;
       if (code === 'TOO_MANY_REQUESTS') {
-        setError('Demasiados intentos. Espera 15 minutos antes de reintentar.');
+        setError(err.message || 'Demasiados intentos para esta cuenta. Espera antes de reintentar.');
       } else if (code === 'INVALID_CREDENTIALS' || err.status === 401) {
         setError('Credenciales incorrectas. Verifica tu correo y contraseña.');
       } else {

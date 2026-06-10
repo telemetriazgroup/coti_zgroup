@@ -8,16 +8,16 @@ const {
   computeLinesTotal,
   fetchItemWithCategory,
 } = require('./catalogKit');
+const { resolveUnitPrice, getProjectQuotationMarket } = require('./pricingMarket');
 
-async function suggestNextInstanceLabel(projectId, catalogItemId, client = null) {
+async function suggestNextInstanceLabel(projectId, _catalogItemId, client = null) {
   const q = client ? client.query.bind(client) : pool.query.bind(pool);
   const { rows } = await q(
-    `SELECT COUNT(*)::int AS n FROM project_item_bundles
-     WHERE project_id = $1 AND catalog_item_id = $2`,
-    [projectId, catalogItemId]
+    `SELECT COUNT(*)::int AS n FROM project_item_bundles WHERE project_id = $1`,
+    [projectId]
   );
   const n = (rows[0]?.n || 0) + 1;
-  return String(n);
+  return `ZONA ${n}`;
 }
 
 async function resolveDefaultApplyAdjustment(client, categoryId) {
@@ -29,9 +29,28 @@ async function resolveDefaultApplyAdjustment(client, categoryId) {
   return rows[0]?.default_apply_adjustment !== false;
 }
 
-async function insertBundleComponents(client, { projectId, userId, bundleId, lines, startSortOrder }) {
+async function resolveKitLinesForMarket(client, lines, market, { preserveOverrides = false } = {}) {
+  const included = (lines || []).filter((l) => l.included !== false && l.catalogItemId);
+  const out = [];
+  for (const line of included) {
+    const { rows: catRows } = await client.query(`SELECT * FROM catalog_items WHERE id = $1`, [
+      line.catalogItemId,
+    ]);
+    const cat = catRows[0];
+    if (!cat) continue;
+    let price = resolveUnitPrice(cat, market);
+    if (preserveOverrides && line.unitPrice != null && Number.isFinite(Number(line.unitPrice))) {
+      price = Number(line.unitPrice);
+    }
+    out.push({ ...line, unitPrice: price });
+  }
+  return out;
+}
+
+async function insertBundleComponents(client, { projectId, userId, bundleId, lines, startSortOrder, market }) {
   let sortOrder = startSortOrder;
   const componentIds = [];
+  const m = market || 'NACIONAL';
   for (const line of lines) {
     const { rows: compRows } = await client.query(
       `SELECT * FROM catalog_items WHERE id = $1 AND active = true`,
@@ -42,16 +61,17 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
       return { errorCode: 'INVALID_COMPONENT', message: 'Componente de catálogo no válido' };
     }
     const cQty = Math.max(0.001, Number(line.qty) || 0);
+    const resolved = resolveUnitPrice(comp, m);
     const cPrice =
       line.unitPrice != null && Number.isFinite(Number(line.unitPrice))
         ? Number(line.unitPrice)
-        : Number(comp.unit_price);
+        : resolved;
     const { rows: compIns } = await client.query(
       `INSERT INTO project_items
         (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price,
-         qty, is_custom, sort_order, category_id, apply_adjustment, created_by,
+         qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by,
          bundle_id, is_bundle_header, is_bundle_component)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, false, $12, $13, false, true)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, false, $12, $12, $13, false, true)
        RETURNING id`,
       [
         projectId,
@@ -61,7 +81,7 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
         comp.unidad,
         comp.tipo,
         cPrice,
-        Number(comp.unit_price),
+        resolved,
         cQty,
         sortOrder++,
         comp.category_id,
@@ -140,12 +160,13 @@ async function createProjectBundle(
     return { errorCode: 'NOT_KIT_ITEM', message: 'El ítem no es un producto final (KIT)' };
   }
 
-  const included = (lines || []).filter((l) => l.included !== false && l.catalogItemId);
+  const market = await getProjectQuotationMarket(projectId, client);
+  const included = await resolveKitLinesForMarket(client, lines, market, { preserveOverrides: false });
   if (included.length < 1) {
     return { errorCode: 'KIT_EMPTY', message: 'Seleccione al menos un componente para el conjunto' };
   }
 
-  const label = String(instanceLabel || '').trim() || '1';
+  const label = String(instanceLabel || '').trim() || 'ZONA 1';
   const name = String(displayName || '').trim() || buildDisplayName(kit.descripcion, label);
   const bundleQty = Math.max(0.001, Number(qty) || 1);
   const unitPrice = computeLinesTotal(included);
@@ -169,14 +190,14 @@ async function createProjectBundle(
   );
   let sortOrder = lineSort[0].n;
   const applyAdjustment = await resolveDefaultApplyAdjustment(client, kit.category_id);
-  const listPrice = Number(kit.unit_price);
+  const listPrice = resolveUnitPrice(kit, market);
 
   const { rows: headerIns } = await client.query(
     `INSERT INTO project_items
       (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price,
-       qty, is_custom, sort_order, category_id, apply_adjustment, created_by,
+       qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by,
        bundle_id, is_bundle_header, is_bundle_component)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $14, true, false)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $13, $14, true, false)
      RETURNING id`,
     [
       projectId,
@@ -203,6 +224,7 @@ async function createProjectBundle(
     bundleId: bundle.id,
     lines: included,
     startSortOrder: sortOrder,
+    market,
   });
   if (compResult.errorCode) return compResult;
   componentIds.push(...compResult.componentIds);
@@ -236,7 +258,7 @@ async function createProjectBundle(
  */
 async function updateProjectBundle(
   client,
-  { projectId, userId, bundleId, instanceLabel, displayName, qty, lines, ip }
+  { projectId, userId, bundleId, instanceLabel, displayName, qty, lines, ip, preservePriceOverrides = true }
 ) {
   const { rows: bundleRows } = await client.query(
     `SELECT b.*, i.descripcion AS kit_descripcion, i.codigo AS kit_codigo, i.unidad, i.tipo
@@ -250,12 +272,15 @@ async function updateProjectBundle(
     return { errorCode: 'NOT_FOUND', message: 'Conjunto no encontrado' };
   }
 
-  const included = (lines || []).filter((l) => l.included !== false && l.catalogItemId);
+  const market = await getProjectQuotationMarket(projectId, client);
+  const included = await resolveKitLinesForMarket(client, lines, market, {
+    preserveOverrides: preservePriceOverrides,
+  });
   if (included.length < 1) {
     return { errorCode: 'KIT_EMPTY', message: 'Seleccione al menos un componente para el conjunto' };
   }
 
-  const label = String(instanceLabel || '').trim() || bundle.instance_label || '1';
+  const label = String(instanceLabel || '').trim() || bundle.instance_label || 'ZONA 1';
   const name =
     String(displayName || '').trim() ||
     buildDisplayName(bundle.kit_descripcion || bundle.display_name, label);
@@ -283,6 +308,7 @@ async function updateProjectBundle(
     bundleId,
     lines: included,
     startSortOrder: sortOrder,
+    market,
   });
   if (compResult.errorCode) return compResult;
 
@@ -295,9 +321,9 @@ async function updateProjectBundle(
 
   await client.query(
     `UPDATE project_items SET
-       descripcion = $1, unit_price = $2, qty = $3, updated_at = NOW()
-     WHERE id = $4`,
-    [name, unitPrice, bundleQty, header.id]
+       descripcion = $1, unit_price = $2, qty = $3, updated_at = NOW(), updated_by = $4
+     WHERE id = $5`,
+    [name, unitPrice, bundleQty, userId, header.id]
   );
 
   logAuditEvent({

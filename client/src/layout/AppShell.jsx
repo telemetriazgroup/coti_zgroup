@@ -229,6 +229,16 @@ export function AppShell() {
                 Datos BD
               </NavLink>
               <NavLink
+                to="/superusuario/grupos"
+                className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
+                onClick={closeSidebarMobile}
+              >
+                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z" />
+                </svg>
+                Grupos admin
+              </NavLink>
+              <NavLink
                 to="/superusuario/asignaciones"
                 className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
                 onClick={closeSidebarMobile}

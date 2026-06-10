@@ -8,6 +8,7 @@ import { Modal } from '../components/Modal';
 import { FinanceModules } from '../components/finance/FinanceModules';
 import { ProjectWorkNav } from '../components/ProjectWorkNav';
 import { mergeFinanceParams } from '@shared/finance-engine.js';
+import { resolveCommercialModules } from '../lib/commercialFinanceAccess';
 import { STATUS_LABEL } from '../lib/quotationStatus';
 import { QuotationStatusFlow } from '../components/QuotationStatusFlow';
 import { ProjectShareModal } from '../components/ProjectShareModal';
@@ -15,6 +16,8 @@ import { SearchableSelect } from '../components/SearchableSelect';
 import { ClientPicker } from '../components/ClientPicker';
 import { CatalogDependencyAddModal } from '../components/CatalogDependencyAddModal';
 import { KitInstanceModal } from '../components/KitInstanceModal';
+import { ProjectBudgetHistory } from '../components/ProjectBudgetHistory';
+import { formatItemTraceUser } from '../lib/projectAuditLabels';
 import { fetchCategoryNextCodigo } from '../lib/catalogCodigoApi';
 import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
 
@@ -39,11 +42,21 @@ export function ProjectBudgetPage() {
   const navigate = useNavigate();
   const { hasRole, user, canManageCatalog, canShareProjects, isSuperuser } = useAuth();
   const viewerMode = user?.role === 'VIEWER';
+  const hideItemPrices = user?.role === 'COMERCIAL';
   const canWrite = hasRole('ADMIN', 'COMERCIAL', 'SUPERUSER');
   const isAdmin = canManageCatalog();
   const isCommercial = user?.role === 'COMERCIAL';
   /** Editar celdas, quitar línea y limpiar presupuesto: comercial en propios/compartidos; catálogo solo admin. */
   const canEditBudgetLines = canWrite && !viewerMode;
+  const canEditUnitPrices = canEditBudgetLines && !hideItemPrices;
+  const showAdjustmentCol = !hideItemPrices;
+  const budgetTableColSpan = useMemo(() => {
+    let n = 6;
+    if (!hideItemPrices) n += 2;
+    if (showAdjustmentCol) n += 1;
+    if (canEditBudgetLines) n += 1;
+    return n;
+  }, [hideItemPrices, showAdjustmentCol, canEditBudgetLines]);
 
   const [project, setProject] = useState(null);
   const [projectStatus, setProjectStatus] = useState(null);
@@ -92,6 +105,13 @@ export function ProjectBudgetPage() {
   const flushTimers = useRef({});
   const [financeParams, setFinanceParams] = useState(() => mergeFinanceParams({}));
   const financeTcPersistRef = useRef('');
+  const commercialModules = useMemo(
+    () => (hideItemPrices ? resolveCommercialModules(user, financeParams) : null),
+    [hideItemPrices, user, financeParams]
+  );
+  const showFinanceCommercial =
+    commercialModules && Object.values(commercialModules).some(Boolean);
+  const showFinancePanel = !viewerMode && (!hideItemPrices || showFinanceCommercial);
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfMsg, setPdfMsg] = useState(null);
   const pdfPollRef = useRef(null);
@@ -143,6 +163,9 @@ export function ProjectBudgetPage() {
     odooRef: '',
     clientId: '',
   });
+  const [editProjectForm, setEditProjectForm] = useState({ nombre: '', odooRef: '', clientId: '' });
+  const [editProjectBusy, setEditProjectBusy] = useState(false);
+  const [budgetHistoryOpen, setBudgetHistoryOpen] = useState(false);
   const [dupNombre, setDupNombre] = useState('');
   const [dupClientId, setDupClientId] = useState('');
   const [dupAllItems, setDupAllItems] = useState(true);
@@ -270,6 +293,18 @@ export function ProjectBudgetPage() {
     loadAll();
   }, [loadAll]);
 
+  async function changeQuotationMarket(nextMarket) {
+    if (!isSuperuser() || !projectId) return;
+    setErr(null);
+    try {
+      const data = await api.put(`/api/projects/${projectId}`, { quotationMarket: nextMarket });
+      setProject(data);
+      await loadAll();
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  }
+
   useEffect(() => {
     itemsRef.current = items;
   }, [items]);
@@ -280,7 +315,7 @@ export function ProjectBudgetPage() {
   }, []);
 
   useEffect(() => {
-    if (!projectId || !canWrite || !project) return;
+    if (!projectId || !canWrite || !project || hideItemPrices) return;
     const fpJson = JSON.stringify(financeParams);
     const tcVal = project.tc != null ? Number(project.tc) : 3.75;
     const sig = `${fpJson}|${tcVal}`;
@@ -303,7 +338,7 @@ export function ProjectBudgetPage() {
       }
     }, 500);
     return () => clearTimeout(t);
-  }, [financeParams, project, projectId, canWrite]);
+  }, [financeParams, project, projectId, canWrite, hideItemPrices]);
 
   const syncDraftFromItems = useCallback((list) => {
     const dm = { ...draftsRef.current };
@@ -349,6 +384,25 @@ export function ProjectBudgetPage() {
     }
     return list;
   }, [items, budgetLineQ]);
+
+  /** Índice de color 1–6 por conjunto KIT (mismo color cabecera + componentes). */
+  const bundleGroupById = useMemo(() => {
+    const map = new Map();
+    let n = 0;
+    const sorted = [...items].sort((a, b) => {
+      const sa = Number(a.sortOrder ?? 0);
+      const sb = Number(b.sortOrder ?? 0);
+      if (sa !== sb) return sa - sb;
+      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
+    });
+    for (const row of sorted) {
+      if (row.bundleId && !map.has(row.bundleId)) {
+        n += 1;
+        map.set(row.bundleId, ((n - 1) % 6) + 1);
+      }
+    }
+    return map;
+  }, [items]);
 
   const projectSelectOptions = useMemo(
     () =>
@@ -430,23 +484,38 @@ export function ProjectBudgetPage() {
       const p = parseFloat(o.replace(',', '.'));
       if (!Number.isNaN(p) && p >= 0) unitPrice = p;
     }
+    const cat = catById.get(catalogItem.categoryId);
+    const isKitProduct = catalogItem.isKit === true || cat?.isKitCategory === true;
+    const depCount = Number(catalogItem.dependencyCount) || 0;
+    const hasDeps = depCount > 0 || catalogItem.hasDependencies === true;
+
     try {
-      if (catalogItem.isKit) {
+      if (isKitProduct) {
         const [template, labelData] = await Promise.all([
           api.get(`/api/catalog/items/${catalogItem.id}/kit-template?qty=${qty}`),
           api.get(`/api/projects/${projectId}/bundles/next-label?catalogItemId=${catalogItem.id}`),
         ]);
+        if (!template?.lines?.length) {
+          setErr(
+            'Este producto final no tiene componentes en catálogo. Configure las dependencias en Catálogo antes de agregarlo.'
+          );
+          return;
+        }
         setKitModal({ template, suggestedLabel: labelData.label });
         return;
       }
-      const bundle = await api.get(`/api/catalog/items/${catalogItem.id}/dependency-bundle?qty=${qty}`);
-      if (!bundle?.dependencyCount) {
-        const line = { catalogItemId: catalogItem.id, qty };
-        if (unitPrice != null) line.unitPrice = unitPrice;
-        await commitBudgetLines([line]);
+      if (hasDeps) {
+        const bundle = await api.get(`/api/catalog/items/${catalogItem.id}/dependency-bundle?qty=${qty}`);
+        if (!bundle?.lines?.length) {
+          setErr('No se pudieron cargar las dependencias de este ítem.');
+          return;
+        }
+        setDepAddModal({ bundle, mainUnitPrice: unitPrice });
         return;
       }
-      setDepAddModal({ bundle, mainUnitPrice: unitPrice });
+      const line = { catalogItemId: catalogItem.id, qty };
+      if (unitPrice != null) line.unitPrice = unitPrice;
+      await commitBudgetLines([line]);
     } catch (e) {
       setErr(e.message);
     }
@@ -525,23 +594,30 @@ export function ProjectBudgetPage() {
     e.preventDefault();
     if (!canWrite) return;
     setErr(null);
-    const unitPrice = parseFloat(String(customForm.unitPrice).replace(',', '.'));
     const qty = parseFloat(String(customForm.qty).replace(',', '.'));
-    if (Number.isNaN(unitPrice) || unitPrice < 0 || Number.isNaN(qty) || qty < 0.001) {
-      setErr('Precio y cantidad inválidos');
+    if (Number.isNaN(qty) || qty < 0.001) {
+      setErr('Cantidad inválida');
       return;
+    }
+    const body = {
+      codigo: customForm.codigo.trim(),
+      descripcion: customForm.descripcion.trim(),
+      ...(customForm.categoryId ? { categoryId: customForm.categoryId } : {}),
+      unidad: customForm.unidad.trim() || 'UND',
+      tipo: customForm.tipo,
+      qty,
+    };
+    if (!hideItemPrices) {
+      const unitPrice = parseFloat(String(customForm.unitPrice).replace(',', '.'));
+      if (Number.isNaN(unitPrice) || unitPrice < 0) {
+        setErr('Precio y cantidad inválidos');
+        return;
+      }
+      body.unitPrice = unitPrice;
     }
     try {
       const data = await api.post(`/api/projects/${projectId}/items`, {
-        custom: {
-          codigo: customForm.codigo.trim(),
-          descripcion: customForm.descripcion.trim(),
-          ...(customForm.categoryId ? { categoryId: customForm.categoryId } : {}),
-          unidad: customForm.unidad.trim() || 'UND',
-          tipo: customForm.tipo,
-          unitPrice,
-          qty,
-        },
+        custom: body,
       });
       setItems(data.items);
       setTotals(data.totals);
@@ -578,6 +654,8 @@ export function ProjectBudgetPage() {
 
   async function startPdf(kind) {
     if (!projectId || pdfBusy) return;
+    const pdfKind = hideItemPrices ? 'CLIENTE' : kind;
+    if (hideItemPrices && kind === 'GERENCIA') return;
     if (pdfPollRef.current) {
       clearInterval(pdfPollRef.current);
       pdfPollRef.current = null;
@@ -586,7 +664,7 @@ export function ProjectBudgetPage() {
     setPdfMsg(null);
     setErr(null);
     try {
-      const data = await api.post('/api/export/pdf', { projectId, kind });
+      const data = await api.post('/api/export/pdf', { projectId, kind: pdfKind });
       const jobId = data.jobId;
       const poll = async () => {
         try {
@@ -876,6 +954,39 @@ export function ProjectBudgetPage() {
     }
   }
 
+  function openEditProjectModal() {
+    if (!project?.canEditMetadata) return;
+    setEditProjectForm({
+      nombre: project.nombre || '',
+      odooRef: project.odooRef || '',
+      clientId: project.clientId || '',
+    });
+    setModal('editProject');
+  }
+
+  async function submitEditProject(e) {
+    e.preventDefault();
+    if (!projectId || !project?.canEditMetadata) return;
+    setEditProjectBusy(true);
+    setErr(null);
+    try {
+      const data = await api.put(`/api/projects/${projectId}`, {
+        nombre: editProjectForm.nombre.trim(),
+        odooRef: editProjectForm.odooRef.trim() || null,
+        clientId: editProjectForm.clientId || null,
+      });
+      setProject(data);
+      setAccessibleProjects((prev) =>
+        prev.map((p) => (p.id === data.id ? { ...p, ...data, clientRazonSocial: data.clientRazonSocial } : p))
+      );
+      setModal(null);
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setEditProjectBusy(false);
+    }
+  }
+
   async function submitDuplicateProject(e) {
     e.preventDefault();
     if (!canWrite || !projectId) return;
@@ -969,8 +1080,26 @@ export function ProjectBudgetPage() {
           placeholder="Buscar proyecto…"
           emptyLabel="Sin proyectos coincidentes"
         />
+        {isSuperuser() && project && (
+          <label className="budget-project-bar__market mono">
+            <span className="muted">Mercado cotización</span>
+            <select
+              className="form-input"
+              value={project.quotationMarket || 'NACIONAL'}
+              onChange={(e) => changeQuotationMarket(e.target.value)}
+            >
+              <option value="NACIONAL">Nacional</option>
+              <option value="INTERNACIONAL">Internacional</option>
+            </select>
+          </label>
+        )}
         {canWrite && (
           <div className="budget-project-bar__actions">
+            {project?.canEditMetadata && (
+              <button type="button" className="btn btn-ghost" onClick={openEditProjectModal}>
+                Editar proyecto
+              </button>
+            )}
             <button
               type="button"
               className="btn btn-ghost"
@@ -1013,6 +1142,14 @@ export function ProjectBudgetPage() {
         onClose={() => setShareOpen(false)}
         onSaved={loadShareCount}
       />
+
+      {project?.canViewAudit && (
+        <ProjectBudgetHistory
+          projectId={projectId}
+          open={budgetHistoryOpen}
+          onToggle={() => setBudgetHistoryOpen((v) => !v)}
+        />
+      )}
 
       <div className="panel budget-io-panel">
         <div className="panel-hdr">
@@ -1065,12 +1202,22 @@ export function ProjectBudgetPage() {
 
       <div className="budget-infobar mono">
         <span>Total lista: {formatUsd(totals.lista)}</span>
-        <span className="budget-infobar-sep">|</span>
-        <span>Activos: {formatUsd(totals.activos)}</span>
-        <span className="budget-infobar-sep">|</span>
-        <span>Consumibles: {formatUsd(totals.consumibles)}</span>
+        {!hideItemPrices && (
+          <>
+            <span className="budget-infobar-sep">|</span>
+            <span>Activos: {formatUsd(totals.activos)}</span>
+            <span className="budget-infobar-sep">|</span>
+            <span>Consumibles: {formatUsd(totals.consumibles)}</span>
+          </>
+        )}
         <span className="budget-infobar-sep">|</span>
         <span>Ítems: {items.length}</span>
+        {project?.quotationMarket && (
+          <>
+            <span className="budget-infobar-sep">|</span>
+            <span>Mercado: {project.quotationMarket === 'INTERNACIONAL' ? 'Internacional' : 'Nacional'}</span>
+          </>
+        )}
       </div>
 
       <div className="budget-workspace">
@@ -1109,16 +1256,18 @@ export function ProjectBudgetPage() {
                   onChange={(e) => setAddQty(e.target.value)}
                 />
               </label>
-              <label title="Opcional">
-                Precio USD
-                <input
-                  className="form-input"
-                  style={{ maxWidth: 88 }}
-                  placeholder="auto"
-                  value={addPriceOverride}
-                  onChange={(e) => setAddPriceOverride(e.target.value)}
-                />
-              </label>
+              {!hideItemPrices && (
+                <label title="Opcional">
+                  Precio USD
+                  <input
+                    className="form-input"
+                    style={{ maxWidth: 88 }}
+                    placeholder="auto"
+                    value={addPriceOverride}
+                    onChange={(e) => setAddPriceOverride(e.target.value)}
+                  />
+                </label>
+              )}
             </div>
             {isAdmin && (
               <div className="budget-catalog-actions">
@@ -1202,7 +1351,7 @@ export function ProjectBudgetPage() {
                     <span className="budget-cat-code mono">{it.codigo}</span>
                     <span className="budget-cat-desc">{it.descripcion}</span>
                     <span className="budget-cat-meta mono">
-                      {formatUsd(it.unitPrice)} / {it.unidad}
+                      {hideItemPrices ? it.unidad : `${formatUsd(it.unitPrice)} / ${it.unidad}`}
                     </span>
                   </button>
                 );
@@ -1226,8 +1375,8 @@ export function ProjectBudgetPage() {
             )}
           </div>
           <p className="budget-table-hint mono muted" role="note">
-            En pantallas estrechas, desliza la tabla para ver importes y totales. Categoría y tipo: toca el icono
-            (i) en cada fila.
+            Filas agrupadas por color según conjunto KIT (ZONA 1, ZONA 2…); líneas sueltas en gris neutro. Columna
+            Unidad: cyan = ACTIVO, ámbar = CONSUMIBLE. Info (i): categoría y trazabilidad.
           </p>
           <div className="table-wrap budget-table-wrap zgroup-scroll">
             <table className="data-table data-table--budget">
@@ -1241,19 +1390,22 @@ export function ProjectBudgetPage() {
                   <th
                     className="budget-col-meta"
                     scope="col"
-                    title="Categoría y tipo (toca o pasa el cursor)"
-                    aria-label="Categoría y tipo de la partida"
+                    title="Categoría, tipo y trazabilidad (toca o pasa el cursor)"
+                    aria-label="Información de la partida"
                   >
                     <span className="budget-col-meta__hdr mono" aria-hidden="true">
                       i
                     </span>
                   </th>
                   <th>Unidad</th>
-                  <th className="num" title="Asumido en totales. Si se corrige el precio de lista, arriba queda el ref. tachado.">
-                    P. unit.
-                  </th>
+                  {!hideItemPrices && (
+                    <th className="num" title="Asumido en totales. Si se corrige el precio de lista, arriba queda el ref. tachado.">
+                      P. unit.
+                    </th>
+                  )}
                   <th className="num">Cant.</th>
-                  <th className="num">Subtotal</th>
+                  {!hideItemPrices && <th className="num">Subtotal</th>}
+                  {showAdjustmentCol && (
                   <th
                     className="budget-col-adj num"
                     scope="col"
@@ -1261,6 +1413,7 @@ export function ProjectBudgetPage() {
                   >
                     Ajuste
                   </th>
+                  )}
                   {canEditBudgetLines && (
                     <th className="actions-col budget-actions-th" scope="col" title="Quitar línea" aria-label="Quitar">
                       <span className="budget-actions-th-icon" aria-hidden="true">
@@ -1273,13 +1426,13 @@ export function ProjectBudgetPage() {
               <tbody>
                 {items.length === 0 ? (
                   <tr>
-                    <td colSpan={canEditBudgetLines ? 10 : 9} className="muted">
+                    <td colSpan={budgetTableColSpan} className="muted">
                       Agregue ítems desde el catálogo o una pieza personalizada.
                     </td>
                   </tr>
                 ) : displayBudgetItems.length === 0 ? (
                   <tr>
-                    <td colSpan={canEditBudgetLines ? 10 : 9} className="muted">
+                    <td colSpan={budgetTableColSpan} className="muted">
                       Ninguna línea coincide con la búsqueda.
                     </td>
                   </tr>
@@ -1290,28 +1443,23 @@ export function ProjectBudgetPage() {
                     const nPart = idx + 1;
                     const metaOpen = budgetLineMetaId === row.id;
                     const tip = row.tipo || '—';
-                    const metaTitle = `Categoría: ${catLabel} · Tipo: ${tip}`;
-                    const rowTipoClass =
-                      row.tipo === 'ACTIVO'
-                        ? ' budget-row--activo'
-                        : row.tipo === 'CONSUMIBLE'
-                          ? ' budget-row--consumible'
-                          : '';
+                    const metaTitle = `Categoría: ${catLabel} · Tipo: ${tip} · Agregó: ${formatItemTraceUser(row.createdByName, row.createdByEmail)} · Editó: ${formatItemTraceUser(row.updatedByName, row.updatedByEmail)}`;
                     const isComponent = row.isBundleComponent;
                     const isHeader = row.isBundleHeader;
                     const rowQtyEditable = canEditBudgetLines && !isComponent;
-                    const rowPriceEditable = canEditBudgetLines && !isComponent && !isHeader;
-                    const bundleClass = isHeader
-                      ? ' budget-row--kit-header'
-                      : isComponent
-                        ? ' budget-row--kit-component'
-                        : '';
+                    const rowPriceEditable = canEditUnitPrices && !isComponent && !isHeader;
+                    const kitGroup = row.bundleId ? bundleGroupById.get(row.bundleId) : null;
+                    const rowGroupClass = kitGroup
+                      ? ` budget-row--kit-g${kitGroup}${isHeader ? ' budget-row--kit-header' : isComponent ? ' budget-row--kit-component' : ''}`
+                      : ' budget-row--standalone';
+                    const unidadTipoClass =
+                      row.tipo === 'CONSUMIBLE'
+                        ? ' budget-td-unidad--consumible'
+                        : ' budget-td-unidad--activo';
                     return (
                       <tr
                         key={row.id}
-                        className={
-                          (deletingId === row.id ? 'budget-row-deleting' : '') + rowTipoClass + bundleClass
-                        }
+                        className={(deletingId === row.id ? 'budget-row-deleting' : '') + rowGroupClass}
                       >
                         <td className="num mono budget-col-idx" title={`Partida ${nPart}`}>
                           {isComponent ? '↳' : nPart}
@@ -1377,7 +1525,7 @@ export function ProjectBudgetPage() {
                                   <div
                                     className="budget-line-meta__modal"
                                     role="dialog"
-                                    aria-label="Categoría y tipo"
+                                    aria-label="Información de la partida"
                                     tabIndex={-1}
                                     onClick={(e) => e.stopPropagation()}
                                   >
@@ -1389,6 +1537,26 @@ export function ProjectBudgetPage() {
                                       <span className="budget-line-meta__k">Tipo</span>
                                       <span className="mono budget-line-meta__v">{tip}</span>
                                     </p>
+                                    <p className="budget-line-meta__line">
+                                      <span className="budget-line-meta__k">Agregó</span>
+                                      <span className="mono budget-line-meta__v">
+                                        {formatItemTraceUser(row.createdByName, row.createdByEmail)}
+                                      </span>
+                                    </p>
+                                    <p className="budget-line-meta__line">
+                                      <span className="budget-line-meta__k">Últ. edición</span>
+                                      <span className="mono budget-line-meta__v">
+                                        {formatItemTraceUser(row.updatedByName, row.updatedByEmail)}
+                                      </span>
+                                    </p>
+                                    {row.updatedAt && (
+                                      <p className="budget-line-meta__line">
+                                        <span className="budget-line-meta__k">Fecha edición</span>
+                                        <span className="mono budget-line-meta__v">
+                                          {new Date(row.updatedAt).toLocaleString('es-PE')}
+                                        </span>
+                                      </p>
+                                    )}
                                     <button
                                       type="button"
                                       className="btn btn-primary budget-line-meta__dismiss"
@@ -1402,43 +1570,45 @@ export function ProjectBudgetPage() {
                               )}
                           </div>
                         </td>
-                        <td className="mono">{row.unidad}</td>
-                        <td className="num budget-td-punit">
-                          {(() => {
-                            const cur = rowPriceEditable
-                              ? parsePriceDraft(dr.unitPrice) ?? Number(row.unitPrice)
-                              : Number(row.unitPrice);
-                            const showListRef =
-                              row.officialUnitPrice != null && unitPricesDiffer(row.officialUnitPrice, cur);
-                            return (
-                              <>
-                                {showListRef && (
-                                  <div
-                                    className="budget-punit-official mono"
-                                    title="Precio de lista / referencia (catálogo o valor inicial al crear la línea)"
-                                  >
-                                    {formatUsd(row.officialUnitPrice)}
-                                  </div>
-                                )}
-                                {rowPriceEditable ? (
-                                  <input
-                                    className="form-input table-input mono"
-                                    value={dr.unitPrice}
-                                    aria-label={showListRef ? 'Precio unitario asumido' : 'Precio unitario'}
-                                    onChange={(e) => setDraft(row.id, 'unitPrice', e.target.value)}
-                                  />
-                                ) : (
-                                  <span
-                                    className="budget-punit-shown mono"
-                                    title={isHeader ? 'Precio del conjunto (edite componentes con «Editar conjunto»)' : undefined}
-                                  >
-                                    {formatUsd(row.unitPrice)}
-                                  </span>
-                                )}
-                              </>
-                            );
-                          })()}
-                        </td>
+                        <td className={`mono budget-td-unidad${unidadTipoClass}`}>{row.unidad}</td>
+                        {!hideItemPrices && (
+                          <td className="num budget-td-punit">
+                            {(() => {
+                              const cur = rowPriceEditable
+                                ? parsePriceDraft(dr.unitPrice) ?? Number(row.unitPrice)
+                                : Number(row.unitPrice);
+                              const showListRef =
+                                row.officialUnitPrice != null && unitPricesDiffer(row.officialUnitPrice, cur);
+                              return (
+                                <>
+                                  {showListRef && (
+                                    <div
+                                      className="budget-punit-official mono"
+                                      title="Precio de lista / referencia (catálogo o valor inicial al crear la línea)"
+                                    >
+                                      {formatUsd(row.officialUnitPrice)}
+                                    </div>
+                                  )}
+                                  {rowPriceEditable ? (
+                                    <input
+                                      className="form-input table-input mono"
+                                      value={dr.unitPrice}
+                                      aria-label={showListRef ? 'Precio unitario asumido' : 'Precio unitario'}
+                                      onChange={(e) => setDraft(row.id, 'unitPrice', e.target.value)}
+                                    />
+                                  ) : (
+                                    <span
+                                      className="budget-punit-shown mono"
+                                      title={isHeader ? 'Precio del conjunto (edite componentes con «Editar conjunto»)' : undefined}
+                                    >
+                                      {formatUsd(row.unitPrice)}
+                                    </span>
+                                  )}
+                                </>
+                              );
+                            })()}
+                          </td>
+                        )}
                         <td className="num">
                           {rowQtyEditable ? (
                             <input
@@ -1450,15 +1620,18 @@ export function ProjectBudgetPage() {
                             row.qty
                           )}
                         </td>
-                        <td className="num mono">
-                          {isComponent ? (
-                            <span className="muted" title="Incluido en el total del conjunto">
-                              {formatUsd(Number(row.qty) * Number(row.unitPrice))}
-                            </span>
-                          ) : (
-                            formatUsd(row.subtotal)
-                          )}
-                        </td>
+                        {!hideItemPrices && (
+                          <td className="num mono">
+                            {isComponent ? (
+                              <span className="muted" title="Incluido en el total del conjunto">
+                                {formatUsd(Number(row.qty) * Number(row.unitPrice))}
+                              </span>
+                            ) : (
+                              formatUsd(row.subtotal)
+                            )}
+                          </td>
+                        )}
+                        {showAdjustmentCol && (
                         <td className="num budget-col-adj">
                           {isComponent ? (
                             <span className="muted">—</span>
@@ -1481,6 +1654,7 @@ export function ProjectBudgetPage() {
                           </label>
                           )}
                         </td>
+                        )}
                         {canEditBudgetLines && (
                           <td className="actions-cell budget-actions-cell">
                             {isHeader && (
@@ -1559,12 +1733,16 @@ export function ProjectBudgetPage() {
               </div>
             )}
             <div className="budget-footer__line budget-footer__totals">
-              <span>ACTIVOS: {formatUsd(totals.activos)}</span>
-              <span>CONSUMIBLES: {formatUsd(totals.consumibles)}</span>
-              {totals.listaExempt > 0 && (
-                <span className="muted">
-                  Sin ajuste M1: {formatUsd(totals.listaExempt)}
-                </span>
+              {!hideItemPrices && (
+                <>
+                  <span>ACTIVOS: {formatUsd(totals.activos)}</span>
+                  <span>CONSUMIBLES: {formatUsd(totals.consumibles)}</span>
+                  {totals.listaExempt > 0 && (
+                    <span className="muted">
+                      Sin ajuste M1: {formatUsd(totals.listaExempt)}
+                    </span>
+                  )}
+                </>
               )}
               <span className="budget-footer-total">TOTAL LISTA: {formatUsd(totals.lista)}</span>
             </div>
@@ -1574,6 +1752,7 @@ export function ProjectBudgetPage() {
         </div>
 
         <aside className="budget-fin-sidebar" aria-label="Módulos financieros">
+      {showFinancePanel && (
       <FinanceModules
         baseLista={totals.lista}
         baseActivos={totals.activos}
@@ -1587,25 +1766,37 @@ export function ProjectBudgetPage() {
         financeParams={financeParams}
         onFinanceParamsChange={setFinanceParams}
         viewerMode={viewerMode}
+        commercialModules={commercialModules}
         tc={project?.tc != null ? Number(project.tc) : 3.75}
-        onTcChange={canWrite ? handleTcChange : undefined}
+        onTcChange={canWrite && !hideItemPrices ? handleTcChange : undefined}
         finPanelClassName="zgroup-scroll"
       />
+      )}
         </aside>
       </div>
 
       {canWrite && (
         <div className="panel budget-export-panel">
           <div className="panel-hdr">
-            <span className="panel-title">Exportar PDF</span>
+            <span className="panel-title">{hideItemPrices ? 'Reporte para cliente (PDF)' : 'Exportar PDF'}</span>
           </div>
           <p className="muted mono" style={{ fontSize: 12, lineHeight: 1.5 }}>
-            <strong>Gerencia PDF</strong>: presupuesto, M1–M4 + panel M5 (CP vs LP).{' '}
-            <strong>Cliente PDF</strong>: portada y totales por modalidad sin datos internos (ROA, spreads).
-            <br />
-            El bloque <strong>M5 · Panel gerencial</strong> en la sección de arriba muestra los mismos datos
-            que irán al PDF Gerencia (ajusta el horizonte en meses antes de exportar).
+            {hideItemPrices ? (
+              <>
+                PDF para el cliente: partidas sin precios unitarios y resumen financiero solo de los módulos con
+                «Vista comercial» activa (montos y plazos, sin fórmulas ni datos internos).
+              </>
+            ) : (
+              <>
+                <strong>Gerencia PDF</strong>: presupuesto, M1–M4 + panel M5 (CP vs LP).{' '}
+                <strong>Cliente PDF</strong>: portada y totales por modalidad sin datos internos (ROA, spreads).
+                <br />
+                El bloque <strong>M5 · Panel gerencial</strong> en la sección de arriba muestra los mismos datos
+                que irán al PDF Gerencia (ajusta el horizonte en meses antes de exportar).
+              </>
+            )}
           </p>
+          {!hideItemPrices && (
           <div
             className="panel panel--flush"
             style={{ marginTop: 14, padding: 12, border: '1px solid var(--border-dim)', borderRadius: 8 }}
@@ -1660,44 +1851,49 @@ export function ProjectBudgetPage() {
               </label>
             </div>
           </div>
+          )}
           <div className="pdf-export-actions">
             <div className="pdf-export-actions__row">
               <span className="fg-lbl" style={{ width: '100%', marginBottom: 4 }}>
-                Vista previa (mismo HTML que el PDF)
+                {hideItemPrices ? 'Vista previa del reporte cliente' : 'Vista previa (mismo HTML que el PDF)'}
               </span>
-              <button
-                type="button"
-                className="btn btn-primary mono"
-                disabled={!!pdfPreviewLoading}
-                onClick={() => setPdfPreviewKind('GERENCIA')}
-              >
-                Ver Gerencia
-              </button>
+              {!hideItemPrices && (
+                <button
+                  type="button"
+                  className="btn btn-primary mono"
+                  disabled={!!pdfPreviewLoading}
+                  onClick={() => setPdfPreviewKind('GERENCIA')}
+                >
+                  Ver Gerencia
+                </button>
+              )}
               <button
                 type="button"
                 className="btn btn-primary mono"
                 disabled={!!pdfPreviewLoading}
                 onClick={() => setPdfPreviewKind('CLIENTE')}
               >
-                Ver Cliente
+                {hideItemPrices ? 'Vista previa' : 'Ver Cliente'}
               </button>
             </div>
             <div className="pdf-export-actions__row" style={{ marginTop: 10 }}>
+              {!hideItemPrices && (
+                <button
+                  type="button"
+                  className="btn btn-ghost mono"
+                  disabled={pdfBusy}
+                  onClick={() => startPdf('GERENCIA')}
+                >
+                  Descargar PDF Gerencia
+                </button>
+              )}
               <button
                 type="button"
-                className="btn btn-ghost mono"
-                disabled={pdfBusy}
-                onClick={() => startPdf('GERENCIA')}
-              >
-                Descargar PDF Gerencia
-              </button>
-              <button
-                type="button"
-                className="btn btn-ghost mono"
+                className={`btn mono${hideItemPrices ? ' btn-primary' : ' btn-ghost'}`}
                 disabled={pdfBusy}
                 onClick={() => startPdf('CLIENTE')}
               >
-                Descargar PDF Cliente
+                {hideItemPrices ? 'Descargar PDF Cliente' : 'Descargar PDF Cliente'}
               </button>
             </div>
           </div>
@@ -1712,7 +1908,7 @@ export function ProjectBudgetPage() {
 
       {pdfPreviewKind && (
         <Modal
-          title="Vista previa del reporte PDF"
+          title={hideItemPrices ? 'Vista previa — reporte cliente' : 'Vista previa del reporte PDF'}
           panelClassName="modal-panel--pdf-preview"
           onClose={() => setPdfPreviewKind(null)}
           footer={
@@ -1725,21 +1921,28 @@ export function ProjectBudgetPage() {
                 className="btn btn-primary mono"
                 disabled={pdfBusy}
                 onClick={() => {
-                  const k = pdfPreviewKind;
+                  const k = hideItemPrices ? 'CLIENTE' : pdfPreviewKind;
                   setPdfPreviewKind(null);
                   startPdf(k);
                 }}
               >
-                Descargar {pdfPreviewKind === 'GERENCIA' ? 'Gerencia' : 'Cliente'}
+                Descargar {hideItemPrices || pdfPreviewKind === 'CLIENTE' ? 'Cliente' : 'Gerencia'}
               </button>
             </>
           }
         >
           <p className="pdf-preview-hint">
-            Misma composición que el PDF generado (tipografía y márgenes del servidor pueden variar ligeramente al
-            imprimir). Use las pestañas para comparar informes.
+            {hideItemPrices ? (
+              <>Resumen para el cliente: partidas sin precios unitarios y modalidades financieras habilitadas (solo montos).</>
+            ) : (
+              <>
+                Misma composición que el PDF generado (tipografía y márgenes del servidor pueden variar ligeramente al
+                imprimir). Use las pestañas para comparar informes.
+              </>
+            )}
           </p>
           <div className="pdf-preview-toolbar">
+            {!hideItemPrices && (
             <div className="pdf-preview-tabs" role="tablist" aria-label="Tipo de reporte">
               <button
                 type="button"
@@ -1760,6 +1963,7 @@ export function ProjectBudgetPage() {
                 Cliente
               </button>
             </div>
+            )}
             {pdfPreviewLoading && <span className="muted mono">Cargando…</span>}
             {pdfPreviewErr && <span className="muted mono" style={{ color: 'var(--red)' }}>{pdfPreviewErr}</span>}
           </div>
@@ -1814,6 +2018,55 @@ export function ProjectBudgetPage() {
                 onChange={(clientId) => setNewProjectForm((f) => ({ ...f, clientId }))}
                 onClientsChange={setClientsList}
                 canCreate={canWrite}
+                optional
+              />
+            </label>
+          </form>
+        </Modal>
+      )}
+
+      {modal === 'editProject' && project?.canEditMetadata && (
+        <Modal
+          title="Editar proyecto"
+          wide
+          onClose={() => !editProjectBusy && setModal(null)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" disabled={editProjectBusy} onClick={() => setModal(null)}>
+                Cancelar
+              </button>
+              <button type="submit" form="budget-edit-project-form" className="btn btn-primary" disabled={editProjectBusy}>
+                {editProjectBusy ? 'Guardando…' : 'Guardar cambios'}
+              </button>
+            </>
+          }
+        >
+          <form id="budget-edit-project-form" className="stack-form" onSubmit={submitEditProject}>
+            <label>
+              <span className="fg-lbl">Nombre del proyecto *</span>
+              <input
+                className="form-input"
+                required
+                value={editProjectForm.nombre}
+                onChange={(e) => setEditProjectForm((f) => ({ ...f, nombre: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Referencia Odoo (opcional)</span>
+              <input
+                className="form-input mono"
+                value={editProjectForm.odooRef}
+                onChange={(e) => setEditProjectForm((f) => ({ ...f, odooRef: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Cliente (opcional)</span>
+              <ClientPicker
+                clients={clientsList}
+                value={editProjectForm.clientId}
+                onChange={(clientId) => setEditProjectForm((f) => ({ ...f, clientId }))}
+                onClientsChange={setClientsList}
+                canCreate={isAdmin}
                 optional
               />
             </label>
@@ -2171,6 +2424,7 @@ export function ProjectBudgetPage() {
         open={!!depAddModal}
         bundle={depAddModal?.bundle}
         busy={depAddBusy}
+        hidePrices={hideItemPrices}
         onClose={() => !depAddBusy && setDepAddModal(null)}
         onConfirm={confirmDependencyAdd}
       />
@@ -2182,6 +2436,7 @@ export function ProjectBudgetPage() {
         editMode={!!kitModal?.editMode}
         catalogItems={catItems}
         busy={kitAddBusy}
+        hidePrices={hideItemPrices}
         onClose={() => !kitAddBusy && setKitModal(null)}
         onConfirm={confirmKitAdd}
       />
@@ -2277,15 +2532,22 @@ export function ProjectBudgetPage() {
                 <option value="CONSUMIBLE">CONSUMIBLE</option>
               </select>
             </label>
-            <label>
-              <span className="fg-lbl">Precio unitario (USD)</span>
-              <input
-                className="form-input mono"
-                required
-                value={customForm.unitPrice}
-                onChange={(e) => setCustomForm((f) => ({ ...f, unitPrice: e.target.value }))}
-              />
-            </label>
+            {!hideItemPrices && (
+              <label>
+                <span className="fg-lbl">Precio unitario (USD)</span>
+                <input
+                  className="form-input mono"
+                  required
+                  value={customForm.unitPrice}
+                  onChange={(e) => setCustomForm((f) => ({ ...f, unitPrice: e.target.value }))}
+                />
+              </label>
+            )}
+            {hideItemPrices && (
+              <p className="muted mono" style={{ fontSize: 12 }}>
+                El precio lo define el administrador; usted solo indica cantidades.
+              </p>
+            )}
             <label>
               <span className="fg-lbl">Cantidad</span>
               <input

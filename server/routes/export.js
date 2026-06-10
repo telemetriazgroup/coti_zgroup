@@ -9,6 +9,7 @@ const { loadShareContext } = require('../utils/projectShare');
 const { processPdfJob } = require('../workers/pdf.worker');
 const jobStore = require('../lib/pdfJobsStore');
 const pdfService = require('../services/pdf.service');
+const { loadUserFlags, resolveCommercialModules } = require('../lib/commercialVisibility');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -92,6 +93,30 @@ async function loadProjectRow(id) {
   return rows[0] || null;
 }
 
+function rejectGerenciaForCommercial(req, res, kind) {
+  if (kind === 'GERENCIA' && req.user.role === 'COMERCIAL') {
+    res.status(403).json({
+      success: false,
+      error: {
+        code: 'FORBIDDEN',
+        message: 'Los usuarios comerciales solo pueden generar el PDF Cliente',
+      },
+    });
+    return true;
+  }
+  return false;
+}
+
+async function buildClienteHtmlForUser(req, projectId) {
+  const payload = await pdfService.loadExportPayload(projectId);
+  let commercialModules = null;
+  if (req.user.role === 'COMERCIAL') {
+    const userRow = await loadUserFlags(req.user.id);
+    commercialModules = resolveCommercialModules(userRow, payload.mergedParams);
+  }
+  return pdfService.buildHtmlCliente(payload, { commercialModules });
+}
+
 // ─── GET /api/export/pdf/preview-html — HTML mismo layout que el PDF (sin Puppeteer) ─
 router.get(
   '/pdf/preview-html',
@@ -108,6 +133,7 @@ router.get(
     }
 
     const { projectId, kind } = req.query;
+    if (rejectGerenciaForCommercial(req, res, kind)) return;
     const row = await loadProjectRow(projectId);
     if (!row) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
@@ -124,7 +150,7 @@ router.get(
       const payload = await pdfService.loadExportPayload(projectId);
       const html =
         kind === 'CLIENTE'
-          ? pdfService.buildHtmlCliente(payload)
+          ? await buildClienteHtmlForUser(req, projectId)
           : pdfService.buildHtmlGerencia(payload);
       res.setHeader('Content-Type', 'text/html; charset=utf-8');
       res.setHeader('Cache-Control', 'no-store');
@@ -155,6 +181,7 @@ router.post(
     }
 
     const { projectId, kind } = req.body;
+    if (rejectGerenciaForCommercial(req, res, kind)) return;
     const row = await loadProjectRow(projectId);
     if (!row) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });

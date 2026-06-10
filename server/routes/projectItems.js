@@ -16,12 +16,20 @@ const {
   buildProjectItemsExportCsv,
 } = require('../lib/budgetItemsExcel');
 const { isKitItem } = require('../lib/catalogKit');
+const { fetchDirectDependencies } = require('../lib/catalogItemDependencies');
 const {
   suggestNextInstanceLabel,
   fetchBundleEditPayload,
   createProjectBundle,
   updateProjectBundle,
 } = require('../lib/projectItemBundles');
+const { resolveUnitPrice, getProjectQuotationMarket } = require('../lib/pricingMarket');
+const {
+  loadUserFlags,
+  canSeeItemPrices,
+  sanitizeBudgetItemsResponse,
+  sanitizeBundleEditPayload,
+} = require('../lib/commercialVisibility');
 
 const uploadBudgetImport = multer({
   storage: multer.memoryStorage(),
@@ -47,11 +55,18 @@ router.use(requireAuth);
 
 /** Lista ítems con nombre de categoría (LEFT JOIN). */
 const ITEMS_SELECT = `
-  SELECT pi.*, cc.nombre AS category_nombre, u.email AS created_by_email,
+  SELECT pi.*, cc.nombre AS category_nombre,
+    u.email AS created_by_email,
+    TRIM(CONCAT(ce.nombres, ' ', ce.apellidos)) AS created_by_name,
+    uu.email AS updated_by_email,
+    TRIM(CONCAT(ue.nombres, ' ', ue.apellidos)) AS updated_by_name,
     b.display_name AS bundle_display_name, b.instance_label AS bundle_instance_label
   FROM project_items pi
   LEFT JOIN catalog_categories cc ON cc.id = pi.category_id
   LEFT JOIN users u ON u.id = pi.created_by
+  LEFT JOIN employees ce ON ce.user_id = pi.created_by
+  LEFT JOIN users uu ON uu.id = pi.updated_by
+  LEFT JOIN employees ue ON ue.user_id = pi.updated_by
   LEFT JOIN project_item_bundles b ON b.id = pi.bundle_id
 `;
 
@@ -74,6 +89,10 @@ function mapItem(row) {
     categoryNombre: row.category_nombre ?? null,
     createdBy: row.created_by ?? null,
     createdByEmail: row.created_by_email ?? null,
+    createdByName: row.created_by_name?.trim() || row.created_by_email || null,
+    updatedBy: row.updated_by ?? null,
+    updatedByEmail: row.updated_by_email ?? null,
+    updatedByName: row.updated_by_name?.trim() || row.updated_by_email || null,
     sortOrder: row.sort_order,
     applyAdjustment: row.apply_adjustment !== false,
     bundleId: row.bundle_id ?? null,
@@ -177,6 +196,25 @@ async function resolveDefaultApplyAdjustment(client, categoryId) {
  * Inserta o suma cantidad a línea de catálogo (mismo criterio que POST /items).
  * @returns {Promise<{ merged: boolean, outRow: object, errorCode?: string }>}
  */
+async function assertFlatCatalogAddAllowed(client, catalogItemId) {
+  if (await isKitItem(catalogItemId, client)) {
+    return {
+      ok: false,
+      errorCode: 'KIT_REQUIRES_BUNDLE',
+      message: 'Los productos finales (KIT) deben agregarse con el modal de conjunto',
+    };
+  }
+  const deps = await fetchDirectDependencies(catalogItemId, client);
+  if (deps.length > 0) {
+    return {
+      ok: false,
+      errorCode: 'ITEM_HAS_DEPENDENCIES',
+      message: 'Este ítem tiene dependencias: use el selector de componentes al agregarlo',
+    };
+  }
+  return { ok: true };
+}
+
 async function addCatalogItemToProject(client, { projectId, userId, catalogItemId, qty, unitPriceOverride, ip }) {
   const { rows: catRows } = await client.query(
     `SELECT * FROM catalog_items WHERE id = $1 AND active = true`,
@@ -185,8 +223,13 @@ async function addCatalogItemToProject(client, { projectId, userId, catalogItemI
   if (!catRows[0]) {
     return { merged: false, outRow: null, errorCode: 'INVALID_CATALOG' };
   }
+  const flatCheck = await assertFlatCatalogAddAllowed(client, catalogItemId);
+  if (!flatCheck.ok) {
+    return { merged: false, outRow: null, errorCode: flatCheck.errorCode, message: flatCheck.message };
+  }
   const cat = catRows[0];
-  const listPrice = Number(cat.unit_price);
+  const market = await getProjectQuotationMarket(projectId, client);
+  const listPrice = resolveUnitPrice(cat, market);
   const unitPrice = unitPriceOverride != null && Number.isFinite(unitPriceOverride) ? unitPriceOverride : listPrice;
 
   const { rows: exist } = await client.query(
@@ -200,7 +243,11 @@ async function addCatalogItemToProject(client, { projectId, userId, catalogItemI
   if (exist[0]) {
     const prevQty = Number(exist[0].qty);
     const newQty = prevQty + qty;
-    await client.query(`UPDATE project_items SET qty = $1, updated_at = NOW() WHERE id = $2`, [newQty, exist[0].id]);
+    await client.query(`UPDATE project_items SET qty = $1, updated_at = NOW(), updated_by = $2 WHERE id = $3`, [
+      newQty,
+      userId,
+      exist[0].id,
+    ]);
     const outRow = await fetchItemRow(client, exist[0].id);
     logAuditEvent({
       projectId,
@@ -221,8 +268,8 @@ async function addCatalogItemToProject(client, { projectId, userId, catalogItemI
   const applyAdjustment = await resolveDefaultApplyAdjustment(client, cat.category_id);
   const { rows: ins } = await client.query(
     `INSERT INTO project_items
-      (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13)
+      (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $13)
      RETURNING id`,
     [
       projectId,
@@ -459,7 +506,7 @@ router.post(
           await client.query('ROLLBACK');
           return res.status(400).json({
             success: false,
-            error: { code: r.errorCode, message: 'Un ítem de catálogo ya no es válido' },
+            error: { code: r.errorCode, message: r.message || 'Un ítem de catálogo ya no es válido' },
           });
         }
       }
@@ -516,13 +563,17 @@ router.get('/:id/items', async (req, res) => {
       [req.params.id]
     );
 
+    const userFlags = await loadUserFlags(req.user.id);
+    const payload = {
+      items: rows.map(mapItem),
+      totals: totalsFromRows(rows),
+      projectStatus: project.status,
+      quotationMarket: project.quotation_market || 'NACIONAL',
+    };
+
     return res.json({
       success: true,
-      data: {
-        items: rows.map(mapItem),
-        totals: totalsFromRows(rows),
-        projectStatus: project.status,
-      },
+      data: sanitizeBudgetItemsResponse(userFlags, payload),
     });
   } catch (err) {
     console.error('[PROJECT_ITEMS] list:', err);
@@ -606,9 +657,21 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
         await client.query('ROLLBACK');
         return res.status(400).json({ success: false, error: { code: 'INVALID_CATALOG', message: 'Ítem de catálogo no válido' } });
       }
+      const flatCheck = await assertFlatCatalogAddAllowed(client, catalogItemId);
+      if (!flatCheck.ok) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          success: false,
+          error: { code: flatCheck.errorCode, message: flatCheck.message },
+        });
+      }
       const cat = catRows[0];
-      const listPrice = Number(cat.unit_price);
-      const unitPrice = overridePrice != null ? overridePrice : listPrice;
+      const market = project.quotation_market || 'NACIONAL';
+      const listPrice = resolveUnitPrice(cat, market);
+      let unitPrice = listPrice;
+      if (overridePrice != null && req.user.role !== 'COMERCIAL') {
+        unitPrice = overridePrice;
+      }
 
       const { rows: exist } = await client.query(
         `SELECT id, qty FROM project_items
@@ -621,8 +684,9 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
         merged = true;
         const prevQty = Number(exist[0].qty);
         const newQty = prevQty + qty;
-        await client.query(`UPDATE project_items SET qty = $1, updated_at = NOW() WHERE id = $2`, [
+        await client.query(`UPDATE project_items SET qty = $1, updated_at = NOW(), updated_by = $2 WHERE id = $3`, [
           newQty,
+          req.user.id,
           exist[0].id,
         ]);
         outRow = await fetchItemRow(client, exist[0].id);
@@ -643,8 +707,8 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
         const applyAdjustment = await resolveDefaultApplyAdjustment(client, cat.category_id);
         const { rows: ins } = await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13)
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $13)
            RETURNING id`,
           [
             req.params.id,
@@ -678,7 +742,8 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
       const descripcion = String(c.descripcion || '').trim().slice(0, 300);
       const unidad = String(c.unidad || 'UND').trim().slice(0, 30);
       const tipo = c.tipo === 'CONSUMIBLE' ? 'CONSUMIBLE' : 'ACTIVO';
-      const unitPrice = c.unitPrice != null ? Number(c.unitPrice) : 0;
+      let unitPrice = c.unitPrice != null ? Number(c.unitPrice) : 0;
+      if (req.user.role === 'COMERCIAL') unitPrice = 0;
       const qty = c.qty != null ? Number(c.qty) : 1;
 
       let categoryId = null;
@@ -725,8 +790,9 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
         merged = true;
         const prevQty = Number(exist[0].qty);
         const newQty = prevQty + qty;
-        await client.query(`UPDATE project_items SET qty = $1, updated_at = NOW() WHERE id = $2`, [
+        await client.query(`UPDATE project_items SET qty = $1, updated_at = NOW(), updated_by = $2 WHERE id = $3`, [
           newQty,
+          req.user.id,
           exist[0].id,
         ]);
         outRow = await fetchItemRow(client, exist[0].id);
@@ -747,8 +813,8 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
         const applyAdjustment = await resolveDefaultApplyAdjustment(client, categoryId);
         const { rows: ins } = await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by)
-           VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12)
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by)
+           VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8, true, $9, $10, $11, $12, $12)
            RETURNING id`,
           [
             req.params.id,
@@ -869,7 +935,7 @@ router.post(
           await client.query('ROLLBACK');
           return res.status(400).json({
             success: false,
-            error: { code: r.errorCode, message: 'Un ítem de catálogo ya no es válido' },
+            error: { code: r.errorCode, message: r.message || 'Un ítem de catálogo ya no es válido' },
           });
         }
         added += 1;
@@ -1026,17 +1092,18 @@ router.post(
         [req.params.id]
       );
       const { rows: st } = await pool.query(`SELECT status FROM projects WHERE id = $1`, [req.params.id]);
+      const userFlags = await loadUserFlags(req.user.id);
 
       return res.status(201).json({
         success: true,
-        data: {
+        data: sanitizeBudgetItemsResponse(userFlags, {
           bundleId: result.bundleId,
           displayName: result.displayName,
-          unitPrice: result.unitPrice,
+          unitPrice: canSeeItemPrices(userFlags) ? result.unitPrice : null,
           items: all.map(mapItem),
           totals: totalsFromRows(all),
           projectStatus: st[0]?.status,
-        },
+        }),
       });
     } catch (err) {
       if (client) await client.query('ROLLBACK').catch(() => {});
@@ -1060,7 +1127,8 @@ router.get(
       if (!payload) {
         return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Conjunto no encontrado' } });
       }
-      return res.json({ success: true, data: payload });
+      const userFlags = await loadUserFlags(req.user.id);
+      return res.json({ success: true, data: sanitizeBundleEditPayload(userFlags, payload) });
     } catch (err) {
       console.error('[PROJECT_ITEMS] bundle get:', err);
       return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
@@ -1115,6 +1183,7 @@ router.put(
         qty: req.body.qty,
         lines: req.body.lines,
         ip,
+        preservePriceOverrides: req.user.role !== 'COMERCIAL',
       });
       if (result.errorCode) {
         await client.query('ROLLBACK');
@@ -1132,17 +1201,18 @@ router.put(
         [req.params.id]
       );
       const { rows: st } = await pool.query(`SELECT status FROM projects WHERE id = $1`, [req.params.id]);
+      const userFlags = await loadUserFlags(req.user.id);
 
       return res.json({
         success: true,
-        data: {
+        data: sanitizeBudgetItemsResponse(userFlags, {
           bundleId: result.bundleId,
           displayName: result.displayName,
-          unitPrice: result.unitPrice,
+          unitPrice: canSeeItemPrices(userFlags) ? result.unitPrice : null,
           items: all.map(mapItem),
           totals: totalsFromRows(all),
           projectStatus: st[0]?.status,
-        },
+        }),
       });
     } catch (err) {
       if (client) await client.query('ROLLBACK').catch(() => {});
@@ -1179,6 +1249,12 @@ router.put(
       return res.status(400).json({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'Indique qty, unitPrice o applyAdjustment' },
+      });
+    }
+    if (unitPrice != null && req.user.role === 'COMERCIAL') {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'No puede modificar precios unitarios' },
       });
     }
 
@@ -1233,9 +1309,9 @@ router.put(
       }
 
       await pool.query(
-        `UPDATE project_items SET qty = $1, unit_price = $2, apply_adjustment = $3, updated_at = NOW()
-         WHERE id = $4 AND project_id = $5`,
-        [nextQty, nextPrice, nextApply, req.params.itemId, req.params.id]
+        `UPDATE project_items SET qty = $1, unit_price = $2, apply_adjustment = $3, updated_at = NOW(), updated_by = $4
+         WHERE id = $5 AND project_id = $6`,
+        [nextQty, nextPrice, nextApply, req.user.id, req.params.itemId, req.params.id]
       );
 
       if (cur[0].is_bundle_header && cur[0].bundle_id) {

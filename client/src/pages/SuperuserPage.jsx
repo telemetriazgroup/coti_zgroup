@@ -4,6 +4,8 @@ import { api, postFormData } from '../lib/api';
 export function SuperuserPage() {
   const [auditRows, setAuditRows] = useState([]);
   const [auditLoading, setAuditLoading] = useState(true);
+  const [lockouts, setLockouts] = useState([]);
+  const [lockoutsLoading, setLockoutsLoading] = useState(true);
   const [err, setErr] = useState(null);
   const [msg, setMsg] = useState(null);
   const [importPreview, setImportPreview] = useState(null);
@@ -24,9 +26,36 @@ export function SuperuserPage() {
     }
   }, []);
 
+  const loadLockouts = useCallback(async () => {
+    setLockoutsLoading(true);
+    try {
+      const data = await api.get('/api/superuser/login-lockouts');
+      setLockouts(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setLockoutsLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadAudit();
-  }, [loadAudit]);
+    loadLockouts();
+  }, [loadAudit, loadLockouts]);
+
+  async function resetLockout(row) {
+    setErr(null);
+    try {
+      await api.post('/api/superuser/login-lockouts/reset', {
+        email: row.email,
+        userId: row.userId || undefined,
+      });
+      setMsg(`Cuenta desbloqueada: ${row.userEmail || row.email}`);
+      loadLockouts();
+    } catch (e) {
+      setErr(e.message);
+    }
+  }
 
   async function exportAll() {
     setErr(null);
@@ -152,6 +181,67 @@ export function SuperuserPage() {
           <button type="button" className="btn btn-amber" disabled={importBusy} onClick={applyImport}>
             {importBusy ? 'Importando…' : 'Aplicar importación'}
           </button>
+        </div>
+      </div>
+
+      <div className="panel panel--flush" style={{ marginBottom: 16 }}>
+        <div className="panel-title" style={{ padding: '12px 16px' }}>
+          Cuentas bloqueadas por login
+          <button
+            type="button"
+            className="btn btn-ghost mono"
+            style={{ float: 'right', fontSize: 11 }}
+            onClick={loadLockouts}
+          >
+            Actualizar
+          </button>
+        </div>
+        <p className="muted mono" style={{ fontSize: 12, padding: '0 16px 8px' }}>
+          El límite de intentos aplica por correo, no por IP. Puede reiniciar el conteo de una cuenta bloqueada.
+        </p>
+        <div className="table-wrap" style={{ maxHeight: 240, overflow: 'auto' }}>
+          <table className="data-table data-table--compact">
+            <thead>
+              <tr>
+                <th>Email</th>
+                <th>Intentos</th>
+                <th>Bloqueado hasta</th>
+                <th className="actions-col">Acción</th>
+              </tr>
+            </thead>
+            <tbody>
+              {lockoutsLoading ? (
+                <tr>
+                  <td colSpan={4} className="muted mono">
+                    Cargando…
+                  </td>
+                </tr>
+              ) : lockouts.length === 0 ? (
+                <tr>
+                  <td colSpan={4} className="muted">
+                    Sin cuentas bloqueadas
+                  </td>
+                </tr>
+              ) : (
+                lockouts.map((row) => (
+                  <tr key={row.email}>
+                    <td className="mono" style={{ fontSize: 11 }}>
+                      {row.userEmail || row.email}
+                    </td>
+                    <td className="mono num">{row.failedCount}</td>
+                    <td className="mono" style={{ fontSize: 11 }}>
+                      {row.lockedUntil ? new Date(row.lockedUntil).toLocaleString() : '—'}
+                    </td>
+                    <td className="actions-col">
+                      <button type="button" className="btn-link mono" onClick={() => resetLockout(row)}>
+                        Desbloquear
+                      </button>
+                    </td>
+                  </tr>
+                ))
+              )}
+            </tbody>
+          </table>
         </div>
       </div>
 

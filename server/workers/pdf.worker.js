@@ -6,7 +6,11 @@ const jobStore = require('../lib/pdfJobsStore');
 
 async function processPdfJob(job) {
   const { jobId, projectId, kind, userId } = job.data;
-  const buffer = await pdfService.generateProjectPdf(projectId, kind === 'CLIENTE' ? 'CLIENTE' : 'GERENCIA');
+  const buffer = await pdfService.generateProjectPdf(
+    projectId,
+    kind === 'CLIENTE' ? 'CLIENTE' : 'GERENCIA',
+    userId
+  );
   jobStore.setResult(jobId, buffer);
 
   try {

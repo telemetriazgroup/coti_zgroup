@@ -8,7 +8,7 @@ function formatUsd(n) {
 }
 
 /** Modal al agregar ítem con dependencias al presupuesto. */
-export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, busy = false }) {
+export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, busy = false, hidePrices = false }) {
   const [lines, setLines] = useState([]);
   const [pickErr, setPickErr] = useState(null);
 
@@ -55,9 +55,9 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
       }
     >
       <p className="muted mono" style={{ fontSize: 12, marginBottom: 12, lineHeight: 1.45 }}>
-        Por defecto solo se agrega el ítem principal (primera fila). Marque el check de otros componentes si
-        también desea incluirlos. Las cantidades se calculan según la cantidad del principal y las dependencias
-        del catálogo.
+        Marque o desmarque cada fila para incluirla en el presupuesto. Por defecto vienen seleccionados el ítem
+        principal y sus dependencias. Las cantidades se calculan según la cantidad del principal y las reglas del
+        catálogo.
       </p>
       {pickErr && (
         <div className="banner banner--err mono" style={{ marginBottom: 12 }}>
@@ -75,7 +75,7 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
                 <th>Código</th>
                 <th>Descripción</th>
                 <th className="num">Cant.</th>
-                <th className="num">P. unit.</th>
+                {!hidePrices && <th className="num">P. unit.</th>}
               </tr>
             </thead>
             <tbody>
@@ -87,7 +87,7 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
                       checked={l.included}
                       disabled={busy}
                       onChange={() => toggleLine(l.catalogItemId)}
-                      title={l.isMain ? 'Ítem principal (marcado por defecto)' : 'Incluir componente'}
+                      title={l.isMain ? 'Ítem principal' : 'Incluir dependencia'}
                     />
                   </td>
                   <td className="mono">
@@ -100,7 +100,7 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
                   </td>
                   <td>{l.descripcion}</td>
                   <td className="num mono">{l.qty}</td>
-                  <td className="num mono">{formatUsd(l.unitPrice)}</td>
+                  {!hidePrices && <td className="num mono">{formatUsd(l.unitPrice)}</td>}
                 </tr>
               ))}
             </tbody>

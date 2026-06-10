@@ -1,3 +1,5 @@
+const { sqlAdminTeamAndGroupAccess, sqlAdminOwnTeamCommercials, sqlAdminGroupProjectAccess } = require('../lib/adminGroups');
+
 function mapCreator(row) {
   const email = row.creator_email || null;
   const nombres = row.creator_nombres || '';
@@ -12,15 +14,20 @@ function mapCreator(row) {
   };
 }
 
-function mapProject(row, viewerId) {
+function mapProject(row, viewerId, viewerRole) {
   const creator = mapCreator(row);
   const isOwner = viewerId && row.created_by === viewerId;
   const isShared = row.is_shared_with_me === true;
   const isTeam = row.is_team_commercial === true;
+  const isGroup = row.is_group_access === true;
   let accessKind = 'other';
   if (isOwner) accessKind = 'own';
   else if (isShared) accessKind = 'shared';
+  else if (isGroup) accessKind = 'group';
   else if (isTeam) accessKind = 'team';
+
+  const canEditMetadata =
+    viewerRole === 'SUPERUSER' || isOwner || (viewerRole === 'ADMIN' && isTeam === true);
 
   return {
     id: row.id,
@@ -34,6 +41,7 @@ function mapProject(row, viewerId) {
     assignedViewer: row.assigned_viewer,
     currency: row.currency,
     tc: row.tc != null ? Number(row.tc) : null,
+    quotationMarket: row.quotation_market || 'NACIONAL',
     financeParams: row.finance_params,
     deletedAt: row.deleted_at,
     createdAt: row.created_at,
@@ -44,6 +52,8 @@ function mapProject(row, viewerId) {
     sharedByEmail: row.shared_by_email || null,
     sharedByName: row.shared_by_name || null,
     shareCount: row.share_count != null ? Number(row.share_count) : undefined,
+    canEditMetadata,
+    canViewAudit: canEditMetadata,
   };
 }
 
@@ -64,15 +74,14 @@ const PROJECT_SELECT = `
     (SELECT COUNT(*)::int FROM project_shares ps2 WHERE ps2.project_id = p.id) AS share_count,
     (
       $2::text = 'ADMIN' AND p.created_by IS DISTINCT FROM $1::uuid AND (
-        EXISTS (
-          SELECT 1 FROM users ucm
-          WHERE ucm.id = p.created_by AND ucm.role = 'COMERCIAL' AND ucm.created_by = $1::uuid
-        ) OR EXISTS (
-          SELECT 1 FROM admin_commercial_assignments aca
-          WHERE aca.admin_id = $1::uuid AND aca.commercial_id = p.created_by
-        )
+        ${sqlAdminOwnTeamCommercials('$1')}
       )
-    ) AS is_team_commercial
+    ) AS is_team_commercial,
+    (
+      $2::text = 'ADMIN' AND p.created_by IS DISTINCT FROM $1::uuid AND (
+        ${sqlAdminGroupProjectAccess('$1')}
+      )
+    ) AS is_group_access
   FROM projects p
   LEFT JOIN clients c ON c.id = p.client_id
   LEFT JOIN users cu ON cu.id = p.created_by
@@ -83,21 +92,13 @@ const PROJECT_SELECT = `
 `;
 
 function projectVisibilityWhere(paramRole = '$2', paramUid = '$1', paramIncludeDeleted = '$3') {
-  const adminTeam = `(
-      EXISTS (
-        SELECT 1 FROM users ucm
-        WHERE ucm.id = p.created_by AND ucm.role = 'COMERCIAL' AND ucm.created_by = ${paramUid}::uuid
-      ) OR EXISTS (
-        SELECT 1 FROM admin_commercial_assignments aca
-        WHERE aca.admin_id = ${paramUid}::uuid AND aca.commercial_id = p.created_by
-      )
-    )`;
+  const adminExtended = sqlAdminTeamAndGroupAccess(paramUid);
   return `(
     ${paramRole} = 'SUPERUSER' OR
     (${paramRole} = 'ADMIN' AND (
       p.created_by = ${paramUid}::uuid OR
       EXISTS (SELECT 1 FROM project_shares ps WHERE ps.project_id = p.id AND ps.user_id = ${paramUid}::uuid) OR
-      ${adminTeam}
+      ${adminExtended}
     )) OR
     (${paramRole} = 'COMERCIAL' AND (
       p.created_by = ${paramUid}::uuid OR

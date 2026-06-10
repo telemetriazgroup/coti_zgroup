@@ -409,69 +409,87 @@ function footerBlock(mergedParams) {
 }
 
 /**
- * PDF Cliente: modalidades activas con cuota mensual y total por período tentativo (referencial).
+ * PDF Cliente: modalidades activas. Si `commercialModules` está definido, solo montos
+ * de módulos autorizados para el comercial (sin detalle interno).
  */
-function buildClienteModalidadesSection(fin, mergedParams) {
+function buildClienteModalidadesSection(fin, mergedParams, commercialModules = null) {
   const rp = mergedParams || {};
   const { m1, m2, m3, m4 } = fin;
   const rows = [];
+  const filtered = commercialModules != null;
 
-  rows.push(`<tr>
-    <td><strong>Venta directa</strong> — adquisición</td>
-    <td class="num">—</td>
-    <td class="num">—</td>
-    <td class="num"><strong>${fmtUsd(m1.ventaTotal)}</strong></td>
-    <td class="opt-note">Inversión única referencial (M1). No aplica cuota mensual.</td>
-  </tr>`);
+  const showM1 = filtered ? commercialModules.m1 : true;
+  const showCp = filtered ? commercialModules.cp : rp.enableCp !== false && m2.enabled !== false;
+  const showLp = filtered ? commercialModules.lp : rp.enableLp !== false && m3.enabled !== false;
+  const showEst = filtered ? commercialModules.est : rp.enableEst !== false && m4.enabled !== false;
 
-  if (rp.enableCp !== false && m2.enabled !== false) {
+  if (!filtered && showM1) {
+    rows.push(`<tr>
+      <td><strong>Venta directa</strong> — adquisición</td>
+      <td class="num">—</td>
+      <td class="num">—</td>
+      <td class="num"><strong>${fmtUsd(m1.ventaTotal)}</strong></td>
+      <td class="opt-note">Inversión única referencial (M1). No aplica cuota mensual.</td>
+    </tr>`);
+  }
+
+  if (showCp) {
     const totalP = m2.cpPlazo * m2.rentaCliente;
     rows.push(`<tr>
       <td><strong>Arriendo corto plazo</strong></td>
       <td class="num">${m2.cpPlazo}</td>
       <td class="num">${fmtUsd(m2.rentaCliente)}</td>
       <td class="num">${fmtUsd(totalP)}</td>
-      <td class="opt-note">Plazo contrato referencial: ${m2.cpPlazo} meses · capital propio</td>
+      <td class="opt-note">${filtered ? `Plazo: ${m2.cpPlazo} meses` : `Plazo contrato referencial: ${m2.cpPlazo} meses · capital propio`}</td>
     </tr>`);
   }
 
-  if (rp.enableLp !== false && m3.enabled !== false) {
+  if (showLp) {
     const t1 = m3.lpNPrestamo * m3.lpRentaF1;
     rows.push(`<tr>
-      <td><strong>Leasing largo plazo — Fase 1</strong> (con cuota bancaria)</td>
+      <td><strong>Leasing largo plazo — Fase 1</strong></td>
       <td class="num">${m3.lpNPrestamo}</td>
       <td class="num">${fmtUsd(m3.lpRentaF1)}</td>
       <td class="num">${fmtUsd(t1)}</td>
-      <td class="opt-note">Meses 1–${m3.lpNPrestamo} · cuota mensual referencial</td>
+      <td class="opt-note">${filtered ? `Plazo préstamo: ${m3.lpNPrestamo} meses` : `Meses 1–${m3.lpNPrestamo} · cuota mensual referencial`}</td>
     </tr>`);
     if (m3.lpNF2 > 0) {
       const t2 = m3.lpNF2 * m3.lpRentaF2;
       rows.push(`<tr>
-        <td><strong>Leasing largo plazo — Fase 2</strong> (post-préstamo)</td>
+        <td><strong>Leasing largo plazo — Fase 2</strong></td>
         <td class="num">${m3.lpNF2}</td>
         <td class="num">${fmtUsd(m3.lpRentaF2)}</td>
         <td class="num">${fmtUsd(t2)}</td>
-        <td class="opt-note">Meses ${m3.lpNPrestamo + 1}–${m3.lpNContrato} · contrato total ${m3.lpNContrato} meses</td>
+        <td class="opt-note">${filtered ? `Plazo contrato total: ${m3.lpNContrato} meses` : `Meses ${m3.lpNPrestamo + 1}–${m3.lpNContrato} · contrato total ${m3.lpNContrato} meses`}</td>
       </tr>`);
     }
   }
 
-  if (rp.enableEst !== false && m4.enabled !== false) {
+  if (showEst) {
     const promMes = m4.estIngTotalYear > 0 ? m4.estIngTotalYear / 12 : 0;
     rows.push(`<tr>
-      <td><strong>Arriendo con estacionalidad</strong> (promedio mensual año 1)</td>
+      <td><strong>Arriendo con estacionalidad</strong></td>
       <td class="num">12</td>
       <td class="num">${fmtUsd(promMes)}</td>
       <td class="num">${fmtUsd(m4.estIngTotalYear)}</td>
-      <td class="opt-note">${m4.estOp} meses a renta plena + ${m4.estSb} meses standby (referencial)</td>
+      <td class="opt-note">${filtered ? `${m4.estOp} meses plenos · ${m4.estSb} meses standby` : `${m4.estOp} meses a renta plena + ${m4.estSb} meses standby (referencial)`}</td>
     </tr>`);
-    rows.push(`<tr>
-      <td colspan="5" class="opt-sub">Desglose operativo: ${m4.estOp} meses a plena operación y ${m4.estSb} meses en standby; importes mensuales consolidados en la fila anterior (referencia año 1).</td>
-    </tr>`);
+    if (!filtered) {
+      rows.push(`<tr>
+        <td colspan="5" class="opt-sub">Desglose operativo: ${m4.estOp} meses a plena operación y ${m4.estSb} meses en standby; importes mensuales consolidados en la fila anterior (referencia año 1).</td>
+      </tr>`);
+    }
   }
 
-  return `<h2>Opciones de contratación (referencial)</h2>
-  <p class="muted">Compare las modalidades <strong>activas</strong> en esta cotización. La cuota mensual y el total por período son referenciales para el plazo tentativo indicado; el contrato definitivo puede variar.</p>
+  if (rows.length === 0) return '';
+
+  const title = filtered ? 'Resumen financiero autorizado' : 'Opciones de contratación (referencial)';
+  const intro = filtered
+    ? 'Montos referenciales de las modalidades habilitadas para esta cotización. Sin detalle de costos ni fórmulas internas.'
+    : 'Compare las modalidades <strong>activas</strong> en esta cotización. La cuota mensual y el total por período son referenciales para el plazo tentativo indicado; el contrato definitivo puede variar.';
+
+  return `<h2>${title}</h2>
+  <p class="muted">${intro}</p>
   <table class="pdf-opt-table"><thead><tr>
     <th>Modalidad</th>
     <th class="num">Meses (período)</th>
@@ -479,7 +497,7 @@ function buildClienteModalidadesSection(fin, mergedParams) {
     <th class="num">Total período (USD)</th>
     <th>Notas</th>
   </tr></thead><tbody>${rows.join('')}</tbody></table>
-  <p class="muted" style="margin-top:10px"><strong>Venta directa</strong> es compra; el resto son esquemas de alquiler con cuotas mensuales estimadas. Elija una línea de negociación según su preferencia.</p>`;
+  ${filtered ? '' : '<p class="muted" style="margin-top:10px"><strong>Venta directa</strong> es compra; el resto son esquemas de alquiler con cuotas mensuales estimadas. Elija una línea de negociación según su preferencia.</p>'}`;
 }
 
 function fmtPct1(n) {
@@ -1019,13 +1037,24 @@ function buildHtmlGerencia(payload) {
 </body></html>`;
 }
 
-function buildHtmlCliente(payload) {
+function buildHtmlCliente(payload, options = {}) {
+  const { commercialModules = null } = options;
   const { project, items, fin, mergedParams } = payload;
   const p = project;
   const rp = mergedParams || {};
   const { m1 } = fin;
-  const igvHtml = igvBlock(m1.ventaTotal, rp.pdfIncludeIgv === true);
-  const modalidadesHtml = buildClienteModalidadesSection(fin, rp);
+  const showM1 = commercialModules ? commercialModules.m1 : true;
+  const igvHtml = showM1 ? igvBlock(m1.ventaTotal, rp.pdfIncludeIgv === true) : '';
+  const modalidadesHtml = buildClienteModalidadesSection(fin, rp, commercialModules);
+
+  const m1Block = showM1
+    ? `<h2>Precio de venta referencial (venta directa)</h2>
+  <div class="box">
+    <p><strong>Total venta</strong> (precio comercial acordado en esta cotización): ${fmtUsd(m1.ventaTotal)}</p>
+    <p class="muted">Modalidad de compra / venta directa. No se detallan precios por ítem.</p>
+  </div>
+  ${igvHtml}`
+    : '';
 
   /** Sin importes por línea ni totales de lista: solo alcance comercial (PDF Cliente). */
   const rowsItems = (items || [])
@@ -1053,16 +1082,11 @@ function buildHtmlCliente(payload) {
   </tr></thead>
   <tbody>${rowsItems || '<tr><td colspan="6">Sin partidas</td></tr>'}</tbody></table>
 
-  <h2>Precio de venta referencial (venta directa)</h2>
-  <div class="box">
-    <p><strong>Total venta</strong> (precio comercial acordado en esta cotización): ${fmtUsd(m1.ventaTotal)}</p>
-    <p class="muted">Corresponde a la modalidad de compra / venta directa (M1). No se detallan precios por ítem.</p>
-  </div>
-  ${igvHtml}
+  ${m1Block}
 
   ${modalidadesHtml}
 
-  <p class="muted" style="margin-top:16px">Los importes son referenciales en USD. Los valores finales quedan sujetos al contrato y a la modalidad elegida. Este documento no incluye precios unitarios por partida ni información de costos internos de ZGROUP.</p>
+  <p class="muted" style="margin-top:16px">Los importes son referenciales en USD. Los valores finales quedan sujetos al contrato y a la modalidad elegida. Este documento no incluye precios unitarios por partida ni información de costos internos.</p>
   ${footerBlock(rp)}
 </body></html>`;
 }
@@ -1101,10 +1125,22 @@ async function renderPdfBuffer(html) {
 
 /**
  * @param {'GERENCIA'|'CLIENTE'} kind
+ * @param {string} [userId] — para filtrar PDF cliente comercial
  */
-async function generateProjectPdf(projectId, kind) {
+async function generateProjectPdf(projectId, kind, userId) {
   const payload = await loadExportPayload(projectId);
-  const html = kind === 'CLIENTE' ? buildHtmlCliente(payload) : buildHtmlGerencia(payload);
+  let commercialModules = null;
+  if (userId && kind === 'CLIENTE') {
+    const { loadUserFlags, resolveCommercialModules } = require('../lib/commercialVisibility');
+    const userRow = await loadUserFlags(userId);
+    if (userRow?.role === 'COMERCIAL') {
+      commercialModules = resolveCommercialModules(userRow, payload.mergedParams);
+    }
+  }
+  const html =
+    kind === 'CLIENTE'
+      ? buildHtmlCliente(payload, { commercialModules })
+      : buildHtmlGerencia(payload);
   return renderPdfBuffer(html);
 }
 

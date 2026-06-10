@@ -210,6 +210,7 @@ export function FinanceModules({
   financeParams,
   onFinanceParamsChange,
   viewerMode,
+  commercialModules = null,
   tc: tcProp,
   onTcChange,
   finPanelClassName = '',
@@ -265,52 +266,173 @@ export function FinanceModules({
   const hideSensitive = !!viewerMode;
   const handleTc = typeof onTcChange === 'function' ? onTcChange : () => {};
   const setDisplayCurrency = (c) => patch({ displayCurrency: c });
+  const showCommercialView =
+    commercialModules && Object.values(commercialModules).some(Boolean);
+
+  function CommercialToggle({ moduleKey, label, enabled }) {
+    if (hideSensitive || !enabled) return null;
+    const paramKey =
+      moduleKey === 'm1'
+        ? 'commercialShowM1'
+        : moduleKey === 'cp'
+          ? 'commercialShowCp'
+          : moduleKey === 'lp'
+            ? 'commercialShowLp'
+            : 'commercialShowEst';
+    return (
+      <label className="fin-check fin-check--commercial" title="El comercial verá solo montos finales, sin fórmulas">
+        <input
+          type="checkbox"
+          checked={p[paramKey] === true}
+          onChange={(e) => patch({ [paramKey]: e.target.checked })}
+        />
+        {label}
+      </label>
+    );
+  }
+
+  if (showCommercialView) {
+    return (
+      <div className={`fin-panel fin-panel--summary-only${finPanelClassName ? ` ${finPanelClassName}` : ''}`}>
+        <div className="fin-panel__sticky-top">
+          <div className="fin-panel__head">
+            <h2 className="fin-panel__title">Resumen financiero</h2>
+            <p className="fin-panel__intro muted">
+              Montos autorizados por su administrador. Sin margen, descuento ni detalle de cálculo.
+            </p>
+          </div>
+        </div>
+        <div className="fin-result fin-result--cyan mono fin-summary-kpis">
+          {commercialModules.m1 && (
+            <div className="fin-summary-kpi">
+              <span>Total venta</span>
+              <strong>{fmt(m1.ventaTotal)}</strong>
+            </div>
+          )}
+          {commercialModules.cp && (
+            <>
+              <div className="fin-summary-kpi">
+                <span>Corto plazo — renta/mes</span>
+                <strong>{fmt(m2.rentaCliente)}/mes</strong>
+              </div>
+              <div className="fin-summary-kpi">
+                <span>Plazo contrato CP</span>
+                <strong>{m2.cpPlazo} meses</strong>
+              </div>
+            </>
+          )}
+          {commercialModules.lp && m3?.phase1Detail && (
+            <>
+              <div className="fin-summary-kpi">
+                <span>Largo plazo F1 — renta/mes</span>
+                <strong>{fmt(m3.phase1Detail.rentaCliente)}/mes</strong>
+              </div>
+              <div className="fin-summary-kpi">
+                <span>Plazo préstamo banco</span>
+                <strong>{m3.lpNPrestamo ?? p.lpN} meses</strong>
+              </div>
+            </>
+          )}
+          {commercialModules.lp && m3?.phase2Detail && Number(m3.lpNF2) > 0 && (
+            <>
+              <div className="fin-summary-kpi">
+                <span>Largo plazo F2 — renta/mes</span>
+                <strong>{fmt(m3.phase2Detail.rentaCliente)}/mes</strong>
+              </div>
+              <div className="fin-summary-kpi">
+                <span>Plazo contrato total LP</span>
+                <strong>{m3.lpNContrato ?? p.lpNContrato} meses</strong>
+              </div>
+            </>
+          )}
+          {commercialModules.est && (
+            <>
+              <div className="fin-summary-kpi">
+                <span>Estacionalidad — ingreso anual</span>
+                <strong>{fmt(m4.estIngTotalYear)}/año</strong>
+              </div>
+              <div className="fin-summary-kpi">
+                <span>Calendario operativo</span>
+                <strong>
+                  {m4.estOp} meses plenos · {m4.estSb} meses standby
+                </strong>
+              </div>
+            </>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`fin-panel${finPanelClassName ? ` ${finPanelClassName}` : ''}`}>
-      <div className="fin-panel__head">
-        <h2 className="fin-panel__title">Módulos financieros</h2>
-        <p className="fin-panel__intro">
-          <strong>M1</strong> fija el total de venta; <strong>M2–M4</strong> en cascada (CP / LP cost-plus / estacionalidad).{' '}
-          <strong>M5</strong> compara con el PDF Gerencia. Importes en USD (motor); vista PEN referencial con T.C.
-        </p>
-        <FinCurrencyBar
-          displayCurrency={cur}
-          onDisplayCurrency={setDisplayCurrency}
-          tc={tc}
-          onTcChange={handleTc}
-          disabled={hideSensitive}
-        />
-      </div>
+      <div className="fin-panel__sticky-top">
+        <div className="fin-panel__head">
+          <h2 className="fin-panel__title">Módulos financieros</h2>
+          <p className="fin-panel__intro">
+            <strong>M1</strong> fija el total de venta; <strong>M2–M4</strong> en cascada (CP / LP cost-plus / estacionalidad).{' '}
+            <strong>M5</strong> compara con el PDF Gerencia. Importes en USD (motor); vista PEN referencial con T.C.
+          </p>
+          <FinCurrencyBar
+            displayCurrency={cur}
+            onDisplayCurrency={setDisplayCurrency}
+            tc={tc}
+            onTcChange={handleTc}
+            disabled={hideSensitive}
+          />
+        </div>
 
-      <div className="fin-toggles mono">
-        <label className="fin-check">
-          <input
-            type="checkbox"
-            checked={p.enableCp !== false}
-            disabled={hideSensitive}
-            onChange={(e) => patch({ enableCp: e.target.checked })}
-          />
-          Corto plazo (CP)
-        </label>
-        <label className="fin-check">
-          <input
-            type="checkbox"
-            checked={p.enableLp !== false}
-            disabled={hideSensitive}
-            onChange={(e) => patch({ enableLp: e.target.checked })}
-          />
-          Largo plazo (LP)
-        </label>
-        <label className="fin-check">
-          <input
-            type="checkbox"
-            checked={p.enableEst !== false}
-            disabled={hideSensitive}
-            onChange={(e) => patch({ enableEst: e.target.checked })}
-          />
-          Estacionalidad
-        </label>
+        <div className="fin-toggles mono">
+          <div className="fin-toggle-row">
+            <span className="fin-toggle-row__label">M1 · Venta directa</span>
+            <CommercialToggle moduleKey="m1" label="Vista comercial (total venta)" enabled />
+          </div>
+          <div className="fin-toggle-row">
+            <label className="fin-check">
+              <input
+                type="checkbox"
+                checked={p.enableCp !== false}
+                disabled={hideSensitive}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  patch(on ? { enableCp: true } : { enableCp: false, commercialShowCp: false });
+                }}
+              />
+              Corto plazo (CP)
+            </label>
+            <CommercialToggle moduleKey="cp" label="Vista comercial CP" enabled={p.enableCp !== false} />
+          </div>
+          <div className="fin-toggle-row">
+            <label className="fin-check">
+              <input
+                type="checkbox"
+                checked={p.enableLp !== false}
+                disabled={hideSensitive}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  patch(on ? { enableLp: true } : { enableLp: false, commercialShowLp: false });
+                }}
+              />
+              Largo plazo (LP)
+            </label>
+            <CommercialToggle moduleKey="lp" label="Vista comercial LP" enabled={p.enableLp !== false} />
+          </div>
+          <div className="fin-toggle-row">
+            <label className="fin-check">
+              <input
+                type="checkbox"
+                checked={p.enableEst !== false}
+                disabled={hideSensitive}
+                onChange={(e) => {
+                  const on = e.target.checked;
+                  patch(on ? { enableEst: true } : { enableEst: false, commercialShowEst: false });
+                }}
+              />
+              Estacionalidad
+            </label>
+            <CommercialToggle moduleKey="est" label="Vista comercial est." enabled={p.enableEst !== false} />
+          </div>
+        </div>
       </div>
 
       <ModSection

@@ -13,22 +13,23 @@ function buildDisplayNameClient(baseDesc, instanceLabel) {
   const label = String(instanceLabel || '').trim();
   if (!label) return base;
   if (!base) return label;
-  return `${base} ${label}`;
+  return `${label} - ${base}`;
 }
 
 /** Modal al agregar o editar producto final (KIT) en presupuesto. */
 export function KitInstanceModal({
   open,
   template,
-  suggestedLabel = '1',
+  suggestedLabel = 'ZONA 1',
   editMode = false,
   catalogItems = [],
   onClose,
   onConfirm,
   busy = false,
+  hidePrices = false,
 }) {
   const [lines, setLines] = useState([]);
-  const [instanceLabel, setInstanceLabel] = useState('1');
+  const [instanceLabel, setInstanceLabel] = useState('ZONA 1');
   const [displayName, setDisplayName] = useState('');
   const [displayEdited, setDisplayEdited] = useState(false);
   const [addItemId, setAddItemId] = useState('');
@@ -38,12 +39,12 @@ export function KitInstanceModal({
     if (open && template) {
       setLines((template.lines || []).map((l) => ({ ...l })));
       if (editMode) {
-        setInstanceLabel(template.instanceLabel || suggestedLabel || '1');
+        setInstanceLabel(template.instanceLabel || suggestedLabel || 'ZONA 1');
         setDisplayName(template.displayName || '');
         setDisplayEdited(true);
       } else {
-        setInstanceLabel(suggestedLabel || '1');
-        setDisplayName(buildDisplayNameClient(template.descripcion, suggestedLabel || '1'));
+        setInstanceLabel(suggestedLabel || 'ZONA 1');
+        setDisplayName(buildDisplayNameClient(template.descripcion, suggestedLabel || 'ZONA 1'));
         setDisplayEdited(false);
       }
       setAddItemId('');
@@ -125,7 +126,7 @@ export function KitInstanceModal({
       setPickErr('Seleccione al menos un componente para el conjunto.');
       return;
     }
-    const label = instanceLabel.trim() || '1';
+    const label = instanceLabel.trim() || 'ZONA 1';
     const name = displayName.trim() || buildDisplayNameClient(template.descripcion, label);
     onConfirm({
       instanceLabel: label,
@@ -134,10 +135,10 @@ export function KitInstanceModal({
       lines: selected.map((l) => ({
         catalogItemId: l.catalogItemId,
         qty: Number(l.qty) || 0,
-        unitPrice: Number(l.unitPrice),
+        ...(hidePrices ? {} : { unitPrice: Number(l.unitPrice) }),
         included: true,
       })),
-      unitPrice: total,
+      ...(hidePrices ? {} : { unitPrice: total }),
     });
   }
 
@@ -157,26 +158,34 @@ export function KitInstanceModal({
                 ? 'Guardando…'
                 : 'Agregando…'
               : editMode
-                ? `Guardar cambios (${formatUsd(total)})`
-                : `Agregar conjunto (${formatUsd(total)})`}
+                ? hidePrices
+                  ? 'Guardar cambios'
+                  : `Guardar cambios (${formatUsd(total)})`
+                : hidePrices
+                  ? 'Agregar conjunto'
+                  : `Agregar conjunto (${formatUsd(total)})`}
           </button>
         </>
       }
     >
       <p className="muted mono" style={{ fontSize: 12, marginBottom: 12, lineHeight: 1.45 }}>
         {editMode
-          ? 'Modifique componentes, cantidades o agregue ítems al conjunto. El precio se recalcula automáticamente.'
-          : 'Configure los componentes de esta instancia. Puede cambiar cantidades, desmarcar ítems o agregar componentes adicionales. El precio del conjunto es la suma de los componentes seleccionados.'}
+          ? hidePrices
+            ? 'Modifique componentes, cantidades o agregue ítems al conjunto.'
+            : 'Modifique componentes, cantidades o agregue ítems al conjunto. El precio se recalcula automáticamente.'
+          : hidePrices
+            ? 'Configure los componentes de esta instancia. Marque o desmarque cada fila para incluirla en el conjunto.'
+            : 'Configure los componentes de esta instancia. Marque o desmarque cada fila; el precio del conjunto es la suma de los componentes seleccionados.'}
       </p>
       <div className="stack-form" style={{ marginBottom: 14 }}>
         <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
           <label>
-            <span className="fg-lbl">Etiqueta instancia</span>
+            <span className="fg-lbl">Etiqueta instancia (zona)</span>
             <input
               className="form-input mono"
               value={instanceLabel}
               disabled={busy}
-              placeholder="1, 2, zona 1…"
+              placeholder="ZONA 1, ZONA 2…"
               onChange={(e) => {
                 setInstanceLabel(e.target.value);
                 if (!displayEdited) {
@@ -213,8 +222,8 @@ export function KitInstanceModal({
                 <th>Código</th>
                 <th>Descripción</th>
                 <th className="num">Cant.</th>
-                <th className="num">P. unit.</th>
-                <th className="num">Subtotal</th>
+                {!hidePrices && <th className="num">P. unit.</th>}
+                {!hidePrices && <th className="num">Subtotal</th>}
                 <th style={{ width: 36 }} />
               </tr>
             </thead>
@@ -245,8 +254,10 @@ export function KitInstanceModal({
                         onChange={(e) => setLineQty(l.catalogItemId, e.target.value)}
                       />
                     </td>
-                    <td className="num mono">{formatUsd(l.unitPrice)}</td>
-                    <td className="num mono">{l.included !== false ? formatUsd(sub) : '—'}</td>
+                    {!hidePrices && <td className="num mono">{formatUsd(l.unitPrice)}</td>}
+                    {!hidePrices && (
+                      <td className="num mono">{l.included !== false ? formatUsd(sub) : '—'}</td>
+                    )}
                     <td>
                       {(editMode || !l.fromTemplate) && (
                         <button
