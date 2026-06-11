@@ -3805,6 +3805,16 @@ select.form-input {
 .catalog-dep-row--main td {
   background: rgba(0, 229, 255, 0.06);
 }
+.dep-bulk-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.dep-bulk-actions .btn {
+  font-size: 12px;
+  padding: 4px 10px;
+}
 
 .budget-history-panel {
   margin-bottom: 14px;

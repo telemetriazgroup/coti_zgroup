@@ -40,6 +40,13 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
     );
   }
 
+  function setAllIncluded(included) {
+    setPickErr(null);
+    setLines((prev) => prev.map((l) => (l.isMain ? l : { ...l, included })));
+  }
+
+  const depLines = lines.filter((l) => !l.isMain);
+
   function submit(e) {
     e.preventDefault();
     const main = lines.find((l) => l.isMain);
@@ -91,6 +98,26 @@ export function CatalogDependencyAddModal({ open, bundle, onClose, onConfirm, bu
         </div>
       )}
       <form id="catalog-dep-add-form" onSubmit={submit}>
+        {depLines.length > 0 && (
+          <div className="dep-bulk-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={busy}
+              onClick={() => setAllIncluded(true)}
+            >
+              Seleccionar todo
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={busy}
+              onClick={() => setAllIncluded(false)}
+            >
+              Quitar todo
+            </button>
+          </div>
+        )}
         <div className="table-wrap">
           <table className="data-table data-table--compact">
             <thead>

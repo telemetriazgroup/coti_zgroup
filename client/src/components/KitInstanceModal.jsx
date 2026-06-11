@@ -101,6 +101,11 @@ export function KitInstanceModal({
     );
   }
 
+  function setAllIncluded(included) {
+    setPickErr(null);
+    setLines((prev) => prev.map((l) => ({ ...l, included })));
+  }
+
   function appendExtraLines(selectedLines) {
     const used = new Set(lines.map((l) => l.catalogItemId));
     for (const l of selectedLines) {
@@ -292,6 +297,26 @@ export function KitInstanceModal({
         </div>
       )}
       <form id="kit-instance-form" onSubmit={submit}>
+        {lines.length > 0 && (
+          <div className="dep-bulk-actions">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={busy}
+              onClick={() => setAllIncluded(true)}
+            >
+              Seleccionar todo
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={busy}
+              onClick={() => setAllIncluded(false)}
+            >
+              Quitar todo
+            </button>
+          </div>
+        )}
         <div className="table-wrap">
           <table className="data-table data-table--compact">
             <thead>
