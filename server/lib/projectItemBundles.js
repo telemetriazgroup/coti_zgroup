@@ -120,6 +120,30 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
   return { componentIds, nextSortOrder: sortOrder };
 }
 
+function mapCompRowToLine(r, { fromTemplate }) {
+  return {
+    lineId: r.id,
+    catalogItemId: r.catalog_item_id,
+    codigo: r.codigo,
+    descripcion: r.descripcion,
+    unidad: r.unidad,
+    tipo: r.tipo,
+    unitPrice: r.unit_price != null ? Number(r.unit_price) : 0,
+    qty: r.qty != null ? Number(r.qty) : 1,
+    included: true,
+    fromTemplate,
+    componentGroupKey: r.component_group_key || 'template',
+    componentGroupLabel: r.component_group_label || null,
+    componentGroupSort: r.component_group_sort != null ? Number(r.component_group_sort) : 0,
+  };
+}
+
+function isTemplateGroupRow(r) {
+  const key = r.component_group_key || 'template';
+  const sort = Number(r.component_group_sort) || 0;
+  return key === 'template' && sort === 0;
+}
+
 /**
  * Carga datos del conjunto para edición en presupuesto.
  */
@@ -144,31 +168,22 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
   const { rows: compRows } = await q(
     `SELECT * FROM project_items
      WHERE bundle_id = $1 AND is_bundle_component = true AND project_id = $2
-     ORDER BY sort_order ASC, created_at ASC`,
+     ORDER BY component_group_sort ASC, sort_order ASC, created_at ASC`,
     [bundleId, projectId]
   );
 
-  const compByCatalogId = new Map(compRows.map((r) => [r.catalog_item_id, r]));
+  const templateRows = compRows.filter(isTemplateGroupRow);
+  const extraRows = compRows.filter((r) => !isTemplateGroupRow(r));
   const lines = [];
+  const usedTemplateRowIds = new Set();
 
   for (const dep of deps) {
-    const existing = compByCatalogId.get(dep.childItemId);
+    const existing = templateRows.find(
+      (r) => r.catalog_item_id === dep.childItemId && !usedTemplateRowIds.has(r.id)
+    );
     if (existing) {
-      lines.push({
-        catalogItemId: existing.catalog_item_id,
-        codigo: existing.codigo,
-        descripcion: existing.descripcion,
-        unidad: existing.unidad,
-        tipo: existing.tipo,
-        unitPrice: existing.unit_price != null ? Number(existing.unit_price) : 0,
-        qty: existing.qty != null ? Number(existing.qty) : 1,
-        included: true,
-        fromTemplate: true,
-        componentGroupKey: existing.component_group_key || 'template',
-        componentGroupLabel: existing.component_group_label || null,
-        componentGroupSort: existing.component_group_sort != null ? Number(existing.component_group_sort) : 0,
-      });
-      compByCatalogId.delete(dep.childItemId);
+      usedTemplateRowIds.add(existing.id);
+      lines.push(mapCompRowToLine(existing, { fromTemplate: true }));
     } else {
       lines.push({
         catalogItemId: dep.childItemId,
@@ -188,21 +203,13 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
     }
   }
 
-  for (const r of compByCatalogId.values()) {
-    lines.push({
-      catalogItemId: r.catalog_item_id,
-      codigo: r.codigo,
-      descripcion: r.descripcion,
-      unidad: r.unidad,
-      tipo: r.tipo,
-      unitPrice: r.unit_price != null ? Number(r.unit_price) : 0,
-      qty: r.qty != null ? Number(r.qty) : 1,
-      included: true,
-      fromTemplate: false,
-      componentGroupKey: r.component_group_key || 'template',
-      componentGroupLabel: r.component_group_label || null,
-      componentGroupSort: r.component_group_sort != null ? Number(r.component_group_sort) : 0,
-    });
+  for (const r of templateRows) {
+    if (usedTemplateRowIds.has(r.id)) continue;
+    lines.push(mapCompRowToLine(r, { fromTemplate: true }));
+  }
+
+  for (const r of extraRows) {
+    lines.push(mapCompRowToLine(r, { fromTemplate: false }));
   }
 
   lines.sort((a, b) => {

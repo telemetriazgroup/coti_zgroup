@@ -1265,6 +1265,13 @@ select.form-input option {
 .modal-panel--wide {
   max-width: 720px;
 }
+.modal-panel--kit {
+  max-width: min(1200px, 96vw);
+  width: min(1200px, 96vw);
+}
+.modal-panel--kit .modal-body {
+  max-height: min(78vh, calc(100dvh - 140px));
+}
 .modal-hdr {
   display: flex;
   align-items: center;
@@ -1524,8 +1531,10 @@ select.form-input {
     width: auto;
     min-width: 120px;
   }
-  .modal-panel--wide {
+  .modal-panel--wide,
+  .modal-panel--kit {
     max-width: 100%;
+    width: 100%;
   }
 }
 

@@ -104,6 +104,7 @@ export function KitInstanceModal({
   if (!open || !template) return null;
 
   function lineKey(l) {
+    if (l.lineId) return l.lineId;
     return `${l.catalogItemId}::${l.componentGroupKey || 'template'}::${l.componentGroupSort ?? 0}`;
   }
 
@@ -303,6 +304,7 @@ export function KitInstanceModal({
     <>
     <Modal
       wide
+      panelClassName="modal-panel--kit"
       title={`${editMode ? 'Editar conjunto' : 'Producto final'} — ${template.descripcion}`}
       onClose={() => !busy && onClose()}
       footer={
@@ -498,7 +500,7 @@ export function KitInstanceModal({
                 </thead>
                 <tbody>
                   {consolidatedPreview.map((r) => (
-                    <tr key={r.codigo}>
+                    <tr key={`${r.codigo}-${r.qty}`}>
                       <td className="mono">{r.codigo}</td>
                       <td>{r.descripcion}</td>
                       <td className="num mono">{r.qty}</td>
