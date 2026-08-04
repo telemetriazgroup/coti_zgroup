@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { sqlAdminTeamAndGroupAccess } = require('../lib/adminGroups');
+const { loadSuperuserAnalytics } = require('../lib/superuserAnalytics');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -180,6 +181,17 @@ router.get('/admin', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req,
     });
   } catch (err) {
     console.error('[DASHBOARD] admin:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/dashboard/superuser-analytics — indicadores globales (SUPERUSER) ─
+router.get('/superuser-analytics', requireRole('SUPERUSER'), async (req, res) => {
+  try {
+    const data = await loadSuperuserAnalytics();
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[DASHBOARD] superuser-analytics:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });

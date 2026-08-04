@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { STATUS_LABEL } from '../lib/quotationStatus';
+import { SuperuserAnalyticsPanel } from '../components/SuperuserAnalyticsPanel';
 
 function formatUsd(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -199,6 +200,8 @@ export function DashboardPage() {
           </div>
         </>
       )}
+
+      {isSuper && <SuperuserAnalyticsPanel />}
 
       <div className="panel">
         <div className="panel-hdr">

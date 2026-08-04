@@ -3877,3 +3877,37 @@ select.form-input {
 .budget-history-table-wrap {
   max-height: 280px;
 }
+
+/* Superuser dashboard analytics */
+.dash-analytics__title {
+  margin-top: 28px;
+}
+.dash-analytics__kpis {
+  margin-bottom: 12px;
+}
+.dash-analytics__kpis--period {
+  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
+}
+.kpi-card--accent {
+  border-color: rgba(0, 229, 255, 0.25);
+}
+.kpi-sub {
+  font-size: 11px;
+  margin-top: 6px;
+  line-height: 1.4;
+}
+.dash-analytics__hdr {
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+  justify-content: space-between;
+}
+.dash-analytics__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.dash-analytics__tab--active {
+  border-color: var(--cyan) !important;
+  color: var(--cyan) !important;
+}
