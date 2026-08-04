@@ -3815,6 +3815,38 @@ select.form-input {
   font-size: 12px;
   padding: 4px 10px;
 }
+.budget-kit-view-toggle {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-left: auto;
+}
+.budget-kit-view-toggle .btn.is-active {
+  border-color: var(--cyan);
+  color: var(--cyan);
+}
+.kit-modal-sub-1 td {
+  background: rgba(255, 215, 0, 0.1);
+  box-shadow: inset 4px 0 0 rgba(255, 215, 0, 0.55);
+}
+.kit-modal-sub-2 td {
+  background: rgba(100, 181, 246, 0.1);
+  box-shadow: inset 4px 0 0 rgba(100, 181, 246, 0.55);
+}
+.kit-modal-sub-3 td {
+  background: rgba(0, 232, 122, 0.08);
+  box-shadow: inset 4px 0 0 rgba(0, 232, 122, 0.5);
+}
+.kit-modal-sub-4 td {
+  background: rgba(255, 82, 82, 0.08);
+  box-shadow: inset 4px 0 0 rgba(255, 82, 82, 0.45);
+}
+.kit-modal-consolidated {
+  padding: 10px 12px;
+  border: 1px solid var(--border-dim);
+  border-radius: 6px;
+  background: rgba(255, 255, 255, 0.02);
+}
 
 .budget-history-panel {
   margin-bottom: 14px;

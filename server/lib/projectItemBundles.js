@@ -92,8 +92,9 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
       `INSERT INTO project_items
         (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price,
          qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by,
-         bundle_id, is_bundle_header, is_bundle_component)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, false, $12, $12, $13, false, true)
+         bundle_id, is_bundle_header, is_bundle_component,
+         component_group_key, component_group_label, component_group_sort)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, false, $12, $12, $13, false, true, $14, $15, $16)
        RETURNING id`,
       [
         projectId,
@@ -109,6 +110,9 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
         comp.category_id,
         userId,
         bundleId,
+        line.componentGroupKey || 'template',
+        line.componentGroupLabel || null,
+        Number(line.componentGroupSort) || 0,
       ]
     );
     componentIds.push(compIns[0].id);
@@ -160,6 +164,9 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
         qty: existing.qty != null ? Number(existing.qty) : 1,
         included: true,
         fromTemplate: true,
+        componentGroupKey: existing.component_group_key || 'template',
+        componentGroupLabel: existing.component_group_label || null,
+        componentGroupSort: existing.component_group_sort != null ? Number(existing.component_group_sort) : 0,
       });
       compByCatalogId.delete(dep.childItemId);
     } else {
@@ -174,6 +181,9 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
         qty: Math.round(Number(dep.qty) * mainQty * 1000) / 1000,
         included: false,
         fromTemplate: true,
+        componentGroupKey: 'template',
+        componentGroupLabel: null,
+        componentGroupSort: 0,
       });
     }
   }
@@ -189,8 +199,18 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
       qty: r.qty != null ? Number(r.qty) : 1,
       included: true,
       fromTemplate: false,
+      componentGroupKey: r.component_group_key || 'template',
+      componentGroupLabel: r.component_group_label || null,
+      componentGroupSort: r.component_group_sort != null ? Number(r.component_group_sort) : 0,
     });
   }
+
+  lines.sort((a, b) => {
+    const ga = Number(a.componentGroupSort) || 0;
+    const gb = Number(b.componentGroupSort) || 0;
+    if (ga !== gb) return ga - gb;
+    return String(a.codigo || '').localeCompare(String(b.codigo || ''));
+  });
 
   return {
     bundleId: bundle.id,
@@ -278,11 +298,17 @@ async function createProjectBundle(
   );
 
   const componentIds = [];
+  const sortedIncluded = [...included].sort((a, b) => {
+    const ga = Number(a.componentGroupSort) || 0;
+    const gb = Number(b.componentGroupSort) || 0;
+    if (ga !== gb) return ga - gb;
+    return String(a.codigo || '').localeCompare(String(b.codigo || ''));
+  });
   const compResult = await insertBundleComponents(client, {
     projectId,
     userId,
     bundleId: bundle.id,
-    lines: included,
+    lines: sortedIncluded,
     startSortOrder: sortOrder,
     market,
   });
@@ -359,12 +385,19 @@ async function updateProjectBundle(
     bundleId,
   ]);
 
+  const sortedIncluded = [...included].sort((a, b) => {
+    const ga = Number(a.componentGroupSort) || 0;
+    const gb = Number(b.componentGroupSort) || 0;
+    if (ga !== gb) return ga - gb;
+    return String(a.codigo || '').localeCompare(String(b.codigo || ''));
+  });
+
   let sortOrder = Number(header.sort_order) + 1;
   const compResult = await insertBundleComponents(client, {
     projectId,
     userId,
     bundleId,
-    lines: included,
+    lines: sortedIncluded,
     startSortOrder: sortOrder,
     market,
   });

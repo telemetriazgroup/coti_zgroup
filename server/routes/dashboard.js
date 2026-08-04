@@ -121,7 +121,7 @@ router.get('/summary', async (req, res) => {
 });
 
 // ─── GET /api/dashboard/admin — KPIs gerenciales (solo ADMIN) ──
-router.get('/admin', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.get('/admin', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const { rows: statusRows } = await pool.query(
       `SELECT status, COUNT(*)::int AS n FROM projects WHERE deleted_at IS NULL GROUP BY status ORDER BY status`

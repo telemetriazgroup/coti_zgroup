@@ -34,8 +34,8 @@ const upload = multer({
 const router = express.Router();
 router.use(requireAuth);
 
-const WRITE_ROLES = ['ADMIN', 'COMERCIAL', 'SUPERUSER'];
-const HISTORY_ROLES = ['ADMIN', 'COMERCIAL', 'SUPERUSER'];
+const WRITE_ROLES = ['ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'];
+const HISTORY_ROLES = ['ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'];
 
 function mapClient(row) {
   return {

@@ -4,7 +4,7 @@ const { body, param, validationResult } = require('express-validator');
 const { validate: uuidValidate } = require('uuid');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { canManageCatalog } = require('../utils/userRoles');
+const { canManageCatalog, canViewInactiveCatalog } = require('../utils/userRoles');
 const { getCached, setCached, invalidateCatalogCache } = require('../lib/catalogRedis');
 const { buildCatalogXlsx, parseImportBuffer, validateImportRows, applyImportRows } = require('../lib/catalogExcel');
 const {
@@ -135,7 +135,7 @@ async function fetchCatalogFromDb(includeInactive) {
 // ─── GET /api/catalog/export — Excel (todos los roles autenticados) ─
 router.get('/export', async (req, res) => {
   try {
-    const includeInactive = req.query.includeInactive === 'true' && canManageCatalog(req.user);
+    const includeInactive = req.query.includeInactive === 'true' && canViewInactiveCatalog(req.user);
     const data = await fetchCatalogFromDb(includeInactive);
     const buf = buildCatalogXlsx(data);
     res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
@@ -148,7 +148,7 @@ router.get('/export', async (req, res) => {
 });
 
 // ─── POST /api/catalog/import/preview — ADMIN ───────────────────
-router.post('/import/preview', requireRole('ADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
+router.post('/import/preview', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({
@@ -178,7 +178,7 @@ router.post('/import/preview', requireRole('ADMIN', 'SUPERUSER'), upload.single(
 });
 
 // ─── POST /api/catalog/import/apply — ADMIN ─────────────────────
-router.post('/import/apply', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.post('/import/apply', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const incoming = req.body?.rows;
     if (!Array.isArray(incoming) || incoming.length === 0) {
@@ -224,7 +224,7 @@ router.post('/import/apply', requireRole('ADMIN', 'SUPERUSER'), async (req, res)
 
 // ─── GET /api/catalog — lectura (Redis + fallback BD) ───────────
 router.get('/', async (req, res) => {
-  const includeInactive = req.query.includeInactive === 'true' && canManageCatalog(req.user);
+  const includeInactive = req.query.includeInactive === 'true' && canViewInactiveCatalog(req.user);
   const fresh = req.query.fresh === 'true' && canManageCatalog(req.user);
 
   try {
@@ -256,7 +256,7 @@ router.get('/', async (req, res) => {
 });
 
 // ─── POST /api/catalog/refresh-cache — ADMIN / SUPERUSER ────────
-router.post('/refresh-cache', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.post('/refresh-cache', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     await invalidateCatalogCache();
     const act = await fetchCatalogFromDb(false);
@@ -274,7 +274,7 @@ router.post('/refresh-cache', requireRole('ADMIN', 'SUPERUSER'), async (req, res
 });
 
 // ─── POST /api/catalog/regularize-active — normalizar active ───
-router.post('/regularize-active', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.post('/regularize-active', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -311,7 +311,7 @@ const reorderValidation = [
 ];
 
 // ─── PATCH /api/catalog/categories/reorder — ADMIN ───────────────
-router.patch('/categories/reorder', requireRole('ADMIN', 'SUPERUSER'), reorderValidation, async (req, res) => {
+router.patch('/categories/reorder', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), reorderValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -353,7 +353,7 @@ const catBody = [
 ];
 
 // ─── POST /api/catalog/categories — ADMIN ───────────────────────
-router.post('/categories', requireRole('ADMIN', 'SUPERUSER'), catBody, async (req, res) => {
+router.post('/categories', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), catBody, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -496,7 +496,7 @@ async function runCategoryDeactivate(req, res, categoryId) {
 }
 
 // ─── PUT /api/catalog/categories/:id — ADMIN ───────────────────
-router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidators, async (req, res) => {
+router.put('/categories/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), catPutValidators, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -667,7 +667,7 @@ router.put('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), catPutValidator
 // ─── POST /api/catalog/categories/:id/deactivate — ADMIN ─────────
 router.post(
   '/categories/:id/deactivate',
-  requireRole('ADMIN', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
   [param('id').isUUID(), body('confirmPassword').notEmpty().withMessage('Contraseña requerida')],
   async (req, res) => {
     const errors = validationResult(req);
@@ -682,7 +682,7 @@ router.post(
 );
 
 // ─── DELETE /api/catalog/categories/:id — desactivar (legacy) ───
-router.delete('/categories/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.delete('/categories/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
   return res.status(400).json({
     success: false,
     error: {
@@ -706,7 +706,7 @@ const itemBody = [
 ];
 
 // ─── POST /api/catalog/items — ADMIN ───────────────────────────
-router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, res) => {
+router.post('/items', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), itemBody, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -821,7 +821,7 @@ router.post('/items', requireRole('ADMIN', 'SUPERUSER'), itemBody, async (req, r
 });
 
 // ─── PUT /api/catalog/items/:id — ADMIN ────────────────────────
-router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.put('/items/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
   const verr = validationResult(req);
   if (!verr.isEmpty()) {
     return res.status(400).json({
@@ -1012,7 +1012,7 @@ router.put('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID(
 });
 
 // ─── GET /api/catalog/items/:id/dependencies ───────────────────
-router.get('/items/:id/dependencies', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.get('/items/:id/dependencies', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
   try {
     const { rows: item } = await pool.query(`SELECT id FROM catalog_items WHERE id = $1`, [req.params.id]);
     if (!item[0]) {
@@ -1064,7 +1064,7 @@ router.get('/items/:id/dependency-bundle', requireAuth, [param('id').isUUID()], 
 // ─── PUT /api/catalog/items/:id/dependencies ───────────────────
 router.put(
   '/items/:id/dependencies',
-  requireRole('ADMIN', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
   [
     param('id').isUUID(),
     body('dependencies').isArray(),
@@ -1110,7 +1110,7 @@ router.put(
 );
 
 // ─── DELETE /api/catalog/items/:id — desactivar — ADMIN ────────
-router.delete('/items/:id', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.delete('/items/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -1161,7 +1161,7 @@ router.get('/categories/:id/next-codigo', requireRole('ADMIN', 'SUPERUSER', 'COM
 // ─── POST /api/catalog/categories/:id/regularize-codigos ────────
 router.post(
   '/categories/:id/regularize-codigos',
-  requireRole('ADMIN', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
   [param('id').isUUID()],
   async (req, res) => {
     try {
@@ -1233,7 +1233,7 @@ router.post(
 );
 
 // ─── GET /api/catalog/categories/:id/history — ADMIN ────────────
-router.get('/categories/:id/history', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.get('/categories/:id/history', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
   try {
     const data = await fetchCatalogHistory('CATEGORY', req.params.id);
     return res.json({ success: true, data });
@@ -1244,7 +1244,7 @@ router.get('/categories/:id/history', requireRole('ADMIN', 'SUPERUSER'), [param(
 });
 
 // ─── GET /api/catalog/items/:id/history — ADMIN ─────────────────
-router.get('/items/:id/history', requireRole('ADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.get('/items/:id/history', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
   try {
     const data = await fetchCatalogHistory('ITEM', req.params.id);
     return res.json({ success: true, data });

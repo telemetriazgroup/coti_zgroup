@@ -32,7 +32,7 @@ function isValidEmail(s) {
   return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(t);
 }
 
-const ROLES = new Set(['ADMIN', 'COMERCIAL', 'VIEWER']);
+const ROLES = new Set(['ADMIN', 'SEMIADMIN', 'COMERCIAL', 'VIEWER']);
 
 function parseImportBuffer(buffer) {
   const wb = XLSX.read(buffer, { type: 'buffer', cellDates: true });
@@ -131,7 +131,7 @@ async function validateImportRows(parsedRows) {
       issues.push('ROL_INVALIDO');
     }
 
-    if (r.role === 'ADMIN' || r.role === 'COMERCIAL') {
+    if (r.role === 'ADMIN' || r.role === 'SEMIADMIN' || r.role === 'COMERCIAL') {
       if (!r.nombres || !String(r.nombres).trim()) issues.push('FALTA_NOMBRES');
       if (!r.apellidos || !String(r.apellidos).trim()) issues.push('FALTA_APELLIDOS');
     }

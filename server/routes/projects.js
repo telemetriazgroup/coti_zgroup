@@ -2,11 +2,18 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
+const { canViewArchivedProjects, isSuperuser } = require('../utils/userRoles');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
-const { canReadProject, canWriteProject, canManageProject, canCloneProject, canEditProjectMetadata, canViewProjectAudit } = require('../utils/projectAccess');
+const {
+  canReadProject,
+  canWriteProject,
+  canManageProject,
+  canCloneProject,
+  canEditProjectMetadata,
+  canViewProjectAudit,
+} = require('../utils/projectAccess');
 const { loadProjectAccessContext } = require('../utils/projectShare');
-const { isSuperuser } = require('../utils/userRoles');
 const { mapProject, PROJECT_SELECT, projectVisibilityWhere } = require('../utils/projectHelpers');
 const { isValidStatusTransition } = require('../utils/projectStatusTransitions');
 const {
@@ -21,8 +28,7 @@ router.use(requireAuth);
 // ─── GET /api/projects — listado filtrado por rol ───────────────
 router.get('/', async (req, res) => {
   const includeDeleted =
-    req.query.includeDeleted === 'true' &&
-    (req.user.role === 'SUPERUSER' || req.user.role === 'ADMIN');
+    req.query.includeDeleted === 'true' && canViewArchivedProjects(req.user);
 
   const q = (req.query.q || '').trim();
   const clientId = (req.query.clientId || '').trim();
@@ -48,7 +54,7 @@ router.get('/', async (req, res) => {
       params.push(clientId);
       idx++;
     }
-    if (createdBy && (role === 'SUPERUSER' || role === 'ADMIN')) {
+    if (createdBy && (role === 'SUPERUSER' || role === 'ADMIN' || role === 'SEMIADMIN')) {
       filters.push(`p.created_by = $${idx}::uuid`);
       params.push(createdBy);
       idx++;
@@ -80,7 +86,7 @@ router.get('/', async (req, res) => {
 });
 
 // ─── GET /api/projects/:id/audit — admin (propio/equipo) o superusuario ─
-router.get('/:id/audit', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.get('/:id/audit', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
     if (!pr[0]) {
@@ -129,7 +135,7 @@ router.get('/:id/audit', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => 
 });
 
 // ─── GET /api/projects/:id/shares ───────────────────────────────
-router.get('/:id/shares', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.get('/:id/shares', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
     if (!pr[0]) {
@@ -171,7 +177,7 @@ router.get('/:id/shares', requireRole('ADMIN', 'SUPERUSER'), async (req, res) =>
 // ─── PUT /api/projects/:id/shares — reemplaza colaboradores ─────
 router.put(
   '/:id/shares',
-  requireRole('ADMIN', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
   [body('userIds').isArray()],
   async (req, res) => {
     const errors = validationResult(req);
@@ -269,7 +275,7 @@ const cloneValidation = [
 // ─── POST /api/projects/:id/clone ──────────────────────────────
 router.post(
   '/:id/clone',
-  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'),
   cloneValidation,
   async (req, res) => {
     const errors = validationResult(req);
@@ -421,7 +427,7 @@ router.post(
 // ─── PATCH /api/projects/:id/viewer — asignar VIEWER ─────────────
 router.patch(
   '/:id/viewer',
-  requireRole('ADMIN', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
   [body('assignedViewerId').optional({ nullable: true }).isUUID()],
   async (req, res) => {
     const errors = validationResult(req);
@@ -506,7 +512,7 @@ const createValidation = [
 ];
 
 // ─── POST /api/projects ────────────────────────────────────────
-router.post('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), createValidation, async (req, res) => {
+router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), createValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -599,7 +605,7 @@ const updateValidation = [
 ];
 
 // ─── PUT /api/projects/:id ─────────────────────────────────────
-router.put('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), updateValidation, async (req, res) => {
+router.put('/:id', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), updateValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -756,7 +762,7 @@ router.put('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), updateValidat
 });
 
 // ─── DELETE /api/projects/:id — soft delete ───────────────────
-router.delete('/:id', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.delete('/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
     if (!pr[0]) {

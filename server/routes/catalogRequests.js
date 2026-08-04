@@ -65,7 +65,7 @@ async function fetchRequestById(id) {
 }
 
 // ─── GET /api/catalog/requests/pending-count ────────────────────
-router.get('/pending-count', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.get('/pending-count', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     let sql = `SELECT COUNT(*)::int AS n FROM catalog_item_requests r WHERE r.status = 'PENDING'`;
     const params = [];
@@ -359,7 +359,7 @@ const approveBody = [
 // ─── PUT /api/catalog/requests/:id/approve ──────────────────────
 router.put(
   '/:id/approve',
-  requireRole('ADMIN', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
   [param('id').isUUID(), ...approveBody],
   async (req, res) => {
     const errors = validationResult(req);
@@ -548,7 +548,7 @@ router.put(
 // ─── PUT /api/catalog/requests/:id/reject ───────────────────────
 router.put(
   '/:id/reject',
-  requireRole('ADMIN', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
   [param('id').isUUID(), body('reviewNotes').optional().isString()],
   async (req, res) => {
     try {

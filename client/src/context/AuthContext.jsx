@@ -4,8 +4,11 @@ import { api, clearToken, getToken, request, setToken } from '../lib/api';
 import {
   isSuperuser as checkSuperuser,
   isAdmin as checkAdmin,
+  hasAdminPanelAccess as checkHasAdminPanelAccess,
   canManageCatalog as checkCanManageCatalog,
   canShareProjects as checkCanShareProjects,
+  canViewArchivedProjects as checkCanViewArchivedProjects,
+  canViewInactiveCatalog as checkCanViewInactiveCatalog,
 } from '../lib/userRoles';
 
 const AuthContext = createContext(null);
@@ -91,8 +94,11 @@ export function AuthProvider({ children }) {
       hasRole: (...roles) => user && roles.includes(user.role),
       isSuperuser: () => checkSuperuser(user),
       isAdmin: () => checkAdmin(user),
+      hasAdminPanelAccess: () => checkHasAdminPanelAccess(user),
       canManageCatalog: () => checkCanManageCatalog(user),
       canShareProjects: () => checkCanShareProjects(user),
+      canViewArchivedProjects: () => checkCanViewArchivedProjects(user),
+      canViewInactiveCatalog: () => checkCanViewInactiveCatalog(user),
     }),
     [user, ready, login, logout, refreshProfile]
   );

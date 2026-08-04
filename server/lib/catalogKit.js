@@ -95,6 +95,9 @@ async function resolveKitTemplate(catalogItemId, rootQty = 1, client = null) {
     qty: Math.round(Number(dep.qty) * qtyMain * 1000) / 1000,
     included: false,
     fromTemplate: true,
+    componentGroupKey: 'template',
+    componentGroupLabel: null,
+    componentGroupSort: 0,
   }));
 
   const templatePrice = lines.reduce((s, l) => s + l.qty * l.unitPrice, 0);

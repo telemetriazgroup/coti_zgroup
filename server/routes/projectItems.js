@@ -6,7 +6,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
 const { canReadProject, canWriteProject } = require('../utils/projectAccess');
-const { isSuperuser } = require('../utils/userRoles');
+const { isSuperuser, canViewArchivedProjects } = require('../utils/userRoles');
 const { loadShareContext } = require('../utils/projectShare');
 const {
   parseBudgetImportBuffer,
@@ -100,6 +100,9 @@ function mapItem(row) {
     isBundleComponent: row.is_bundle_component === true,
     bundleDisplayName: row.bundle_display_name ?? null,
     bundleInstanceLabel: row.bundle_instance_label ?? null,
+    componentGroupKey: row.component_group_key ?? null,
+    componentGroupLabel: row.component_group_label ?? null,
+    componentGroupSort: row.component_group_sort != null ? Number(row.component_group_sort) : 0,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -151,6 +154,10 @@ async function loadProject(req, res, id) {
   const shareCtx = await loadShareContext(req.user, p);
   if (!canReadProject(req.user, p, shareCtx)) {
     res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+    return null;
+  }
+  if (p.deleted_at && !canViewArchivedProjects(req.user)) {
+    res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     return null;
   }
   if (p.deleted_at && !isSuperuser(req.user)) {
@@ -344,7 +351,7 @@ router.get('/:id/items/export', async (req, res) => {
 // ─── POST /api/projects/:id/items/import/preview — validación sola
 router.post(
   '/:id/items/import/preview',
-  requireRole('ADMIN', 'COMERCIAL'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL'),
   (req, res, next) => {
     const ct = (req.get('content-type') || '').toLowerCase();
     if (ct.includes('multipart/form-data')) {
@@ -465,7 +472,7 @@ router.post(
 // ─── POST /api/projects/:id/items/import/apply — agregar al proyecto
 router.post(
   '/:id/items/import/apply',
-  requireRole('ADMIN', 'COMERCIAL'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL'),
   [
     body('items').isArray({ min: 1 }),
     body('items.*.catalogItemId').isUUID(),
@@ -601,7 +608,7 @@ const postItemValidation = [
 ];
 
 // ─── POST /api/projects/:id/items ──────────────────────────────
-router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postItemValidation, async (req, res) => {
+router.post('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), postItemValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -894,7 +901,7 @@ router.post('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), postIt
 // ─── POST /api/projects/:id/items/batch — agregar varias líneas de catálogo
 router.post(
   '/:id/items/batch',
-  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'),
   [
     body('lines').isArray({ min: 1 }),
     body('lines.*.catalogItemId').isUUID(),
@@ -1002,7 +1009,7 @@ router.post(
 // ─── GET /api/projects/:id/bundles/next-label — sugerir etiqueta instancia KIT
 router.get(
   '/:id/bundles/next-label',
-  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'),
   async (req, res) => {
     try {
       const catalogItemId = req.query.catalogItemId;
@@ -1032,7 +1039,7 @@ router.get(
 // ─── POST /api/projects/:id/bundles — instancia de conjunto KIT
 router.post(
   '/:id/bundles',
-  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'),
   [
     body('catalogItemId').isUUID(),
     body('instanceLabel').optional().isString().trim().isLength({ min: 1, max: 50 }).withMessage('Etiqueta de instancia inválida (1–50 caracteres)'),
@@ -1133,7 +1140,7 @@ router.post(
 // ─── GET /api/projects/:id/bundles/:bundleId — cargar conjunto para edición
 router.get(
   '/:id/bundles/:bundleId',
-  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'),
   async (req, res) => {
     try {
       const project = await loadProject(req, res, req.params.id);
@@ -1154,7 +1161,7 @@ router.get(
 // ─── PUT /api/projects/:id/bundles/:bundleId — editar conjunto KIT
 router.put(
   '/:id/bundles/:bundleId',
-  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'),
   [
     body('instanceLabel').optional().isString().trim().isLength({ min: 1, max: 50 }).withMessage('Etiqueta de instancia inválida (1–50 caracteres)'),
     body('displayName').optional().isString(),
@@ -1248,7 +1255,7 @@ const putItemValidation = [
 // ─── PUT /api/projects/:id/items/:itemId ───────────────────────
 router.put(
   '/:id/items/:itemId',
-  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'),
   putItemValidation,
   async (req, res) => {
     const errors = validationResult(req);
@@ -1372,7 +1379,7 @@ router.put(
 );
 
 // ─── DELETE /api/projects/:id/items/:itemId ────────────────────
-router.delete('/:id/items/:itemId', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
+router.delete('/:id/items/:itemId', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   const ip = getClientIp(req);
   try {
     const project = await loadProject(req, res, req.params.id);
@@ -1434,7 +1441,7 @@ router.delete('/:id/items/:itemId', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER
 });
 
 // ─── DELETE /api/projects/:id/items — vaciar presupuesto ───────
-router.delete('/:id/items', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
+router.delete('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   const ip = getClientIp(req);
   try {
     const project = await loadProject(req, res, req.params.id);

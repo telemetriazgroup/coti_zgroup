@@ -110,7 +110,7 @@ router.put('/me', mePutValidation, async (req, res) => {
 });
 
 // ─── GET /api/employees — lista (ADMIN) ─────────────────────────
-router.get('/', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.get('/', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const { rows } = await pool.query(
       `SELECT e.*, u.email, u.role, u.active as user_active
@@ -135,7 +135,7 @@ const createValidation = [
 ];
 
 // ─── POST /api/employees — crear ficha para usuario sin empleado (ADMIN) ───
-router.post('/', requireRole('ADMIN', 'SUPERUSER'), createValidation, async (req, res) => {
+router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), createValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({

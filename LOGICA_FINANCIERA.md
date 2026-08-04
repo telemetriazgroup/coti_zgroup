@@ -169,3 +169,17 @@ Logica tipo de usuario nacional o internacional  , los usuarios pueden estar con
 los colores de activos y consumibles no se veen en toda la fila , solo en la celda "UNIDAD" y Poner los productos finales por colores en bloque .Al momento de agregar un producto al bloque de productos finales si tiene dependencias indicar cual de ellos se agregara junto a ese producto 
 
 LOgica de permisos para comerciales , los Comerciales no pueden ver el calculo financiero , sino se lo permite su admin , solo pueden armar prespuestos pero no pueden ver precio de los item , solo precio final , solo ven los elemntos y van agregando item pero no ven el precio final hasta que su admin les autorice . el admin puede dsbloquearles para que vean el monto del precio por mes a largo plazo o corto plazo , pero no los calculos que hay detras de so , se debe mostrar para los admin y super admin los usuarios que hicieron cambios y el historial de item que se agregaron o modificaron del presupuesto , tambien se debe poder   editar el proyecto . EN el dashboar se vee los proyectos por usuario en los admin 
+
+
+que el super usuario pueda crera grupos donde usuarios ADMIN puedan ver proyectos de otro ADMIN y cormerciales . 
+
+
+Los usuarios de tipo comercial no den ver la columna "P. UNIT." ya qu eactaulmente le slae 0.00 y eso puede llevar a la confundirse  , cunado se agrega un conjunto o un kit como comercial parec el precio no deberia aparecer , y como admin aun no esta definido la opcion para activar la vista del modulo financiero solo a cantidades finales a los comerciales .
+
+cuando eres cuenta comercial solo puedes dar reporte para cliente con el resumen de loq ue se tiene habilitado del mosulo financiero sin detalles solo montos absolutos 
+
+
+los colores de activo y consumible en el presupuesto deben ser mas calros ya que resaltan mas que los colores de los grupos  
+
+
+al momento de agregar un kit con dependencia  o productos finales tener opcion de seleccionar todo , o quitar todo , para marcar o desmarcar todo los check de los item a agregar 

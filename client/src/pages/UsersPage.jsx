@@ -17,6 +17,7 @@ const ISSUE_LABELS = {
 const ROLE_LABELS = {
   SUPERUSER: 'SUPERUSER',
   ADMIN: 'ADMIN',
+  SEMIADMIN: 'SEMIADMIN',
   COMERCIAL: 'COMERCIAL',
   VIEWER: 'VIEWER',
 };
@@ -39,8 +40,8 @@ const emptyCreate = {
 
 export function UsersPage() {
   const { hasRole, user: me, isSuperuser } = useAuth();
-  const canImportExport = hasRole('ADMIN', 'SUPERUSER');
-  const canAssignRoles = hasRole('ADMIN', 'SUPERUSER');
+  const canImportExport = hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER');
+  const canAssignRoles = hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER');
   const isCommercialOnly = me?.role === 'COMERCIAL';
 
   const [list, setList] = useState([]);

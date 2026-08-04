@@ -1,4 +1,4 @@
-const { isSuperuser } = require('./userRoles');
+const { isSuperuser, isAdminLikeRole, canViewArchivedProjects } = require('./userRoles');
 
 function isProjectOwner(user, row) {
   if (isSuperuser(user)) return true;
@@ -10,22 +10,22 @@ function canReadProject(user, row, ctx = {}) {
   if (user.role === 'VIEWER' && row.assigned_viewer === user.id) return true;
   if (row.created_by === user.id) return true;
   if (ctx.isSharedWithMe) return true;
-  if (user.role === 'ADMIN' && (ctx.isTeamCommercial || ctx.isGroupAccess)) return true;
+  if (isAdminLikeRole(user.role) && (ctx.isTeamCommercial || ctx.isGroupAccess)) return true;
   return false;
 }
 
 function canWriteProject(user, row, ctx = {}) {
   if (isSuperuser(user)) return true;
   if (row.created_by === user.id) return true;
-  if (ctx.isSharedWithMe && (user.role === 'ADMIN' || user.role === 'COMERCIAL')) return true;
-  if (user.role === 'ADMIN' && (ctx.isTeamCommercial || ctx.isGroupAccess)) return true;
+  if (ctx.isSharedWithMe && (isAdminLikeRole(user.role) || user.role === 'COMERCIAL')) return true;
+  if (isAdminLikeRole(user.role) && (ctx.isTeamCommercial || ctx.isGroupAccess)) return true;
   return false;
 }
 
 /** Compartir, asignar VIEWER, archivar — solo dueño ADMIN o superusuario. */
 function canManageProject(user, row) {
   if (isSuperuser(user)) return true;
-  if (user.role === 'ADMIN' && row.created_by === user.id) return true;
+  if (isAdminLikeRole(user.role) && row.created_by === user.id) return true;
   return false;
 }
 
@@ -37,7 +37,7 @@ function canCloneProject(user, row, ctx = {}) {
 function canEditProjectMetadata(user, row, ctx = {}) {
   if (isSuperuser(user)) return true;
   if (row.created_by === user.id) return true;
-  if (user.role === 'ADMIN' && ctx.isTeamCommercial === true) return true;
+  if (isAdminLikeRole(user.role) && ctx.isTeamCommercial === true) return true;
   return false;
 }
 

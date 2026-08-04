@@ -34,7 +34,7 @@ function RequireAuth() {
 }
 
 function RequireAdmin() {
-  const { user, ready, isAdmin } = useAuth();
+  const { user, ready, hasAdminPanelAccess } = useAuth();
   if (!ready) {
     return (
       <div className="boot-screen">
@@ -44,7 +44,7 @@ function RequireAdmin() {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
-  if (!isAdmin()) return <Navigate to="/dashboard" replace />;
+  if (!hasAdminPanelAccess()) return <Navigate to="/dashboard" replace />;
   return <Outlet />;
 }
 

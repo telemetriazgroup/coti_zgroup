@@ -3,6 +3,7 @@ const multer = require('multer');
 const bcrypt = require('bcrypt');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
+const { isAdminLikeRole } = require('../utils/userRoles');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { canCreateRole, allowedCreateRoles } = require('../lib/userCreation');
 const {
@@ -33,7 +34,7 @@ function commercialFinanceFromBody(body) {
 async function userManagedBy(actor, targetId) {
   if (actor.id === targetId) return true;
   if (actor.role === 'SUPERUSER') return true;
-  if (actor.role === 'ADMIN') {
+  if (isAdminLikeRole(actor.role)) {
     const { rows } = await pool.query(
       `SELECT 1 FROM users u WHERE u.id = $1 AND (
         u.created_by = $2 OR u.id = $2 OR EXISTS (
@@ -84,14 +85,14 @@ const router = express.Router();
 router.use(requireAuth);
 
 // ─── GET /api/users/viewers — VIEWER activos (asignación a proyectos) ───
-router.get('/viewers', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
+router.get('/viewers', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   try {
     let sql = `SELECT id, email FROM users WHERE role = 'VIEWER' AND active = true`;
     const params = [];
     if (req.user.role === 'COMERCIAL') {
       params.push(req.user.id);
       sql += ` AND created_by = $1::uuid`;
-    } else if (req.user.role === 'ADMIN') {
+    } else if (isAdminLikeRole(req.user.role)) {
       params.push(req.user.id);
       sql += ` AND (created_by = $1::uuid OR created_by IS NULL)`;
     }
@@ -105,10 +106,10 @@ router.get('/viewers', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (re
 });
 
 // ─── GET /api/users/managed-commercials — equipo del ADMIN ─────
-router.get('/managed-commercials', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.get('/managed-commercials', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const adminId = req.user.role === 'SUPERUSER' && req.query.adminId ? req.query.adminId : req.user.id;
-    if (req.user.role === 'ADMIN' && adminId !== req.user.id) {
+    if (isAdminLikeRole(req.user.role) && adminId !== req.user.id) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     const { rows } = await pool.query(
@@ -139,7 +140,7 @@ router.get('/managed-commercials', requireRole('ADMIN', 'SUPERUSER'), async (req
 });
 
 // ─── GET /api/users/shareable — buscar usuarios para compartir proyecto ───
-router.get('/shareable', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.get('/shareable', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const q = (req.query.q || '').trim().toLowerCase();
     let sql = `
@@ -173,7 +174,7 @@ router.get('/allowed-roles', requireAuth, async (req, res) => {
 });
 
 // ─── GET /api/users — Lista usuarios según rol ──────────
-router.get('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
+router.get('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   try {
     let sql = `
       SELECT u.id, u.email, u.role, u.active, u.created_by, u.created_at,
@@ -186,7 +187,7 @@ router.get('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res)
        LEFT JOIN users cb ON cb.id = u.created_by`;
     const params = [];
 
-    if (req.user.role === 'ADMIN') {
+    if (req.user.role === 'ADMIN' || req.user.role === 'SEMIADMIN') {
       sql += `
        WHERE u.id = $1 OR u.created_by = $1 OR (
          u.role = 'COMERCIAL' AND EXISTS (
@@ -211,7 +212,7 @@ router.get('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res)
 });
 
 // ─── GET /api/users/export — Excel (ADMIN) ─────────────────────
-router.get('/export', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.get('/export', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
     const rows = await fetchAllUsersForExport();
     const buf = buildUsersXlsx(rows);
@@ -225,7 +226,7 @@ router.get('/export', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
 });
 
 // ─── POST /api/users/import/preview — ADMIN ───────────────────
-router.post('/import/preview', requireRole('ADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
+router.post('/import/preview', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer) {
       return res.status(400).json({
@@ -255,7 +256,7 @@ router.post('/import/preview', requireRole('ADMIN', 'SUPERUSER'), upload.single(
 });
 
 // ─── POST /api/users/import/apply — mismo archivo otra vez (ADMIN)
-router.post('/import/apply', requireRole('ADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
+router.post('/import/apply', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
   try {
     if (!req.file?.buffer) {
       return res.status(400).json({
@@ -292,7 +293,7 @@ router.post('/import/apply', requireRole('ADMIN', 'SUPERUSER'), upload.single('f
 });
 
 // ─── POST /api/users/:id/reset-password — reinicio a contraseña por defecto ───
-router.post('/:id/reset-password', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
+router.post('/:id/reset-password', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   try {
     const allowed = await canResetUserPassword(req.user, req.params.id);
     if (!allowed) {
@@ -338,7 +339,7 @@ router.get('/:id', async (req, res) => {
   if (req.user.id !== req.params.id) {
     if (req.user.role === 'SUPERUSER') {
       /* ok */
-    } else if (req.user.role === 'ADMIN') {
+    } else if (isAdminLikeRole(req.user.role)) {
       const { rows: ok } = await pool.query(
         `SELECT 1 FROM users u WHERE u.id = $1 AND (
           u.created_by = $2 OR u.id = $2 OR EXISTS (
@@ -413,7 +414,7 @@ router.get('/:id', async (req, res) => {
 const createValidation = [
   body('email').isEmail().withMessage('Email inválido'),
   body('password').isLength({ min: 8 }).withMessage('Contraseña mínimo 8 caracteres'),
-  body('role').isIn(['SUPERUSER', 'ADMIN', 'COMERCIAL', 'VIEWER']).withMessage('Rol inválido'),
+  body('role').isIn(['SUPERUSER', 'ADMIN', 'SEMIADMIN', 'COMERCIAL', 'VIEWER']).withMessage('Rol inválido'),
   body('nombres')
     .if((_, { req }) => ['ADMIN', 'COMERCIAL'].includes(req.body.role))
     .notEmpty()
@@ -424,7 +425,7 @@ const createValidation = [
     .withMessage('Apellidos requeridos'),
 ];
 
-router.post('/', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), createValidation, async (req, res) => {
+router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), createValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -700,7 +701,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // ─── DELETE /api/users/:id — Desactivar usuario (ADMIN) ─────────
-router.delete('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
+router.delete('/:id', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   if (req.params.id === req.user.id) {
     return res.status(400).json({
       success: false,
@@ -717,7 +718,7 @@ router.delete('/:id', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req
       if (!rows.length) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
       }
-    } else if (req.user.role === 'ADMIN') {
+    } else if (isAdminLikeRole(req.user.role)) {
       const { rows } = await pool.query(
         `SELECT id FROM users WHERE id = $1 AND (created_by = $2 OR id IN (
           SELECT commercial_id FROM admin_commercial_assignments WHERE admin_id = $2

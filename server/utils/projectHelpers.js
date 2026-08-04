@@ -27,7 +27,10 @@ function mapProject(row, viewerId, viewerRole) {
   else if (isTeam) accessKind = 'team';
 
   const canEditMetadata =
-    viewerRole === 'SUPERUSER' || isOwner || (viewerRole === 'ADMIN' && isTeam === true);
+    viewerRole === 'SUPERUSER' ||
+    isOwner ||
+    (viewerRole === 'ADMIN' && isTeam === true) ||
+    (viewerRole === 'SEMIADMIN' && isTeam === true);
 
   return {
     id: row.id,
@@ -73,12 +76,12 @@ const PROJECT_SELECT = `
     TRIM(CONCAT(se.nombres, ' ', se.apellidos)) AS shared_by_name,
     (SELECT COUNT(*)::int FROM project_shares ps2 WHERE ps2.project_id = p.id) AS share_count,
     (
-      $2::text = 'ADMIN' AND p.created_by IS DISTINCT FROM $1::uuid AND (
+      $2::text IN ('ADMIN', 'SEMIADMIN') AND p.created_by IS DISTINCT FROM $1::uuid AND (
         ${sqlAdminOwnTeamCommercials('$1')}
       )
     ) AS is_team_commercial,
     (
-      $2::text = 'ADMIN' AND p.created_by IS DISTINCT FROM $1::uuid AND (
+      $2::text IN ('ADMIN', 'SEMIADMIN') AND p.created_by IS DISTINCT FROM $1::uuid AND (
         ${sqlAdminGroupProjectAccess('$1')}
       )
     ) AS is_group_access
@@ -95,7 +98,7 @@ function projectVisibilityWhere(paramRole = '$2', paramUid = '$1', paramIncludeD
   const adminExtended = sqlAdminTeamAndGroupAccess(paramUid);
   return `(
     ${paramRole} = 'SUPERUSER' OR
-    (${paramRole} = 'ADMIN' AND (
+    (${paramRole} IN ('ADMIN', 'SEMIADMIN') AND (
       p.created_by = ${paramUid}::uuid OR
       EXISTS (SELECT 1 FROM project_shares ps WHERE ps.project_id = p.id AND ps.user_id = ${paramUid}::uuid) OR
       ${adminExtended}

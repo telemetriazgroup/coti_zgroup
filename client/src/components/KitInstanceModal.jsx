@@ -73,6 +73,22 @@ export function KitInstanceModal({
     return Math.round(included.reduce((s, l) => s + Number(l.qty) * Number(l.unitPrice), 0) * 100) / 100;
   }, [lines]);
 
+  const consolidatedPreview = useMemo(() => {
+    const map = new Map();
+    for (const l of lines) {
+      if (l.included === false) continue;
+      const k = l.catalogItemId;
+      const q = Number(l.qty) || 0;
+      if (!map.has(k)) {
+        map.set(k, { codigo: l.codigo, descripcion: l.descripcion, qty: q });
+      } else {
+        const ex = map.get(k);
+        ex.qty = Math.round((ex.qty + q) * 1000) / 1000;
+      }
+    }
+    return [...map.values()].sort((a, b) => String(a.codigo || '').localeCompare(String(b.codigo || '')));
+  }, [lines]);
+
   const addOptions = useMemo(() => {
     const used = new Set(lines.map((l) => l.catalogItemId));
     return (catalogItems || [])
@@ -87,18 +103,20 @@ export function KitInstanceModal({
 
   if (!open || !template) return null;
 
-  function toggleLine(catalogItemId) {
+  function lineKey(l) {
+    return `${l.catalogItemId}::${l.componentGroupKey || 'template'}::${l.componentGroupSort ?? 0}`;
+  }
+
+  function toggleLine(key) {
     setPickErr(null);
     setLines((prev) =>
-      prev.map((l) => (l.catalogItemId === catalogItemId ? { ...l, included: !l.included } : l))
+      prev.map((l) => (lineKey(l) === key ? { ...l, included: !l.included } : l))
     );
   }
 
-  function setLineQty(catalogItemId, qty) {
+  function setLineQty(key, qty) {
     setPickErr(null);
-    setLines((prev) =>
-      prev.map((l) => (l.catalogItemId === catalogItemId ? { ...l, qty } : l))
-    );
+    setLines((prev) => prev.map((l) => (lineKey(l) === key ? { ...l, qty } : l)));
   }
 
   function setAllIncluded(included) {
@@ -106,29 +124,53 @@ export function KitInstanceModal({
     setLines((prev) => prev.map((l) => ({ ...l, included })));
   }
 
-  function appendExtraLines(selectedLines) {
-    const used = new Set(lines.map((l) => l.catalogItemId));
+  function maxGroupSort(list) {
+    return (list || []).reduce((m, l) => Math.max(m, Number(l.componentGroupSort) || 0), 0);
+  }
+
+  function mapLinePayload(l) {
+    return {
+      catalogItemId: l.catalogItemId,
+      codigo: l.codigo,
+      descripcion: l.descripcion,
+      unidad: l.unidad,
+      tipo: l.tipo,
+      unitPrice: Number(l.unitPrice) || 0,
+      qty: Number(l.qty) || 1,
+      included: l.included !== false,
+      fromTemplate: l.fromTemplate === true,
+      componentGroupKey: l.componentGroupKey || 'template',
+      componentGroupLabel: l.componentGroupLabel || null,
+      componentGroupSort: Number(l.componentGroupSort) || 0,
+    };
+  }
+
+  function appendExtraLines(selectedLines, { groupKey, groupLabel, groupSort, warnDuplicates = true } = {}) {
+    const dupCodes = [];
     for (const l of selectedLines) {
-      if (used.has(l.catalogItemId)) {
-        setPickErr(`El ítem ${l.codigo || ''} ya está en el conjunto.`.trim());
-        return false;
+      if (lines.some((x) => x.catalogItemId === l.catalogItemId)) {
+        dupCodes.push(l.codigo || l.descripcion || 'ítem');
       }
-      used.add(l.catalogItemId);
     }
-    setPickErr(null);
+    if (warnDuplicates && dupCodes.length) {
+      setPickErr(
+        `Aviso: se agregarán ítems duplicados (${[...new Set(dupCodes)].join(', ')}). En presupuesto consolidado se sumarán las cantidades.`
+      );
+    } else {
+      setPickErr(null);
+    }
     setLines((prev) => [
       ...prev,
-      ...selectedLines.map((l) => ({
-        catalogItemId: l.catalogItemId,
-        codigo: l.codigo,
-        descripcion: l.descripcion,
-        unidad: l.unidad,
-        tipo: l.tipo,
-        unitPrice: Number(l.unitPrice) || 0,
-        qty: Number(l.qty) || 1,
-        included: true,
-        fromTemplate: false,
-      })),
+      ...selectedLines.map((l) =>
+        mapLinePayload({
+          ...l,
+          included: true,
+          fromTemplate: false,
+          componentGroupKey: groupKey || l.componentGroupKey || `extra-${l.catalogItemId}`,
+          componentGroupLabel: groupLabel || l.componentGroupLabel || l.descripcion,
+          componentGroupSort: groupSort != null ? groupSort : maxGroupSort(prev) + 1,
+        })
+      ),
     ]);
     return true;
   }
@@ -138,8 +180,7 @@ export function KitInstanceModal({
     const it = catalogItems.find((x) => x.id === addItemId);
     if (!it) return;
     if (lines.some((l) => l.catalogItemId === addItemId)) {
-      setPickErr('Ese ítem ya está en la lista.');
-      return;
+      setPickErr('Ese ítem ya está en la lista. Puede agregarlo en otro sub-grupo; se mostrará aviso de duplicado.');
     }
 
     const depCount = Number(it.dependencyCount) || 0;
@@ -165,28 +206,50 @@ export function KitInstanceModal({
     }
 
     setPickErr(null);
-    appendExtraLines([
+    const groupSort = maxGroupSort(lines) + 1;
+    appendExtraLines(
+      [
+        {
+          catalogItemId: it.id,
+          codigo: it.codigo,
+          descripcion: it.descripcion,
+          unidad: it.unidad,
+          tipo: it.tipo,
+          unitPrice: Number(it.unitPrice) || 0,
+          qty: 1,
+        },
+      ],
       {
-        catalogItemId: it.id,
-        codigo: it.codigo,
-        descripcion: it.descripcion,
-        unidad: it.unidad,
-        tipo: it.tipo,
-        unitPrice: Number(it.unitPrice) || 0,
-        qty: 1,
-      },
-    ]);
+        groupKey: `extra-${it.id}-${Date.now()}`,
+        groupLabel: it.descripcion,
+        groupSort,
+        warnDuplicates: true,
+      }
+    );
     setAddItemId('');
   }
 
   function confirmExtraDepAdd(selectedLines) {
-    if (appendExtraLines(selectedLines)) {
+    const main = selectedLines.find((l) => l.isMain) || selectedLines[0];
+    const groupKey = `extra-${main?.catalogItemId || 'dep'}-${Date.now()}`;
+    const groupLabel = main?.descripcion || main?.codigo || 'Componente extra';
+    const groupSort = maxGroupSort(lines) + 1;
+    const rows = selectedLines.map((l) => ({
+      catalogItemId: l.catalogItemId,
+      codigo: l.codigo,
+      descripcion: l.descripcion,
+      unidad: l.unidad,
+      tipo: l.tipo,
+      unitPrice: l.unitPrice,
+      qty: l.qty,
+    }));
+    if (appendExtraLines(rows, { groupKey, groupLabel, groupSort, warnDuplicates: true })) {
       setPendingExtraDep(null);
     }
   }
 
-  function removeLine(catalogItemId) {
-    setLines((prev) => prev.filter((l) => l.catalogItemId !== catalogItemId));
+  function removeLine(key) {
+    setLines((prev) => prev.filter((l) => lineKey(l) !== key));
   }
 
   function submit(e) {
@@ -202,6 +265,9 @@ export function KitInstanceModal({
       selected.push({
         catalogItemId: l.catalogItemId,
         qty: q,
+        componentGroupKey: l.componentGroupKey || 'template',
+        componentGroupLabel: l.componentGroupLabel || null,
+        componentGroupSort: Number(l.componentGroupSort) || 0,
         ...(hidePrices ? {} : { unitPrice: Number(l.unitPrice) }),
         included: true,
       });
@@ -227,11 +293,11 @@ export function KitInstanceModal({
 
   const helpText = editMode
     ? hidePrices
-      ? 'El producto final siempre permanece en el presupuesto. Marque las dependencias opcionales, ajuste cantidades o agregue ítems extra.'
-      : 'El producto final siempre permanece en el presupuesto. Marque las dependencias opcionales (ninguna, una o varias), ajuste cantidades o agregue ítems extra; el precio se recalcula automáticamente.'
+      ? 'Edite sub-grupos (plantilla y extras con dependencias). Abajo ve la vista consolidada que se mostrará en el presupuesto.'
+      : 'Edite sub-grupos con colores por bloque. Abajo: vista consolidada (cantidades sumadas por código) como en el presupuesto.'
     : hidePrices
-      ? 'El producto final siempre se agrega al presupuesto. Marque las dependencias opcionales que desee incluir (puede elegir ninguna, una o varias) y ajuste las cantidades antes de confirmar.'
-      : 'El producto final siempre se agrega al presupuesto. Marque las dependencias opcionales que desee incluir (puede elegir ninguna, una o varias), ajuste las cantidades; el precio del conjunto es la suma de los componentes seleccionados.';
+      ? 'Marque dependencias opcionales y agregue extras. Abajo ve la vista consolidada del conjunto en el presupuesto.'
+      : 'Marque dependencias opcionales y agregue extras. Abajo: vista consolidada (cantidades sumadas) como aparecerá en el presupuesto.';
 
   return (
     <>
@@ -356,19 +422,33 @@ export function KitInstanceModal({
               </tr>
               {lines.map((l) => {
                 const sub = (Number(l.qty) || 0) * (Number(l.unitPrice) || 0);
+                const groupSort = Number(l.componentGroupSort) || 0;
+                const subClass =
+                  groupSort > 0 ? ` kit-modal-sub-${((groupSort - 1) % 4) + 1}` : '';
+                const key = lineKey(l);
                 return (
-                  <tr key={l.catalogItemId} className={l.included === false ? 'kit-line--off' : ''}>
+                  <tr
+                    key={key}
+                    className={(l.included === false ? 'kit-line--off' : '') + subClass}
+                  >
                     <td>
                       <input
                         type="checkbox"
                         checked={l.included !== false}
                         disabled={busy}
-                        onChange={() => toggleLine(l.catalogItemId)}
+                        onChange={() => toggleLine(key)}
                         title="Incluir dependencia"
                       />
                     </td>
                     <td className="mono">{l.codigo}</td>
-                    <td>{l.descripcion}</td>
+                    <td>
+                      {l.componentGroupLabel && groupSort > 0 && (
+                        <span className="tag tag--muted" style={{ marginRight: 6, fontSize: 9 }}>
+                          {l.componentGroupLabel}
+                        </span>
+                      )}
+                      {l.descripcion}
+                    </td>
                     <td className="num">
                       <input
                         type="number"
@@ -378,7 +458,7 @@ export function KitInstanceModal({
                         style={{ width: 72 }}
                         value={l.qty}
                         disabled={busy || l.included === false}
-                        onChange={(e) => setLineQty(l.catalogItemId, e.target.value)}
+                        onChange={(e) => setLineQty(key, e.target.value)}
                       />
                     </td>
                     {!hidePrices && <td className="num mono">{formatUsd(l.unitPrice)}</td>}
@@ -392,7 +472,7 @@ export function KitInstanceModal({
                           className="btn btn-ghost btn-icon"
                           disabled={busy}
                           title="Quitar del conjunto"
-                          onClick={() => removeLine(l.catalogItemId)}
+                          onClick={() => removeLine(key)}
                         >
                           ×
                         </button>
@@ -404,6 +484,31 @@ export function KitInstanceModal({
             </tbody>
           </table>
         </div>
+        {consolidatedPreview.length > 0 && (
+          <div className="kit-modal-consolidated" style={{ marginTop: 14 }}>
+            <span className="fg-lbl">Vista consolidada (presupuesto)</span>
+            <div className="table-wrap" style={{ marginTop: 6 }}>
+              <table className="data-table data-table--compact">
+                <thead>
+                  <tr>
+                    <th>Código</th>
+                    <th>Descripción</th>
+                    <th className="num">Cant.</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {consolidatedPreview.map((r) => (
+                    <tr key={r.codigo}>
+                      <td className="mono">{r.codigo}</td>
+                      <td>{r.descripcion}</td>
+                      <td className="num mono">{r.qty}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
         <div className="kit-instance-add" style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <label style={{ flex: 1 }}>
             <span className="fg-lbl">Agregar componente extra</span>

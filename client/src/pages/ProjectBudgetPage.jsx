@@ -31,6 +31,47 @@ function parsePriceDraft(s) {
   return Number.isNaN(p) ? null : p;
 }
 
+/** Agrupa componentes KIT por catalogItemId sumando cantidades (vista consolidada). */
+function buildConsolidatedKitBudgetRows(sorted) {
+  const result = [];
+  let i = 0;
+  while (i < sorted.length) {
+    const row = sorted[i];
+    if (!row.isBundleHeader) {
+      result.push(row);
+      i += 1;
+      continue;
+    }
+    result.push(row);
+    i += 1;
+    const comps = [];
+    while (i < sorted.length && sorted[i].isBundleComponent && sorted[i].bundleId === row.bundleId) {
+      comps.push(sorted[i]);
+      i += 1;
+    }
+    const merged = new Map();
+    for (const c of comps) {
+      const k = c.catalogItemId || c.id;
+      if (!merged.has(k)) {
+        merged.set(k, {
+          ...c,
+          qty: Number(c.qty),
+          subtotal: Number(c.subtotal),
+          kitConsolidated: true,
+        });
+      } else {
+        const ex = merged.get(k);
+        ex.qty = Math.round((Number(ex.qty) + Number(c.qty)) * 1000) / 1000;
+        ex.subtotal = Math.round((Number(ex.subtotal) + Number(c.subtotal)) * 100) / 100;
+      }
+    }
+    result.push(
+      ...[...merged.values()].sort((a, b) => String(a.codigo || '').localeCompare(String(b.codigo || '')))
+    );
+  }
+  return result;
+}
+
 /** Precio de lista (ref.) vs asumido en cotización. */
 function unitPricesDiffer(official, current) {
   if (official == null || current == null) return false;
@@ -43,7 +84,7 @@ export function ProjectBudgetPage() {
   const { hasRole, user, canManageCatalog, canShareProjects, isSuperuser } = useAuth();
   const viewerMode = user?.role === 'VIEWER';
   const hideItemPrices = user?.role === 'COMERCIAL';
-  const canWrite = hasRole('ADMIN', 'COMERCIAL', 'SUPERUSER');
+  const canWrite = hasRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER');
   const isAdmin = canManageCatalog();
   const isCommercial = user?.role === 'COMERCIAL';
   /** Editar celdas, quitar línea y limpiar presupuesto: comercial en propios/compartidos; catálogo solo admin. */
@@ -384,6 +425,11 @@ export function ProjectBudgetPage() {
     }
     return list;
   }, [items, budgetLineQ]);
+
+  const budgetTableItems = useMemo(
+    () => buildConsolidatedKitBudgetRows(displayBudgetItems),
+    [displayBudgetItems]
+  );
 
   /** Índice de color 1–6 por conjunto KIT (mismo color cabecera + componentes). */
   const bundleGroupById = useMemo(() => {
@@ -1375,8 +1421,9 @@ export function ProjectBudgetPage() {
             )}
           </div>
           <p className="budget-table-hint mono muted" role="note">
-            Filas agrupadas por color según conjunto KIT (ZONA 1, ZONA 2…); líneas sueltas en gris neutro. Columna
-            Unidad: cyan = ACTIVO, ámbar = CONSUMIBLE. Info (i): categoría y trazabilidad.
+            Filas agrupadas por color según conjunto KIT; componentes con cantidades consolidadas por código. Para
+            ver o editar el desglose por sub-grupos, use «Editar conjunto» en la cabecera KIT. Columna Unidad: cyan
+            = ACTIVO, ámbar = CONSUMIBLE.
           </p>
           <div className="table-wrap budget-table-wrap zgroup-scroll">
             <table className="data-table data-table--budget">
@@ -1430,14 +1477,14 @@ export function ProjectBudgetPage() {
                       Agregue ítems desde el catálogo o una pieza personalizada.
                     </td>
                   </tr>
-                ) : displayBudgetItems.length === 0 ? (
+                ) : budgetTableItems.length === 0 ? (
                   <tr>
                     <td colSpan={budgetTableColSpan} className="muted">
                       Ninguna línea coincide con la búsqueda.
                     </td>
                   </tr>
                 ) : (
-                  displayBudgetItems.map((row, idx) => {
+                  budgetTableItems.map((row, idx) => {
                     const dr = getDraft(row.id);
                     const catLabel = row.categoryNombre || '—';
                     const nPart = idx + 1;
@@ -1458,7 +1505,7 @@ export function ProjectBudgetPage() {
                         : ' budget-td-unidad--activo';
                     return (
                       <tr
-                        key={row.id}
+                        key={row.kitConsolidated ? `c-${row.bundleId}-${row.catalogItemId}` : row.id}
                         className={(deletingId === row.id ? 'budget-row-deleting' : '') + rowGroupClass}
                       >
                         <td className="num mono budget-col-idx" title={`Partida ${nPart}`}>
@@ -1717,18 +1764,20 @@ export function ProjectBudgetPage() {
               <span className="budget-footer__partidas">
                 Partidas:{' '}
                 <span className="mono budget-footer__partidas-num">
-                  {budgetLineQ.trim() ? `${displayBudgetItems.length} / ${items.length}` : items.length}
+                  {budgetLineQ.trim()
+                    ? `${budgetTableItems.length} / ${items.length}`
+                    : budgetTableItems.length}
                 </span>
               </span>
             </div>
             {items.length > 0 && (
               <div className="budget-footer__line budget-footer__codes muted" aria-label="Listado de ítems">
-                {(budgetLineQ.trim() ? displayBudgetItems : items)
+                {budgetTableItems
                   .slice(0, 30)
                   .map((row, i) => `#${i + 1} ${(row.codigo || '—').trim() || '—'}`)
                   .join(' · ')}
-                {(budgetLineQ.trim() ? displayBudgetItems : items).length > 30
-                  ? ` · … (+${(budgetLineQ.trim() ? displayBudgetItems : items).length - 30} más)`
+                {budgetTableItems.length > 30
+                  ? ` · … (+${budgetTableItems.length - 30} más)`
                   : ''}
               </div>
             )}

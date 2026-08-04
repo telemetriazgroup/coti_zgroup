@@ -13,9 +13,10 @@ import {
 } from '../components/ProjectFiltersBar';
 
 export function ProjectsPage() {
-  const { hasRole, user, isAdmin, isSuperuser, canShareProjects } = useAuth();
-  const canWrite = hasRole('ADMIN', 'COMERCIAL', 'SUPERUSER');
-  const showCreatorCol = isSuperuser() || isAdmin();
+  const { hasRole, user, isAdmin, isSuperuser, canShareProjects, canViewArchivedProjects, hasAdminPanelAccess } =
+    useAuth();
+  const canWrite = hasRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER');
+  const showCreatorCol = isSuperuser() || hasAdminPanelAccess();
   const colCount = showCreatorCol ? 7 : 6;
 
   const [list, setList] = useState([]);
@@ -65,10 +66,10 @@ export function ProjectsPage() {
   useEffect(() => {
     if (!showCreatorCol) return;
     api
-      .get('/api/projects' + ((isSuperuser() || isAdmin()) && includeDeleted ? '?includeDeleted=true' : ''))
+      .get('/api/projects' + (canViewArchivedProjects() && includeDeleted ? '?includeDeleted=true' : ''))
       .then((data) => setCreators(extractProjectCreators(data)))
       .catch(() => setCreators([]));
-  }, [showCreatorCol, isSuperuser, isAdmin, includeDeleted]);
+  }, [showCreatorCol, isSuperuser, canViewArchivedProjects, includeDeleted]);
 
   const loadMeta = useCallback(async () => {
     try {
@@ -320,7 +321,7 @@ export function ProjectsPage() {
           </p>
         </div>
         <div className="page-header-actions">
-          {(isSuperuser() || isAdmin()) && (
+          {canViewArchivedProjects() && (
             <label className="chk mono" style={{ fontSize: 11 }}>
               <input
                 type="checkbox"

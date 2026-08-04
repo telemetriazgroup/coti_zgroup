@@ -14,7 +14,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 
 -- ─── ENUM TYPES ────────────────────────────────────────────────
 
-CREATE TYPE user_role AS ENUM ('SUPERUSER', 'ADMIN', 'COMERCIAL', 'VIEWER');
+CREATE TYPE user_role AS ENUM ('SUPERUSER', 'ADMIN', 'SEMIADMIN', 'COMERCIAL', 'VIEWER');
 
 CREATE TYPE project_status AS ENUM (
   'BORRADOR',
@@ -374,6 +374,9 @@ CREATE TABLE project_items (
   bundle_id       UUID,
   is_bundle_header BOOLEAN NOT NULL DEFAULT false,
   is_bundle_component BOOLEAN NOT NULL DEFAULT false,
+  component_group_key VARCHAR(64),
+  component_group_label VARCHAR(150),
+  component_group_sort INT NOT NULL DEFAULT 0,
   created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_by      UUID REFERENCES users(id) ON DELETE SET NULL,

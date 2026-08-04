@@ -44,7 +44,7 @@ router.get('/', async (req, res) => {
 // POST /api/measures — ADMIN
 router.post(
   '/',
-  requireRole('ADMIN', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
   [
     body('suffix').isString().trim().notEmpty(),
     body('nombre').isString().trim().notEmpty(),
@@ -91,7 +91,7 @@ router.post(
 // PUT /api/measures/:id — ADMIN
 router.put(
   '/:id',
-  requireRole('ADMIN', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
   [
     param('id').isUUID(),
     body('suffix').optional().isString(),

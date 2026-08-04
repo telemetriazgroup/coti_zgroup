@@ -27,7 +27,7 @@ const ISSUE_LABELS = {
 
 export function CatalogPage() {
   const location = useLocation();
-  const { canManageCatalog, hasRole, isSuperuser } = useAuth();
+  const { canManageCatalog, hasRole, isSuperuser, canViewInactiveCatalog } = useAuth();
   const isAdmin = canManageCatalog();
   const isCommercial = hasRole('COMERCIAL');
   const hideCatalogPrices = isCommercial;
@@ -101,7 +101,7 @@ export function CatalogPage() {
     setErr(null);
     try {
       const useFresh = opts.fresh === true || (opts.fresh !== false && showInactive);
-      const { data, fromCache: fc } = await fetchCatalog(isAdmin && showInactive, { fresh: useFresh });
+      const { data, fromCache: fc } = await fetchCatalog(canViewInactiveCatalog() && showInactive, { fresh: useFresh });
       setCategories(data.categories || []);
       setItems(data.items || []);
       setFromCache(fc);
@@ -615,7 +615,7 @@ export function CatalogPage() {
               )}
             </>
           )}
-          {isAdmin && pageView === 'catalog' && (
+          {canViewInactiveCatalog() && pageView === 'catalog' && (
             <>
               <label className="chk mono" style={{ fontSize: 11 }}>
                 <input type="checkbox" checked={showInactive} onChange={(e) => setShowInactive(e.target.checked)} />
