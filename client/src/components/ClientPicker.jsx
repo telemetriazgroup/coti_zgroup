@@ -74,6 +74,10 @@ export function ClientPicker({
   const [createBusy, setCreateBusy] = useState(false);
   const [createErr, setCreateErr] = useState(null);
   const [pickErr, setPickErr] = useState(null);
+  const [syncBusy, setSyncBusy] = useState(false);
+  const [syncHint, setSyncHint] = useState(null);
+  const [syncHintCode, setSyncHintCode] = useState(null);
+  const [odooUrl, setOdooUrl] = useState('');
   const wrapRef = useRef(null);
   const reqRef = useRef(0);
 
@@ -100,7 +104,7 @@ export function ClientPicker({
   }, [value]);
 
   useEffect(() => {
-    if (!open) return undefined;
+    if (!open || syncBusy) return undefined;
     const handle = setTimeout(() => {
       const n = ++reqRef.current;
       setSearching(true);
@@ -120,7 +124,7 @@ export function ClientPicker({
         });
     }, 250);
     return () => clearTimeout(handle);
-  }, [q, open]);
+  }, [q, open, syncBusy]);
 
   useEffect(() => {
     function onDoc(e) {
@@ -167,6 +171,30 @@ export function ClientPicker({
       setOpen(false);
     } catch (err) {
       setPickErr(err.message);
+    }
+  }
+
+  async function refreshFromOdoo() {
+    const term = q.trim();
+    if (term.length < 3 || syncBusy) return;
+    const n = ++reqRef.current;
+    setSyncBusy(true);
+    setPickErr(null);
+    setSyncHint(null);
+    setSyncHintCode(null);
+    try {
+      const data = await api.post('/api/clients/picker/refresh', { q: term });
+      if (n !== reqRef.current) return;
+      setItems(Array.isArray(data?.items) ? data.items : []);
+      setStale(Boolean(data?.stale));
+      setSyncHint(data?.hint || null);
+      setSyncHintCode(data?.hintCode || null);
+      if (data?.odooUrl) setOdooUrl(data.odooUrl);
+    } catch (err) {
+      setSyncHint(err.message);
+      setSyncHintCode('ERROR');
+    } finally {
+      setSyncBusy(false);
     }
   }
 
@@ -223,6 +251,8 @@ export function ClientPicker({
           onChange={(e) => {
             setQ(e.target.value);
             setOpen(true);
+            setSyncHint(null);
+            setSyncHintCode(null);
             if (!e.target.value.trim() && optional) {
               onChange('');
               setSelected(null);
@@ -255,10 +285,20 @@ export function ClientPicker({
                 </button>
               </li>
             )}
-            {searching && items.length === 0 ? (
+            {syncBusy && items.length === 0 ? (
+              <li className="searchable-select__empty muted">Consultando Odoo…</li>
+            ) : searching && items.length === 0 ? (
               <li className="searchable-select__empty muted">Buscando…</li>
             ) : items.length === 0 ? (
-              <li className="searchable-select__empty muted">{emptyLabel}</li>
+              <li className="searchable-select__empty muted">
+                {emptyLabel}
+                {q.trim().length >= 3 && !syncHint && (
+                  <span className="client-picker__hint-inline">
+                    {' '}
+                    Si acaba de crearse, actualice desde Odoo.
+                  </span>
+                )}
+              </li>
             ) : (
               items.map((item) => (
                 <li key={item.key}>
@@ -288,6 +328,36 @@ export function ClientPicker({
                   </button>
                 </li>
               ))
+            )}
+            {q.trim().length >= 3 && (
+              <li className="searchable-select__footer">
+                <button
+                  type="button"
+                  className="searchable-select__odoo mono"
+                  disabled={syncBusy}
+                  onClick={refreshFromOdoo}
+                >
+                  {syncBusy ? 'Consultando Odoo…' : 'Actualizar / buscar en Odoo'}
+                </button>
+                {syncHint && (
+                  <p
+                    className={
+                      'client-picker__hint mono' +
+                      (syncHintCode === 'OK' ? ' client-picker__hint--ok' : ' client-picker__hint--warn')
+                    }
+                  >
+                    {syncHint}
+                    {(syncHintCode === 'NOT_IN_ODOO' || syncHintCode === 'NOT_ELIGIBLE') && odooUrl ? (
+                      <>
+                        {' '}
+                        <a href={odooUrl} target="_blank" rel="noreferrer">
+                          Abrir Odoo
+                        </a>
+                      </>
+                    ) : null}
+                  </p>
+                )}
+              </li>
             )}
             {canCreate && (
               <li className="searchable-select__footer">

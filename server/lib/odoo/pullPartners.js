@@ -19,6 +19,8 @@ const {
   shouldSkipEcho,
   maxDate,
   isDebounced,
+  odooPartnerLookupDomain,
+  LOOKUP_MIN_LEN,
 } = require('./pullHelpers');
 
 const SEARCH_CONTEXT = Object.freeze({
@@ -373,10 +375,92 @@ async function getSyncHealth() {
   };
 }
 
+function many2oneId(v) {
+  if (Array.isArray(v) && v[0] != null && v[0] !== false) return Number(v[0]);
+  if (v && typeof v === 'object' && v.id != null) return Number(v.id);
+  const n = Number(v);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/**
+ * Búsqueda puntual en Odoo (nombre/RUC) → upsert en caché. No mueve el watermark del cron.
+ * @param {string} q
+ */
+async function lookupPartnersByQuery(q) {
+  const cfg = loadOdooConfig();
+  if (!isOdooConfigured(cfg)) {
+    const err = new Error('Odoo no está configurado');
+    err.code = 'ODOO_NOT_CONFIGURED';
+    throw err;
+  }
+  const domain = odooPartnerLookupDomain(q);
+  if (!domain) {
+    const err = new Error(`Escriba al menos ${LOOKUP_MIN_LEN} caracteres para buscar en Odoo`);
+    err.code = 'QUERY_TOO_SHORT';
+    throw err;
+  }
+
+  const client = getClient();
+  const { uid } = await client.authenticate();
+  const kwOpts = {
+    fields: SEARCH_FIELDS,
+    limit: 40,
+    offset: 0,
+    order: 'is_company desc, name asc',
+    context: { active_test: false, bin_size: true, lang: 'es_PE' },
+  };
+  const { result } = await client.executeKw(uid, 'res.partner', 'search_read', [domain], kwOpts);
+  const lote = Array.isArray(result) ? result : [];
+  const byId = new Map();
+  for (const raw of lote) {
+    const id = Number(raw.id);
+    if (Number.isFinite(id)) byId.set(id, raw);
+  }
+
+  const missingParents = [];
+  for (const raw of lote) {
+    const pid = many2oneId(raw.parent_id);
+    if (pid && !byId.has(pid)) missingParents.push(pid);
+  }
+  if (missingParents.length) {
+    const { result: parents } = await client.executeKw(
+      uid,
+      'res.partner',
+      'search_read',
+      [[['id', 'in', [...new Set(missingParents)]]]],
+      { ...kwOpts, limit: 40, order: 'id asc' }
+    );
+    for (const raw of Array.isArray(parents) ? parents : []) {
+      const id = Number(raw.id);
+      if (Number.isFinite(id)) byId.set(id, raw);
+    }
+  }
+
+  const mapped = [];
+  for (const raw of byId.values()) {
+    const norm = normalizePartner(raw);
+    const row = rowFromNormalized(norm, raw);
+    mapped.push(row);
+  }
+  const ids = mapped.map((r) => r.odooId).filter((id) => Number.isFinite(id));
+  const echoById = await loadExistingMeta(ids);
+  const stats = await upsertBatch(mapped, echoById);
+
+  return {
+    ok: true,
+    q: String(q || '').trim(),
+    fetched: mapped.length,
+    created: stats.created,
+    updated: stats.updated,
+    odooUrl: cfg.url || '',
+  };
+}
+
 module.exports = {
   runIncrementalPull,
   runReconcileDeletes,
   getSyncHealth,
   loadSyncState,
   getClient,
+  lookupPartnersByQuery,
 };

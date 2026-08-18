@@ -21,6 +21,9 @@ const {
   loadCategoryIds,
   fetchClientFicha,
 } = require('../lib/odoo/projectClients');
+const { lookupPartnersByQuery } = require('../lib/odoo/pullPartners');
+const { CircuitOpenError } = require('../lib/odoo/circuitBreaker');
+const { XmlrpcFault } = require('../lib/odoo/xmlrpcCodec');
 const { partnerDisplayTags } = require('../lib/odoo/partnerEligibility');
 
 const upload = multer({
@@ -171,6 +174,60 @@ router.get('/picker', async (req, res) => {
   } catch (err) {
     console.error('[CLIENTS] picker:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/clients/picker/refresh — busca en Odoo y actualiza caché ──
+router.post('/picker/refresh', requireRole(...WRITE_ROLES), async (req, res) => {
+  const q = String(req.body?.q || '').trim();
+  try {
+    const lookup = await lookupPartnersByQuery(q);
+    const picker = await searchPicker({ q, limit: 30 });
+    const visible = Array.isArray(picker.items) ? picker.items.length : 0;
+    let hintCode = 'OK';
+    let hint;
+    if (lookup.fetched === 0) {
+      hintCode = 'NOT_IN_ODOO';
+      hint =
+        `«${q}» no aparece en Odoo. Verifique el nombre o RUC, créelo allí y pulse Actualizar de nuevo.`;
+    } else if (visible === 0) {
+      hintCode = 'NOT_ELIGIBLE';
+      hint =
+        'Odoo tiene coincidencias, pero no califican como cliente de proyecto (empresa activa con etiqueta Cliente). Revíselo en Odoo y actualice.';
+    } else {
+      hint = `Caché actualizada desde Odoo. ${visible} coincidencia(s) para seleccionar.`;
+    }
+    return res.json({
+      success: true,
+      data: {
+        ...lookup,
+        items: picker.items || [],
+        stale: Boolean(picker.stale),
+        visible,
+        hintCode,
+        hint,
+      },
+    });
+  } catch (err) {
+    if (err instanceof CircuitOpenError) {
+      return res.status(503).json({
+        success: false,
+        error: { code: 'ODOO_CIRCUIT_OPEN', message: err.message },
+      });
+    }
+    if (err instanceof XmlrpcFault) {
+      return res.status(502).json({
+        success: false,
+        error: { code: err.odooErrorKind || 'ODOO_FAULT', message: err.message.split('\n')[0] },
+      });
+    }
+    const code = err.code || 'ODOO_SYNC_ERROR';
+    const status = code === 'QUERY_TOO_SHORT' || code === 'ODOO_NOT_CONFIGURED' ? 400 : 500;
+    if (status === 500) console.error('[CLIENTS] picker refresh:', err);
+    return res.status(status).json({
+      success: false,
+      error: { code, message: err.message || 'No se pudo consultar Odoo' },
+    });
   }
 });
 

@@ -3609,6 +3609,40 @@ select.form-input {
   font-size: 12px;
   cursor: pointer;
 }
+.searchable-select__odoo {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 12px;
+  border: none;
+  background: transparent;
+  color: var(--cyan);
+  font-size: 12px;
+  cursor: pointer;
+}
+.searchable-select__odoo:disabled {
+  opacity: 0.6;
+  cursor: wait;
+}
+.client-picker__hint {
+  padding: 4px 12px 10px;
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 0;
+}
+.client-picker__hint--ok {
+  color: var(--green);
+}
+.client-picker__hint--warn {
+  color: var(--amber);
+}
+.client-picker__hint a {
+  color: var(--cyan);
+}
+.client-picker__hint-inline {
+  display: block;
+  margin-top: 4px;
+}
 .searchable-select--inline .searchable-select__list {
   position: relative;
   top: auto;

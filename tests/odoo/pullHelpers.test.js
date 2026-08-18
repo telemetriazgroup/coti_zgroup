@@ -35,4 +35,14 @@ describe('odoo pullHelpers (etapa 3)', () => {
     assert.strictEqual(isDebounced(new Date(now - 90_000), now, 60_000), false);
     assert.strictEqual(isDebounced(null, now, 60_000), false);
   });
+
+  it('arma dominio OR para lookup por nombre/RUC', () => {
+    const { odooPartnerLookupDomain } = require('../../server/lib/odoo/pullHelpers');
+    assert.strictEqual(odooPartnerLookupDomain('ab'), null);
+    const d = odooPartnerLookupDomain('Acme SAC');
+    assert.ok(Array.isArray(d) && d.includes('|'));
+    assert.ok(d.some((c) => Array.isArray(c) && c[0] === 'name' && c[2] === 'Acme SAC'));
+    const ruc = odooPartnerLookupDomain('20123456789');
+    assert.ok(ruc.some((c) => Array.isArray(c) && c[0] === 'vat' && c[2] === '20123456789'));
+  });
 });

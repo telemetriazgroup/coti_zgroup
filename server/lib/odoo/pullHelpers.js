@@ -50,16 +50,41 @@ function isDebounced(lastRunAt, now = Date.now(), windowMs = DEBOUNCE_MS) {
   return now - t < windowMs;
 }
 
+const LOOKUP_MIN_LEN = 3;
+const LOOKUP_MAX_LEN = 80;
+
+/** Dominio XML-RPC para buscar un contacto por nombre / RUC / email. */
+function odooPartnerLookupDomain(q) {
+  const s = String(q || '').trim().slice(0, LOOKUP_MAX_LEN);
+  if (s.length < LOOKUP_MIN_LEN) return null;
+  const term = s.replace(/[%_]/g, ' ').trim();
+  if (term.length < LOOKUP_MIN_LEN) return null;
+  const digits = term.replace(/\D/g, '');
+  const clauses = [
+    ['name', 'ilike', term],
+    ['display_name', 'ilike', term],
+    ['vat', 'ilike', term],
+    ['email', 'ilike', term],
+  ];
+  if (digits.length >= 8) clauses.push(['vat', 'ilike', digits]);
+  const ors = [];
+  for (let i = 0; i < clauses.length - 1; i += 1) ors.push('|');
+  return [...ors, ...clauses];
+}
+
 module.exports = {
   OVERLAP_MS,
   BATCH_SIZE,
   LOCK_TTL_MS,
   DEBOUNCE_MS,
   EPOCH,
+  LOOKUP_MIN_LEN,
+  LOOKUP_MAX_LEN,
   toOdooNaiveUtc,
   parseOdooWriteDate,
   overlapWatermark,
   shouldSkipEcho,
   maxDate,
   isDebounced,
+  odooPartnerLookupDomain,
 };
