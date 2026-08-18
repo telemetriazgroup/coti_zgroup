@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { api } from '../lib/api';
 import { Modal } from './Modal';
 
@@ -11,39 +11,116 @@ const emptyCreateForm = {
   ciudad: '',
 };
 
-function clientSearchText(c) {
-  return [c.razonSocial, c.ruc, c.contactoNombre, c.contactoEmail, c.ciudad].filter(Boolean).join(' ');
+const TAG_LABEL = {
+  cliente: 'Cliente',
+  proveedor: 'Proveedor',
+  contacto: 'Contacto',
+  local: 'Local',
+};
+
+function OriginBadge({ origin, tags }) {
+  const showLocal = origin === 'local' || (tags || []).includes('local');
+  if (showLocal && !origin) {
+    return <span className="tag tag--warn">No está en Odoo</span>;
+  }
+  if (origin === 'local' || showLocal) {
+    return <span className="tag tag--warn">No está en Odoo</span>;
+  }
+  if (origin === 'linked') {
+    return <span className="tag tag--ok">Vinculado</span>;
+  }
+  if (origin === 'odoo') {
+    return <span className="tag tag--cyan">Odoo</span>;
+  }
+  return null;
 }
 
-/** Combobox de clientes con búsqueda y creación rápida en modal. */
+function PickerTags({ tags }) {
+  const visual = (tags || []).filter((t) => t !== 'local');
+  if (!visual.length) return null;
+  return (
+    <span className="client-picker__tags">
+      {visual.map((t) => (
+        <span key={t} className={'tag' + (t === 'cliente' ? ' tag--ok' : t === 'proveedor' ? ' tag--warn' : ' tag--muted')}>
+          {TAG_LABEL[t] || t}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/** Combobox typeahead contra caché Odoo (GET /api/clients/picker). Sin XML-RPC. */
 export function ClientPicker({
   id,
   className = 'form-input',
-  clients = [],
   value,
   onChange,
   onClientsChange,
-  canCreate = true,
+  canCreate = false,
   optional = true,
   disabled = false,
-  placeholder = 'Buscar cliente por razón social, RUC…',
-  emptyLabel = 'Sin clientes coincidentes',
+  placeholder = 'Buscar cliente por razón social, RUC, contacto…',
+  emptyLabel = 'Sin coincidencias en la caché',
+  inlineList = false,
 }) {
   const [open, setOpen] = useState(false);
   const [q, setQ] = useState('');
+  const [items, setItems] = useState([]);
+  const [stale, setStale] = useState(false);
+  const [searching, setSearching] = useState(false);
+  const [selected, setSelected] = useState(null);
   const [createOpen, setCreateOpen] = useState(false);
   const [createForm, setCreateForm] = useState(emptyCreateForm);
   const [createBusy, setCreateBusy] = useState(false);
   const [createErr, setCreateErr] = useState(null);
+  const [pickErr, setPickErr] = useState(null);
   const wrapRef = useRef(null);
-
-  const selected = clients.find((c) => c.id === value);
+  const reqRef = useRef(0);
 
   useEffect(() => {
-    if (!open) {
-      setQ(selected?.razonSocial || '');
+    if (!value) {
+      setSelected(null);
+      if (!open) setQ('');
+      return;
     }
-  }, [value, selected, open]);
+    let cancelled = false;
+    api
+      .get(`/api/clients/${value}`)
+      .then((c) => {
+        if (cancelled) return;
+        setSelected(c);
+        if (!open) setQ(c.razonSocial || '');
+      })
+      .catch(() => {
+        if (!cancelled) setSelected(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [value]);
+
+  useEffect(() => {
+    if (!open) return undefined;
+    const handle = setTimeout(() => {
+      const n = ++reqRef.current;
+      setSearching(true);
+      api
+        .get(`/api/clients/picker?q=${encodeURIComponent(q.trim())}&limit=30`)
+        .then((data) => {
+          if (n !== reqRef.current) return;
+          setItems(Array.isArray(data?.items) ? data.items : []);
+          setStale(Boolean(data?.stale));
+        })
+        .catch(() => {
+          if (n !== reqRef.current) return;
+          setItems([]);
+        })
+        .finally(() => {
+          if (n === reqRef.current) setSearching(false);
+        });
+    }, 250);
+    return () => clearTimeout(handle);
+  }, [q, open]);
 
   useEffect(() => {
     function onDoc(e) {
@@ -53,18 +130,44 @@ export function ClientPicker({
     return () => document.removeEventListener('mousedown', onDoc);
   }, []);
 
-  const filtered = useMemo(() => {
-    const qq = q.trim().toLowerCase();
-    const list = clients.filter((c) => c.active !== false);
-    if (!qq) return list;
-    return list.filter((c) => clientSearchText(c).toLowerCase().includes(qq));
-  }, [clients, q]);
+  function displayQuery() {
+    if (open) return q;
+    return selected?.razonSocial || q;
+  }
 
-  function pick(clientId) {
-    onChange(clientId);
-    const c = clients.find((x) => x.id === clientId);
-    setQ(c?.razonSocial || '');
-    setOpen(false);
+  async function pick(item) {
+    setPickErr(null);
+    if (!item) {
+      onChange('');
+      setSelected(null);
+      setQ('');
+      setOpen(false);
+      return;
+    }
+    try {
+      let client = null;
+      if (item.kind === 'local' && item.clientId) {
+        client = await api.get(`/api/clients/${item.clientId}`);
+      } else if (item.contactOdooId || !item.clientId) {
+        client = await api.post('/api/clients/from-odoo', {
+          odooId: item.odooId,
+          contactOdooId: item.contactOdooId || undefined,
+        });
+      } else {
+        client = await api.get(`/api/clients/${item.clientId}`);
+      }
+      onChange(client.id);
+      setSelected(client);
+      setQ(client.razonSocial || '');
+      onClientsChange?.((prev) => {
+        const list = Array.isArray(prev) ? prev : [];
+        if (list.some((c) => c.id === client.id)) return list;
+        return [...list, client];
+      });
+      setOpen(false);
+    } catch (err) {
+      setPickErr(err.message);
+    }
   }
 
   function openCreateModal(prefill = '') {
@@ -94,8 +197,9 @@ export function ClientPicker({
         contactoTelefono: createForm.contactoTelefono.trim() || undefined,
         ciudad: createForm.ciudad.trim() || undefined,
       });
-      onClientsChange?.([...clients, created]);
+      onClientsChange?.((prev) => [...(Array.isArray(prev) ? prev : []), created]);
       onChange(created.id);
+      setSelected(created);
       setQ(created.razonSocial || '');
       setCreateOpen(false);
       setCreateForm(emptyCreateForm);
@@ -108,22 +212,36 @@ export function ClientPicker({
 
   return (
     <>
-      <div className="searchable-select" ref={wrapRef}>
+      <div className={'searchable-select' + (inlineList ? ' searchable-select--inline' : '')} ref={wrapRef}>
         <input
           id={id}
           type="search"
           className={className}
           disabled={disabled}
           placeholder={placeholder}
-          value={q}
+          value={open ? q : displayQuery()}
           onChange={(e) => {
             setQ(e.target.value);
             setOpen(true);
-            if (!e.target.value.trim() && optional) onChange('');
+            if (!e.target.value.trim() && optional) {
+              onChange('');
+              setSelected(null);
+            }
           }}
-          onFocus={() => setOpen(true)}
+          onFocus={() => {
+            setOpen(true);
+            if (selected?.razonSocial && q === selected.razonSocial) setQ('');
+          }}
           autoComplete="off"
         />
+        {stale && (
+          <p className="client-picker__stale muted mono">Contactos Odoo desactualizados (&gt;45 min)</p>
+        )}
+        {pickErr && (
+          <p className="client-picker__stale" style={{ color: 'var(--red)' }}>
+            {pickErr}
+          </p>
+        )}
         {open && !disabled && (
           <ul className="searchable-select__list zgroup-scroll" role="listbox">
             {optional && (
@@ -131,28 +249,42 @@ export function ClientPicker({
                 <button
                   type="button"
                   className={'searchable-select__opt' + (!value ? ' searchable-select__opt--active' : '')}
-                  onClick={() => pick('')}
+                  onClick={() => pick(null)}
                 >
                   — Sin cliente —
                 </button>
               </li>
             )}
-            {filtered.length === 0 ? (
+            {searching && items.length === 0 ? (
+              <li className="searchable-select__empty muted">Buscando…</li>
+            ) : items.length === 0 ? (
               <li className="searchable-select__empty muted">{emptyLabel}</li>
             ) : (
-              filtered.map((c) => (
-                <li key={c.id}>
+              items.map((item) => (
+                <li key={item.key}>
                   <button
                     type="button"
-                    className={'searchable-select__opt' + (c.id === value ? ' searchable-select__opt--active' : '')}
-                    onClick={() => pick(c.id)}
+                    className={
+                      'searchable-select__opt' +
+                      (item.indent ? ' searchable-select__opt--child' : '') +
+                      (item.clientId && item.clientId === value && !item.contactOdooId
+                        ? ' searchable-select__opt--active'
+                        : '')
+                    }
+                    onClick={() => pick(item)}
                   >
-                    <span>{c.razonSocial}</span>
-                    {(c.ruc || c.ciudad) && (
-                      <span className="muted" style={{ display: 'block', fontSize: 10, marginTop: 2 }}>
-                        {[c.ruc, c.ciudad].filter(Boolean).join(' · ')}
-                      </span>
-                    )}
+                    <span className={item.indent ? 'client-picker__child-name' : 'client-picker__company'}>
+                      {item.indent ? item.contactName : item.razonSocial}
+                    </span>
+                    <span className="client-picker__meta muted">
+                      {item.indent
+                        ? [item.email, item.razonSocial].filter(Boolean).join(' · ')
+                        : [item.ruc, item.ciudad].filter(Boolean).join(' · ')}
+                    </span>
+                    <span className="client-picker__badges">
+                      <PickerTags tags={item.tags} />
+                      <OriginBadge origin={item.syncOrigin} tags={item.tags} />
+                    </span>
                   </button>
                 </li>
               ))
@@ -164,7 +296,7 @@ export function ClientPicker({
                   className="searchable-select__create mono"
                   onClick={() => openCreateModal(q)}
                 >
-                  + Crear cliente{q.trim() ? ` «${q.trim()}»` : ''}
+                  + Crear cliente local{q.trim() ? ` «${q.trim()}»` : ''}
                 </button>
               </li>
             )}
@@ -174,7 +306,7 @@ export function ClientPicker({
 
       {createOpen && canCreate && (
         <Modal
-          title="Nuevo cliente"
+          title="Nuevo cliente local"
           onClose={() => !createBusy && setCreateOpen(false)}
           footer={
             <>
@@ -187,6 +319,10 @@ export function ClientPicker({
             </>
           }
         >
+          <p className="muted mono" style={{ fontSize: 11, marginBottom: 10 }}>
+            Quedará marcado «No está en Odoo» hasta la etapa de alta hacia Odoo. Preferible crearlo en Odoo y pulsar
+            Actualizar contactos.
+          </p>
           {createErr && (
             <div className="banner banner--err mono" style={{ marginBottom: 12 }}>
               {createErr}

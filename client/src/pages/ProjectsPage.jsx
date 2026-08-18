@@ -20,7 +20,6 @@ export function ProjectsPage() {
   const colCount = showCreatorCol ? 7 : 6;
 
   const [list, setList] = useState([]);
-  const [clients, setClients] = useState([]);
   const [viewers, setViewers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [includeDeleted, setIncludeDeleted] = useState(false);
@@ -73,11 +72,8 @@ export function ProjectsPage() {
 
   const loadMeta = useCallback(async () => {
     try {
-      const [cl, vw] = await Promise.all([
-        api.get('/api/clients'),
-        canWrite ? api.get('/api/users/viewers') : Promise.resolve([]),
-      ]);
-      setClients(cl);
+      if (!canWrite) return;
+      const vw = await api.get('/api/users/viewers');
       setViewers(vw);
     } catch {
       /* opcional */
@@ -363,7 +359,6 @@ export function ProjectsPage() {
       <ProjectFiltersBar
         filters={filters}
         setFilters={setFilters}
-        clients={clients}
         creators={creators}
         showCreatorFilter={showCreatorCol}
       />
@@ -575,6 +570,7 @@ export function ProjectsPage() {
       {modal === 'new' && (
         <Modal
           title="Nuevo proyecto"
+          lg
           onClose={() => setModal(null)}
           footer={
             <>
@@ -605,17 +601,16 @@ export function ProjectsPage() {
                 onChange={(e) => setFormNew((f) => ({ ...f, odooRef: e.target.value }))}
               />
             </label>
-            <label>
+            <div>
               <span className="fg-lbl">Cliente (opcional)</span>
               <ClientPicker
-                clients={clients}
                 value={formNew.clientId}
                 onChange={(clientId) => setFormNew((f) => ({ ...f, clientId }))}
-                onClientsChange={setClients}
-                canCreate={canWrite}
+                canCreate={isSuperuser()}
                 optional
+                inlineList
               />
-            </label>
+            </div>
           </form>
         </Modal>
       )}
@@ -623,6 +618,7 @@ export function ProjectsPage() {
       {modal === 'edit' && sel && (
         <Modal
           title="Editar proyecto"
+          lg
           onClose={() => !editBusy && setModal(null)}
           footer={
             <>
@@ -653,17 +649,16 @@ export function ProjectsPage() {
                 onChange={(e) => setFormEdit((f) => ({ ...f, odooRef: e.target.value }))}
               />
             </label>
-            <label>
+            <div>
               <span className="fg-lbl">Cliente (opcional)</span>
               <ClientPicker
-                clients={clients}
                 value={formEdit.clientId}
                 onChange={(clientId) => setFormEdit((f) => ({ ...f, clientId }))}
-                onClientsChange={setClients}
-                canCreate={isAdmin()}
+                canCreate={isSuperuser()}
                 optional
+                inlineList
               />
-            </label>
+            </div>
           </form>
         </Modal>
       )}

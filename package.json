@@ -12,6 +12,9 @@
     "build:madurador": "vite build --base /madurador/",
     "seed": "node server/db/seed.js",
     "odoo:probe": "node server/scripts/odoo-probe.js",
+    "odoo:probe:stage1": "node server/scripts/odoo-probe.js --stage1",
+    "odoo:sync": "node server/scripts/odoo-sync.js",
+    "odoo:project": "node server/scripts/odoo-sync.js --project",
     "test": "vitest run",
     "test:watch": "vitest"
   },

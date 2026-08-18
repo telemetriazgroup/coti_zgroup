@@ -12,6 +12,7 @@ const userRoutes = require('./routes/users');
 const employeeRoutes = require('./routes/employees');
 const clientRoutes = require('./routes/clients');
 const projectItemRoutes = require('./routes/projectItems');
+const projectBudgetRevisionRoutes = require('./routes/projectBudgetRevisions');
 const projectRoutes = require('./routes/projects');
 const dashboardRoutes = require('./routes/dashboard');
 const catalogRoutes = require('./routes/catalog');
@@ -22,6 +23,7 @@ const exportRoutes = require('./routes/export');
 const superuserRoutes = require('./routes/superuser');
 const adminAssignmentsRoutes = require('./routes/adminAssignments');
 const adminGroupsRoutes = require('./routes/adminGroups');
+const odooSyncRoutes = require('./routes/odooSync');
 
 const app = express();
 
@@ -138,6 +140,7 @@ web.use('/api/auth', authRoutes);
 web.use('/api/users', userRoutes);
 web.use('/api/employees', employeeRoutes);
 web.use('/api/clients', clientRoutes);
+web.use('/api/projects', projectBudgetRevisionRoutes);
 web.use('/api/projects', projectItemRoutes);
 web.use('/api/projects', planRoutes);
 web.use('/api/projects', projectRoutes);
@@ -147,6 +150,7 @@ web.use('/api/measures', measureRoutes);
 web.use('/api/catalog', catalogRoutes);
 web.use('/api/export', exportRoutes);
 web.use('/api/superuser', superuserRoutes);
+web.use('/api/odoo/sync', odooSyncRoutes);
 web.use('/api/admin-assignments', adminAssignmentsRoutes);
 web.use('/api/admin-groups', adminGroupsRoutes);
 

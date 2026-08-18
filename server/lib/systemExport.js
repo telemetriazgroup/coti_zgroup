@@ -16,6 +16,8 @@ async function exportSystemData() {
     projectItems,
     projectShares,
     auditLog,
+    odooPartners,
+    odooSyncState,
   ] = await Promise.all([
     pool.query(
       `SELECT id, email, password_hash, role, active, created_at, updated_at FROM users ORDER BY email`
@@ -31,6 +33,8 @@ async function exportSystemData() {
       `SELECT id, project_id, event_type, actor_id, prev_data, new_data, ip_address, created_at
        FROM project_audit_log ORDER BY created_at`
     ),
+    pool.query(`SELECT * FROM odoo_partners ORDER BY odoo_id`),
+    pool.query(`SELECT * FROM odoo_sync_state ORDER BY model`),
   ]);
 
   return {
@@ -46,6 +50,8 @@ async function exportSystemData() {
       projectItems: projectItems.rows,
       projectShares: projectShares.rows,
       projectAuditLog: auditLog.rows,
+      odooPartners: odooPartners.rows,
+      odooSyncState: odooSyncState.rows,
     },
   };
 }
@@ -64,6 +70,8 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
     projects: 0,
     projectItems: 0,
     projectShares: 0,
+    odooPartners: 0,
+    odooSyncState: 0,
   };
 
   const client = await pool.connect();
@@ -80,6 +88,9 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
       await client.query(`DELETE FROM catalog_items`);
       await client.query(`DELETE FROM catalog_categories`);
       await client.query(`DELETE FROM clients`);
+      await client.query(`DELETE FROM odoo_sync_locks`);
+      await client.query(`DELETE FROM odoo_partners`);
+      await client.query(`DELETE FROM odoo_sync_state`);
       await client.query(`DELETE FROM employees WHERE user_id NOT IN (SELECT id FROM users WHERE role = 'SUPERUSER')`);
     }
 
@@ -130,12 +141,91 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
       stats.employees++;
     }
 
+    for (const row of m.odooPartners || []) {
+      await client.query(
+        `INSERT INTO odoo_partners (
+           odoo_id, x_ztrack_uid, raw, name, display_name, vat, email, phone, mobile, city,
+           is_company, parent_odoo_id, type, active, customer_rank, supplier_rank, category_ids,
+           odoo_write_date, last_pushed_write_date, sync_status, updated_at
+         ) VALUES (
+           $1,$2,$3::jsonb,$4,$5,$6,$7,$8,$9,$10,
+           $11,$12,$13,$14,$15,$16,$17,
+           $18,$19,$20,$21
+         )
+         ON CONFLICT (odoo_id) DO UPDATE SET
+           raw = EXCLUDED.raw, name = EXCLUDED.name, vat = EXCLUDED.vat,
+           odoo_write_date = EXCLUDED.odoo_write_date, sync_status = EXCLUDED.sync_status,
+           updated_at = NOW()`,
+        [
+          row.odoo_id,
+          row.x_ztrack_uid || null,
+          JSON.stringify(row.raw || {}),
+          row.name,
+          row.display_name,
+          row.vat,
+          row.email,
+          row.phone,
+          row.mobile,
+          row.city,
+          row.is_company === true,
+          row.parent_odoo_id || null,
+          row.type || null,
+          row.active !== false,
+          row.customer_rank || 0,
+          row.supplier_rank || 0,
+          row.category_ids || [],
+          row.odoo_write_date,
+          row.last_pushed_write_date || null,
+          row.sync_status || 'sincronizado',
+          row.updated_at || new Date(),
+        ]
+      );
+      stats.odooPartners++;
+    }
+
+    for (const row of m.odooSyncState || []) {
+      await client.query(
+        `INSERT INTO odoo_sync_state (
+           model, watermark, last_run_at, last_ok_at, duration_ms,
+           created_n, updated_n, error_n, last_error,
+           category_cliente_id, category_proveedor_id, category_contacto_id, updated_at
+         ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+         ON CONFLICT (model) DO UPDATE SET
+           watermark = EXCLUDED.watermark, last_ok_at = EXCLUDED.last_ok_at,
+           category_cliente_id = EXCLUDED.category_cliente_id,
+           category_proveedor_id = EXCLUDED.category_proveedor_id,
+           category_contacto_id = EXCLUDED.category_contacto_id,
+           updated_at = NOW()`,
+        [
+          row.model,
+          row.watermark || null,
+          row.last_run_at || null,
+          row.last_ok_at || null,
+          row.duration_ms || null,
+          row.created_n || 0,
+          row.updated_n || 0,
+          row.error_n || 0,
+          row.last_error || null,
+          row.category_cliente_id || null,
+          row.category_proveedor_id || null,
+          row.category_contacto_id || null,
+          row.updated_at || new Date(),
+        ]
+      );
+      stats.odooSyncState++;
+    }
+
     for (const row of m.clients || []) {
       await client.query(
-        `INSERT INTO clients (id, active, razon_social, ruc, contacto_nombre, contacto_email, contacto_telefono, direccion, ciudad, notas, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
+        `INSERT INTO clients (
+           id, active, razon_social, ruc, contacto_nombre, contacto_email, contacto_telefono,
+           direccion, ciudad, notas, created_by, created_at, updated_at,
+           odoo_id, odoo_parent_id, odoo_contact_id, sync_origin, odoo_write_date
+         )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18)
          ON CONFLICT (id) DO UPDATE SET
-           razon_social = EXCLUDED.razon_social, ruc = EXCLUDED.ruc, active = EXCLUDED.active, updated_at = NOW()`,
+           razon_social = EXCLUDED.razon_social, ruc = EXCLUDED.ruc, active = EXCLUDED.active,
+           odoo_id = EXCLUDED.odoo_id, sync_origin = EXCLUDED.sync_origin, updated_at = NOW()`,
         [
           row.id,
           row.active !== false,
@@ -150,6 +240,11 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
           row.created_by,
           row.created_at || new Date(),
           row.updated_at || new Date(),
+          row.odoo_id || null,
+          row.odoo_parent_id || null,
+          row.odoo_contact_id || null,
+          row.sync_origin || 'local',
+          row.odoo_write_date || null,
         ]
       );
       stats.clients++;

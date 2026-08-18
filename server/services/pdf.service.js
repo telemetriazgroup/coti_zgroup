@@ -54,7 +54,14 @@ function fmtUsd(n) {
 
 async function loadExportPayload(projectId) {
   const { rows: pr } = await pool.query(
-    `SELECT p.*, c.razon_social AS client_razon_social
+    `SELECT p.*,
+       c.razon_social AS client_razon_social,
+       c.ruc AS client_ruc,
+       c.direccion AS client_direccion,
+       c.ciudad AS client_ciudad,
+       c.contacto_nombre AS client_contacto_nombre,
+       c.contacto_email AS client_contacto_email,
+       c.contacto_telefono AS client_contacto_telefono
      FROM projects p
      LEFT JOIN clients c ON c.id = p.client_id
      WHERE p.id = $1`,
@@ -240,7 +247,18 @@ function headerBlock(project, mergedParams) {
   return `<div class="hdr">
     ${logoHtml(mergedParams)}
     <h1>${esc(p.nombre)}</h1>
-    <div class="muted">Cliente: ${esc(p.client_razon_social || '—')} · Odoo: ${esc(p.odoo_ref || '—')}</div>
+    <div class="muted">Cliente: ${esc(p.client_razon_social || '—')}${
+      p.client_ruc ? ` · RUC ${esc(p.client_ruc)}` : ''
+    } · Cotización Odoo: ${esc(p.odoo_ref || '—')}</div>
+    ${
+      p.client_contacto_nombre || p.client_direccion
+        ? `<div class="muted">${esc(
+            [p.client_contacto_nombre, p.client_contacto_email, p.client_contacto_telefono, p.client_direccion, p.client_ciudad]
+              .filter(Boolean)
+              .join(' · ')
+          )}</div>`
+        : ''
+    }
   </div>`;
 }
 
@@ -265,6 +283,16 @@ function headerBlockGerenciaV12(project, mergedParams) {
             <td style="font-weight:600">${esc(p.odoo_ref || '—')}</td></tr>
         <tr><td style="color:#718096;font-weight:600;text-transform:uppercase;font-size:7pt;letter-spacing:0.5pt">Cliente</td>
             <td>${esc(p.client_razon_social || '—')}</td></tr>
+        <tr><td style="color:#718096;font-weight:600;text-transform:uppercase;font-size:7pt;letter-spacing:0.5pt">RUC</td>
+            <td>${esc(p.client_ruc || '—')}</td></tr>
+        ${
+          p.client_contacto_nombre
+            ? `<tr><td style="color:#718096;font-weight:600;text-transform:uppercase;font-size:7pt;letter-spacing:0.5pt">Contacto</td>
+            <td>${esc(
+              [p.client_contacto_nombre, p.client_contacto_email, p.client_contacto_telefono].filter(Boolean).join(' · ')
+            )}</td></tr>`
+            : ''
+        }
         <tr><td style="color:#718096;font-weight:600;text-transform:uppercase;font-size:7pt;letter-spacing:0.5pt">Fecha</td>
             <td>${esc(fecha)}</td></tr>
         <tr><td style="color:#718096;font-weight:600;text-transform:uppercase;font-size:7pt;letter-spacing:0.5pt">Moneda</td>

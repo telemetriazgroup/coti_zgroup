@@ -13,6 +13,8 @@ export const AUDIT_EVENT_LABEL = {
   BUDGET_SNAPSHOT: 'Snapshot de presupuesto',
   BUDGET_BUNDLE_ADD: 'Conjunto KIT agregado',
   BUDGET_BUNDLE_UPDATE: 'Conjunto KIT modificado',
+  BUDGET_IMPORT_APPLY: 'Importación de líneas',
+  BUDGET_RESTORE: 'Presupuesto restaurado',
   PLAN_UPLOAD: 'Plano subido',
   PLAN_DELETE: 'Plano eliminado',
   CLIENT_ASSIGN: 'VIEWER asignado',

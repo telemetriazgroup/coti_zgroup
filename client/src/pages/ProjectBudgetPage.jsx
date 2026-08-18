@@ -17,6 +17,7 @@ import { ClientPicker } from '../components/ClientPicker';
 import { CatalogDependencyAddModal } from '../components/CatalogDependencyAddModal';
 import { KitInstanceModal } from '../components/KitInstanceModal';
 import { ProjectBudgetHistory } from '../components/ProjectBudgetHistory';
+import { ProjectBudgetRevisions } from '../components/ProjectBudgetRevisions';
 import { formatItemTraceUser } from '../lib/projectAuditLabels';
 import { fetchCategoryNextCodigo } from '../lib/catalogCodigoApi';
 import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
@@ -196,7 +197,6 @@ export function ProjectBudgetPage() {
   }, []);
 
   const [accessibleProjects, setAccessibleProjects] = useState([]);
-  const [clientsList, setClientsList] = useState([]);
   const [newProjectBusy, setNewProjectBusy] = useState(false);
   const [dupBusy, setDupBusy] = useState(false);
   const [newProjectForm, setNewProjectForm] = useState({
@@ -283,15 +283,13 @@ export function ProjectBudgetPage() {
     setLoading(true);
     setErr(null);
     try {
-      const [proj, budget, catData, projs, clData] = await Promise.all([
+      const [proj, budget, catData, projs] = await Promise.all([
         api.get(`/api/projects/${projectId}`),
         api.get(`/api/projects/${projectId}/items`),
         fetchCatalog(false).then((r) => r.data),
         api.get('/api/projects'),
-        canWrite ? api.get('/api/clients').catch(() => []) : Promise.resolve([]),
       ]);
       setAccessibleProjects(Array.isArray(projs) ? projs : []);
-      if (canWrite && Array.isArray(clData)) setClientsList(clData);
       setProject(proj);
       const mergedFp = mergeFinanceParams(proj.financeParams);
       setFinanceParams(mergedFp);
@@ -311,7 +309,7 @@ export function ProjectBudgetPage() {
     } finally {
       setLoading(false);
     }
-  }, [projectId, canWrite]);
+  }, [projectId]);
 
   const canManageShare =
     canShareProjects() && (isSuperuser() || project?.createdBy === user?.id);
@@ -1093,6 +1091,15 @@ export function ProjectBudgetPage() {
             {STATUS_LABEL[project?.status || projectStatus] || projectStatus} · {items.length} ítems · Lista{' '}
             {formatUsd(totals.lista)}
           </p>
+          {project?.clientRazonSocial && (
+            <div className="budget-client-strip">
+              <strong>{project.clientRazonSocial}</strong>
+              {project.clientRuc && <span className="mono">RUC {project.clientRuc}</span>}
+              {project.clientContactoNombre && <span>{project.clientContactoNombre}</span>}
+              {project.clientContactoEmail && <span className="mono">{project.clientContactoEmail}</span>}
+              {project.clientCiudad && <span>{project.clientCiudad}</span>}
+            </div>
+          )}
         </div>
         <div className="page-header-actions">
           {canWrite && (
@@ -1188,6 +1195,10 @@ export function ProjectBudgetPage() {
         onClose={() => setShareOpen(false)}
         onSaved={loadShareCount}
       />
+
+      {isSuperuser() && projectId && (
+        <ProjectBudgetRevisions projectId={projectId} onRestored={loadAll} />
+      )}
 
       {project?.canViewAudit && (
         <ProjectBudgetHistory
@@ -2028,7 +2039,7 @@ export function ProjectBudgetPage() {
       {modal === 'newProject' && canWrite && (
         <Modal
           title="Nuevo proyecto"
-          wide
+          lg
           onClose={() => !newProjectBusy && setModal(null)}
           footer={
             <>
@@ -2059,17 +2070,16 @@ export function ProjectBudgetPage() {
                 onChange={(e) => setNewProjectForm((f) => ({ ...f, odooRef: e.target.value }))}
               />
             </label>
-            <label>
+            <div>
               <span className="fg-lbl">Cliente (opcional)</span>
               <ClientPicker
-                clients={clientsList}
                 value={newProjectForm.clientId}
                 onChange={(clientId) => setNewProjectForm((f) => ({ ...f, clientId }))}
-                onClientsChange={setClientsList}
-                canCreate={canWrite}
+                canCreate={isSuperuser()}
                 optional
+                inlineList
               />
-            </label>
+            </div>
           </form>
         </Modal>
       )}
@@ -2077,7 +2087,7 @@ export function ProjectBudgetPage() {
       {modal === 'editProject' && project?.canEditMetadata && (
         <Modal
           title="Editar proyecto"
-          wide
+          lg
           onClose={() => !editProjectBusy && setModal(null)}
           footer={
             <>
@@ -2108,17 +2118,16 @@ export function ProjectBudgetPage() {
                 onChange={(e) => setEditProjectForm((f) => ({ ...f, odooRef: e.target.value }))}
               />
             </label>
-            <label>
+            <div>
               <span className="fg-lbl">Cliente (opcional)</span>
               <ClientPicker
-                clients={clientsList}
                 value={editProjectForm.clientId}
                 onChange={(clientId) => setEditProjectForm((f) => ({ ...f, clientId }))}
-                onClientsChange={setClientsList}
-                canCreate={isAdmin}
+                canCreate={isSuperuser()}
                 optional
+                inlineList
               />
-            </label>
+            </div>
           </form>
         </Modal>
       )}
@@ -2126,7 +2135,7 @@ export function ProjectBudgetPage() {
       {modal === 'duplicateProject' && canWrite && (
         <Modal
           title="Duplicar proyecto (variante)"
-          wide
+          lg
           onClose={() => !dupBusy && setModal(null)}
           footer={
             <>
@@ -2153,17 +2162,16 @@ export function ProjectBudgetPage() {
                 onChange={(e) => setDupNombre(e.target.value)}
               />
             </label>
-            <label>
+            <div>
               <span className="fg-lbl">Cliente del nuevo proyecto</span>
               <ClientPicker
-                clients={clientsList}
                 value={dupClientId}
                 onChange={setDupClientId}
-                onClientsChange={setClientsList}
-                canCreate={canWrite}
+                canCreate={isSuperuser()}
                 optional
+                inlineList
               />
-            </label>
+            </div>
             <div className="chk-row" style={{ marginBottom: 8 }}>
               <label className="chk mono" style={{ fontSize: 12 }}>
                 <input

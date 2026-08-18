@@ -11,6 +11,10 @@ export function SuperuserPage() {
   const [importPreview, setImportPreview] = useState(null);
   const [importBusy, setImportBusy] = useState(false);
   const [importMode, setImportMode] = useState('merge');
+  const [odooHealth, setOdooHealth] = useState(null);
+  const [odooBusy, setOdooBusy] = useState(false);
+  const [odooProjectBusy, setOdooProjectBusy] = useState(false);
+  const [odooLink, setOdooLink] = useState(null);
   const fileRef = useRef(null);
 
   const loadAudit = useCallback(async () => {
@@ -38,10 +42,59 @@ export function SuperuserPage() {
     }
   }, []);
 
+  const loadOdooHealth = useCallback(async () => {
+    try {
+      const data = await api.get('/api/odoo/sync/health');
+      setOdooHealth(data);
+    } catch (e) {
+      setOdooHealth({ error: e.message });
+    }
+    try {
+      const link = await api.get('/api/odoo/sync/clients-link');
+      setOdooLink(link);
+    } catch {
+      setOdooLink(null);
+    }
+  }, []);
+
   useEffect(() => {
     loadAudit();
     loadLockouts();
-  }, [loadAudit, loadLockouts]);
+    loadOdooHealth();
+  }, [loadAudit, loadLockouts, loadOdooHealth]);
+
+  async function triggerOdooProject() {
+    setErr(null);
+    setMsg(null);
+    setOdooProjectBusy(true);
+    try {
+      const data = await api.post('/api/odoo/sync/project-clients');
+      setMsg(
+        `CRM actualizado: ${data.upserted} empresas, ${data.deactivated} archivadas, ${data.link?.linked || 0} RUC vinculados, ${data.link?.ambiguousN || 0} ambiguos.`
+      );
+      await loadOdooHealth();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setOdooProjectBusy(false);
+    }
+  }
+
+  async function triggerOdooPull() {
+    setErr(null);
+    setMsg(null);
+    setOdooBusy(true);
+    try {
+      await api.post('/api/odoo/sync/partners', { force: true });
+      setMsg('Sincronización de contactos Odoo encolada. El estado se actualiza abajo.');
+      await new Promise((r) => setTimeout(r, 2000));
+      await loadOdooHealth();
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setOdooBusy(false);
+    }
+  }
 
   async function resetLockout(row) {
     setErr(null);
@@ -134,6 +187,76 @@ export function SuperuserPage() {
           {msg}
         </div>
       )}
+
+      <div className="panel" style={{ marginBottom: 16 }}>
+        <h2 className="panel-title">Contactos Odoo</h2>
+        <p className="muted mono" style={{ fontSize: 12, marginBottom: 12 }}>
+          Caché local de res.partner. El picker de proyecto busca aquí (etapa 4), sin llamar a Odoo.
+        </p>
+        {odooHealth?.error ? (
+          <p className="muted">{odooHealth.error}</p>
+        ) : odooHealth ? (
+          <div className="kpi-grid dash-analytics__kpis" style={{ marginBottom: 12 }}>
+            <div className="kpi-card">
+              <div className="kpi-label mono">Configurado</div>
+              <div className="kpi-value" style={{ fontSize: 16 }}>{odooHealth.configured ? 'Sí' : 'No'}</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label mono">Cron 15 min</div>
+              <div className="kpi-value" style={{ fontSize: 16 }}>{odooHealth.syncEnabled ? 'ON' : 'OFF'}</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label mono">Caché contactos</div>
+              <div className="kpi-value">{odooHealth.counts?.total ?? '—'}</div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label mono">CRM Odoo / local</div>
+              <div className="kpi-value" style={{ fontSize: 16 }}>
+                {odooHealth.crm
+                  ? `${odooHealth.crm.odoo + odooHealth.crm.linked} / ${odooHealth.crm.local}`
+                  : '—'}
+              </div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label mono">Última OK</div>
+              <div className="kpi-value" style={{ fontSize: 14 }}>
+                {odooHealth.state?.lastOkAt
+                  ? new Date(odooHealth.state.lastOkAt).toLocaleString('es-PE')
+                  : 'nunca'}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <p className="muted">Cargando estado…</p>
+        )}
+        {odooHealth?.stale && (
+          <p className="muted" style={{ marginBottom: 8 }}>
+            Última sync con más de 45 min. Si el cron está OFF, pulse actualizar.
+          </p>
+        )}
+        {odooHealth?.state?.lastError && (
+          <p className="banner banner--err mono" style={{ marginBottom: 8 }}>
+            {odooHealth.state.lastError}
+          </p>
+        )}
+        <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+          <button type="button" className="btn btn-primary" disabled={odooBusy} onClick={triggerOdooPull}>
+            {odooBusy ? 'Encolando…' : 'Actualizar contactos'}
+          </button>
+          <button type="button" className="btn btn-ghost" disabled={odooProjectBusy} onClick={triggerOdooProject}>
+            {odooProjectBusy ? 'Proyectando…' : 'Proyectar a CRM'}
+          </button>
+          <button type="button" className="btn btn-ghost" onClick={loadOdooHealth}>
+            Refrescar estado
+          </button>
+        </div>
+        {odooLink && (odooLink.ambiguousN > 0 || odooLink.unmatched > 0) && (
+          <p className="muted mono" style={{ fontSize: 11, marginTop: 10 }}>
+            RUC 1:1 pendientes: {odooLink.linked} vinculables, {odooLink.unmatched} sin match, {odooLink.ambiguousN}{' '}
+            ambiguos (no se fusionan).
+          </p>
+        )}
+      </div>
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <h2 className="panel-title">Datos del sistema</h2>

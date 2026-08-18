@@ -62,6 +62,9 @@ const REQUIRED_FIELD_NAMES = Object.freeze([
   'create_date',
 ]);
 
+const MODULE_TECHNICAL_NAME = 'zgroup_partner_ext';
+const X_ZTRACK_UID_FIELD = 'x_ztrack_uid';
+
 const DEFAULT_CATEGORY_LABELS = Object.freeze({
   cliente: ['cliente', 'clientes', 'customer', 'customers'],
   proveedor: ['proveedor', 'proveedores', 'vendor', 'vendors', 'supplier'],
@@ -75,4 +78,6 @@ module.exports = {
   CATEGORY_FIELDS,
   REQUIRED_FIELD_NAMES,
   DEFAULT_CATEGORY_LABELS,
+  MODULE_TECHNICAL_NAME,
+  X_ZTRACK_UID_FIELD,
 };

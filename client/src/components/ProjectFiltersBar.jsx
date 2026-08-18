@@ -1,4 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
+import { ClientPicker } from './ClientPicker';
 
 function buildQuery(filters, includeDeleted, isAdmin, isSuperuser) {
   const p = new URLSearchParams();
@@ -35,7 +36,7 @@ export function useProjectListFilters({ includeDeleted, isAdmin, isSuperuser }) 
   return { filters, setFilters, query };
 }
 
-export function ProjectFiltersBar({ filters, setFilters, clients, creators, showCreatorFilter }) {
+export function ProjectFiltersBar({ filters, setFilters, creators, showCreatorFilter }) {
   return (
     <div className="projects-filters panel" style={{ padding: 12, marginBottom: 14 }}>
       <div className="projects-filters__grid">
@@ -49,21 +50,17 @@ export function ProjectFiltersBar({ filters, setFilters, clients, creators, show
             onChange={(e) => setFilters((f) => ({ ...f, q: e.target.value }))}
           />
         </label>
-        <label>
+        <div>
           <span className="fg-lbl">Cliente</span>
-          <select
-            className="form-input"
+          <ClientPicker
             value={filters.clientId}
-            onChange={(e) => setFilters((f) => ({ ...f, clientId: e.target.value }))}
-          >
-            <option value="">Todos</option>
-            {(clients || []).map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.razonSocial}
-              </option>
-            ))}
-          </select>
-        </label>
+            onChange={(clientId) => setFilters((f) => ({ ...f, clientId: clientId || '' }))}
+            canCreate={false}
+            optional
+            placeholder="Todos los clientes"
+            emptyLabel="Sin coincidencias"
+          />
+        </div>
         {showCreatorFilter && (
           <label>
             <span className="fg-lbl">Creador</span>

@@ -3,7 +3,8 @@
  * Etapa 0 — Probe de conexión a Odoo 17 (res.partner).
  *
  * Uso:
- *   npm run odoo:probe
+ *   npm run odoo:probe           etapa 0 (conexión)
+ *   npm run odoo:probe:stage1    etapa 0 + exige módulo zgroup_partner_ext
  *
  * Requiere en .env: ODOO_URL, ODOO_DB, ODOO_USER, ODOO_API_KEY
  * ODOO_SYNC_ENABLED debe permanecer en 0 (este script no sincroniza).
@@ -37,6 +38,7 @@ function loadDotEnvFile() {
 }
 
 loadDotEnvFile();
+const requireStage1 = process.argv.includes('--stage1');
 const { loadOdooConfig, isOdooConfigured, odooUsesHttps } = require('../lib/odoo/config');
 const { createOdooClient } = require('../lib/odoo/xmlrpcClient');
 const { XmlrpcFault } = require('../lib/odoo/xmlrpcCodec');
@@ -48,6 +50,8 @@ const {
   CATEGORY_FIELDS,
   REQUIRED_FIELD_NAMES,
   DEFAULT_CATEGORY_LABELS,
+  MODULE_TECHNICAL_NAME,
+  X_ZTRACK_UID_FIELD,
 } = require('../lib/odoo/partnerFields');
 const {
   normalizePartner,
@@ -71,7 +75,7 @@ function warn(label, detail) {
 
 async function main() {
   const cfg = loadOdooConfig();
-  console.log('=== Odoo 17 probe (etapa 0) ===\n');
+  console.log('=== Odoo 17 probe ===\n');
   console.log(`URL:     ${cfg.url || '(vacío)'}`);
   console.log(`DB:      ${cfg.db || '(vacío)'}`);
   console.log(`USER:    ${cfg.user || '(vacío)'}`);
@@ -252,6 +256,9 @@ async function main() {
     fail('search_read res.partner.category', formatErr(err));
   }
 
+  const stage1 = await runStage1Checks(client, uid, fieldsMap, { requireStage1 });
+  report.checks.stage1 = stage1;
+
   const tmpDir = path.join(__dirname, '../../tmp');
   fs.mkdirSync(tmpDir, { recursive: true });
   const fieldsPath = path.join(tmpDir, 'odoo-partner-fields.json');
@@ -261,8 +268,107 @@ async function main() {
   ok('inventario escrito', path.relative(process.cwd(), fieldsPath));
   ok('reporte escrito', path.relative(process.cwd(), reportPath));
 
-  console.log('\n[OK] Probe etapa 0 superado. ODOO_SYNC_ENABLED sigue en 0; no hay sync ni UI.');
-  console.log('Siguiente: etapa 1 (módulo Odoo x_ztrack_uid + índice write_date).\n');
+  if (stage1.installed) {
+    console.log('\n[OK] Probe etapa 0 + módulo etapa 1 presentes. ODOO_SYNC_ENABLED sigue en 0.');
+    console.log('Siguiente: etapa 2 (tablas PostgreSQL odoo_partners / extensión clients).\n');
+  } else {
+    console.log('\n[OK] Probe etapa 0 superado. Módulo etapa 1 AÚN NO instalado en esta BD.');
+    console.log('Instalar odoo_addons/zgroup_partner_ext en staging Odoo.sh (ver implementacion_contactos_odoo.md).');
+    console.log('Luego: npm run odoo:probe:stage1\n');
+  }
+}
+
+async function runStage1Checks(client, uid, fieldsMap, { requireStage1 }) {
+  console.log('\n-- etapa 1 (módulo zgroup_partner_ext) --');
+  const out = { installed: false, moduleState: null, field: null, uidSearch: null, writeDateMs: null };
+
+  try {
+    const mod = await client.executeKw(
+      uid,
+      'ir.module.module',
+      'search_read',
+      [[['name', '=', MODULE_TECHNICAL_NAME]]],
+      { fields: ['name', 'state', 'latest_version'], limit: 1 }
+    );
+    const row = Array.isArray(mod.result) ? mod.result[0] : null;
+    if (!row) {
+      warn('módulo no está en addons path', `${MODULE_TECHNICAL_NAME} (copiar odoo_addons/ a Odoo.sh)`);
+    } else {
+      out.moduleState = row.state;
+      if (row.state === 'installed') {
+        ok('ir.module.module', `${row.name} state=${row.state} ${row.latest_version || ''}`);
+      } else {
+        warn('módulo presente pero no instalado', `state=${row.state} — Apps → Instalar`);
+      }
+    }
+  } catch (err) {
+    warn('no se pudo leer ir.module.module', formatErr(err));
+  }
+
+  const fieldMeta = fieldsMap[X_ZTRACK_UID_FIELD];
+  if (!fieldMeta) {
+    warn('campo x_ztrack_uid ausente', 'el módulo no está instalado en esta base');
+    if (requireStage1) {
+      fail(
+        'Etapa 1 incompleta: falta x_ztrack_uid',
+        'Instala zgroup_partner_ext en un branch staging de Odoo.sh, no directo en producción.'
+      );
+    }
+    return out;
+  }
+
+  out.field = { type: fieldMeta.type, store: fieldMeta.store, string: fieldMeta.string };
+  ok('campo x_ztrack_uid', `type=${fieldMeta.type} store=${fieldMeta.store}`);
+  if (fieldMeta.type !== 'char') {
+    warn('x_ztrack_uid no es Char', fieldMeta.type);
+  }
+
+  const fakeUid = '00000000-0000-4000-8000-000000000000';
+  try {
+    const sr = await client.executeKw(
+      uid,
+      'res.partner',
+      'search_read',
+      [[['x_ztrack_uid', '=', fakeUid]]],
+      { fields: ['id', 'x_ztrack_uid'], limit: 5, context: { active_test: false } }
+    );
+    const hits = Array.isArray(sr.result) ? sr.result : [];
+    out.uidSearch = { elapsedMs: sr.elapsedMs, count: hits.length };
+    if (hits.length === 0) {
+      ok(`search x_ztrack_uid UUID inventado`, `0 filas (${sr.elapsedMs}ms)`);
+    } else {
+      warn('UUID inventado ya existe', `${hits.length} filas — no debería`);
+    }
+  } catch (err) {
+    warn('search x_ztrack_uid', formatErr(err));
+    if (requireStage1) fail('No se pudo buscar por x_ztrack_uid', formatErr(err));
+  }
+
+  try {
+    const sr = await client.executeKw(
+      uid,
+      'res.partner',
+      'search_read',
+      [[['write_date', '>=', '2020-01-01 00:00:00']]],
+      {
+        fields: ['id', 'write_date'],
+        limit: 300,
+        order: 'write_date asc, id asc',
+        context: { active_test: false },
+      }
+    );
+    const n = Array.isArray(sr.result) ? sr.result.length : 0;
+    out.writeDateMs = sr.elapsedMs;
+    ok('search_read write_date lote 300', `${n} filas en ${sr.elapsedMs}ms`);
+    if (sr.elapsedMs > 3000) {
+      warn('write_date lento', 'confirmar índice res_partner_write_date_idx en PostgreSQL de Odoo');
+    }
+  } catch (err) {
+    warn('search_read write_date', formatErr(err));
+  }
+
+  out.installed = true;
+  return out;
 }
 
 function formatErr(err) {

@@ -1265,6 +1265,13 @@ select.form-input option {
 .modal-panel--wide {
   max-width: 720px;
 }
+.modal-panel--lg {
+  max-width: min(920px, 96vw);
+  width: min(920px, 96vw);
+}
+.modal-panel--lg .modal-body {
+  min-height: min(56vh, 520px);
+}
 .modal-panel--kit {
   max-width: min(1200px, 96vw);
   width: min(1200px, 96vw);
@@ -1311,7 +1318,8 @@ select.form-input option {
   gap: 10px;
 }
 
-.stack-form label {
+.stack-form label,
+.stack-form > div {
   display: block;
   margin-bottom: 12px;
 }
@@ -1484,6 +1492,10 @@ select.form-input {
   color: var(--amber);
   border-color: rgba(255, 215, 0, 0.35);
 }
+.tag--cyan {
+  color: var(--cyan);
+  border-color: rgba(0, 229, 255, 0.4);
+}
 .chk-row {
   display: flex;
   align-items: center;
@@ -1532,6 +1544,7 @@ select.form-input {
     min-width: 120px;
   }
   .modal-panel--wide,
+  .modal-panel--lg,
   .modal-panel--kit {
     max-width: 100%;
     width: 100%;
@@ -3596,8 +3609,43 @@ select.form-input {
   font-size: 12px;
   cursor: pointer;
 }
-.searchable-select__create:hover {
-  background: rgba(255, 215, 0, 0.08);
+.searchable-select--inline .searchable-select__list {
+  position: relative;
+  top: auto;
+  max-height: min(48vh, 420px);
+  z-index: 2;
+  margin-top: 6px;
+}
+.searchable-select__opt--child {
+  padding-left: 28px;
+}
+.client-picker__company {
+  display: block;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+}
+.client-picker__child-name {
+  display: block;
+}
+.client-picker__meta {
+  display: block;
+  font-size: 10px;
+  margin-top: 2px;
+}
+.client-picker__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  align-items: center;
+}
+.client-picker__tags {
+  display: inline-flex;
+  gap: 4px;
+}
+.client-picker__stale {
+  font-size: 10px;
+  margin: 4px 0 0;
 }
 
 /* ─── Filtros módulo proyectos ─── */
@@ -3886,6 +3934,43 @@ select.form-input {
 .budget-history-table-wrap {
   max-height: 280px;
 }
+.budget-history-table-wrap--revs {
+  max-height: min(52vh, 480px);
+}
+.budget-rev-row--current td {
+  color: var(--cyan);
+}
+.budget-rev-detail {
+  padding: 8px 4px 12px;
+  display: grid;
+  gap: 14px;
+}
+.budget-rev-diff__row {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  margin: 4px 0;
+}
+.budget-rev-diff__row--add {
+  color: var(--green);
+}
+.budget-rev-diff__row--del {
+  color: var(--red);
+}
+.budget-rev-diff__row--chg {
+  color: var(--amber);
+}
+.budget-rev-diff__fields {
+  margin: 2px 0 0 18px;
+  color: var(--muted);
+}
+.budget-rev-diff__from {
+  text-decoration: line-through;
+  opacity: 0.8;
+}
+.budget-rev-diff__to {
+  color: var(--text);
+}
 
 /* Superuser dashboard analytics */
 .dash-analytics__title {
@@ -3919,4 +4004,199 @@ select.form-input {
 .dash-analytics__tab--active {
   border-color: var(--cyan) !important;
   color: var(--cyan) !important;
+}
+
+/* ── Ficha cliente estilo Odoo (solo lectura, paleta ZGROUP) ── */
+.clients-odoo-layout {
+  display: grid;
+  grid-template-columns: minmax(280px, 420px) 1fr;
+  gap: 14px;
+  align-items: start;
+}
+@media (max-width: 960px) {
+  .clients-odoo-layout {
+    grid-template-columns: 1fr;
+  }
+}
+.clients-odoo-row--on td {
+  background: rgba(0, 229, 255, 0.08);
+  color: var(--cyan);
+}
+.odoo-ficha-panel {
+  padding: 16px 18px;
+  min-height: 320px;
+}
+.odoo-ficha__top {
+  display: flex;
+  gap: 16px;
+  align-items: flex-start;
+  margin-bottom: 16px;
+}
+.odoo-ficha__top > div:first-child {
+  flex: 1;
+}
+.odoo-ficha__type {
+  display: inline-flex;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+.odoo-ficha__type-opt {
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 10px;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  color: var(--muted);
+  border: 1px solid var(--border-dim);
+  padding: 3px 8px;
+  border-radius: 4px;
+}
+.odoo-ficha__type-opt--on {
+  color: var(--cyan);
+  border-color: var(--cyan);
+}
+.odoo-ficha__name {
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  font-size: 22px;
+  letter-spacing: 0.04em;
+  margin: 0 0 8px;
+  color: var(--text);
+}
+.odoo-ficha__avatar {
+  width: 72px;
+  height: 72px;
+  border: 1px dashed var(--border-dim);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.odoo-ficha__close {
+  margin-left: auto;
+}
+.odoo-ficha__grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px 24px;
+  margin-bottom: 16px;
+}
+.odoo-ficha__grid--single {
+  grid-template-columns: 1fr;
+}
+@media (max-width: 700px) {
+  .odoo-ficha__grid {
+    grid-template-columns: 1fr;
+  }
+}
+.odoo-ficha__field {
+  margin-bottom: 10px;
+}
+.odoo-ficha__lbl {
+  display: block;
+  font-family: 'JetBrains Mono', monospace;
+  font-size: 9px;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--muted);
+  margin-bottom: 4px;
+}
+.odoo-ficha__val {
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.45;
+}
+.odoo-ficha__link {
+  color: var(--cyan);
+  text-decoration: none;
+}
+.odoo-ficha__link:hover {
+  text-decoration: underline;
+}
+.odoo-ficha__sunat {
+  margin-top: 4px;
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.odoo-ficha__tags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.odoo-ficha__tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  border-bottom: 1px solid var(--border-dim);
+  margin: 8px 0 14px;
+}
+.odoo-ficha__tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--muted);
+  font-family: 'Rajdhani', sans-serif;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  font-size: 12px;
+  padding: 8px 12px;
+  cursor: pointer;
+}
+.odoo-ficha__tab--on {
+  color: var(--cyan);
+  border-bottom-color: var(--cyan);
+}
+.odoo-ficha__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+.odoo-ficha__card {
+  display: flex;
+  gap: 10px;
+  padding: 10px;
+  border: 1px solid var(--border-dim);
+  border-radius: 8px;
+  background: var(--card);
+}
+.odoo-ficha__card--on {
+  border-color: var(--cyan);
+}
+.odoo-ficha__card-av {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--surface);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+  flex-shrink: 0;
+}
+.odoo-ficha__card-name {
+  font-weight: 600;
+  margin-bottom: 2px;
+}
+.odoo-ficha__notes {
+  white-space: pre-wrap;
+  color: var(--text);
+  font-size: 13px;
+  line-height: 1.5;
+}
+.budget-client-strip {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  align-items: baseline;
+  margin-top: 6px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.budget-client-strip strong {
+  color: var(--text);
+  font-family: 'Rajdhani', sans-serif;
+  letter-spacing: 0.04em;
+  font-size: 14px;
 }

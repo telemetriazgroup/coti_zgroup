@@ -20,6 +20,7 @@ const ALLOWED_TABLES = [
   'project_items',
   'project_plans',
   'project_budget_snapshots',
+  'project_budget_revisions',
   'project_audit_log',
   'login_lockouts',
   'refresh_tokens',
@@ -29,6 +30,7 @@ const ALLOWED_TABLES = [
 const READONLY_TABLES = new Set([
   'catalog_change_log',
   'project_audit_log',
+  'project_budget_revisions',
   'refresh_tokens',
   'login_lockouts',
 ]);

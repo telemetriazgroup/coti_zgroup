@@ -167,7 +167,7 @@ export function CatalogPage() {
   }, [loadPendingCount, pageView]);
 
   useEffect(() => {
-    if (modalItem !== 'new' || !itemForm.categoryId) {
+    if ((modalItem !== 'new' && modalItem !== 'duplicate') || !itemForm.categoryId) {
       if (modalItem !== 'edit') setItemCodigoHint(null);
       return undefined;
     }
@@ -327,7 +327,7 @@ export function CatalogPage() {
 
   async function onItemCategoryChange(categoryId) {
     setItemForm((f) => ({ ...f, categoryId }));
-    if (modalItem !== 'new') return;
+    if (modalItem !== 'new' && modalItem !== 'duplicate') return;
     try {
       const data = await fetchCategoryNextCodigo(categoryId);
       if (data?.suggestedCodigo) {
@@ -415,6 +415,36 @@ export function CatalogPage() {
     setItemCodigoHint(null);
   }
 
+  async function openDuplicateItem(row) {
+    setItemForm({
+      categoryId: row.categoryId,
+      codigo: '',
+      descripcion: `${String(row.descripcion || '').trim()} (copia)`,
+      unidad: row.unidad || 'UND',
+      tipo: row.tipo,
+      unitPrice: String(row.unitPrice ?? 0),
+      unitPriceIntl: row.unitPriceIntl != null ? String(row.unitPriceIntl) : String(row.unitPrice ?? 0),
+      hasDualPrice: row.hasDualPrice === true,
+      sortOrder: '',
+      active: true,
+      dependencies: [],
+    });
+    setModalItem('duplicate');
+    setItemCodigoHint(null);
+    try {
+      const data = await api.get(`/api/catalog/items/${row.id}/dependencies`);
+      setItemForm((f) => ({
+        ...f,
+        dependencies: (data.dependencies || []).map((d) => ({
+          childItemId: d.childItemId,
+          qty: String(d.qty ?? 1),
+        })),
+      }));
+    } catch {
+      /* sin deps: se crea el ítem suelto */
+    }
+  }
+
   async function openEditItem(row) {
     setItemForm({
       categoryId: row.categoryId,
@@ -492,7 +522,7 @@ export function CatalogPage() {
       dependencies: deps,
     };
     try {
-      if (modalItem === 'new') {
+      if (modalItem === 'new' || modalItem === 'duplicate') {
         await api.post('/api/catalog/items', body);
       } else {
         await api.put(`/api/catalog/items/${itemForm._id}`, body);
@@ -876,6 +906,9 @@ export function CatalogPage() {
                           <button type="button" className="btn-link mono" onClick={() => openEditItem(row)}>
                             Editar
                           </button>
+                          <button type="button" className="btn-link mono" onClick={() => openDuplicateItem(row)}>
+                            Duplicar
+                          </button>
                           <button
                             type="button"
                             className="btn-link mono"
@@ -1099,16 +1132,16 @@ export function CatalogPage() {
 
       {modalItem && isAdmin && (
         <Modal
-          title={modalItem === 'new' ? 'Nuevo ítem' : 'Editar ítem'}
+          title={modalItem === 'new' ? 'Nuevo ítem' : modalItem === 'duplicate' ? 'Duplicar ítem' : 'Editar ítem'}
           onClose={() => setModalItem(null)}
-          wide
+          lg
           footer={
             <>
               <button type="button" className="btn btn-ghost" onClick={() => setModalItem(null)}>
                 Cancelar
               </button>
               <button type="submit" form="item-form" className="btn btn-primary">
-                Guardar
+                {modalItem === 'duplicate' ? 'Crear copia' : 'Guardar'}
               </button>
             </>
           }
@@ -1159,6 +1192,12 @@ export function CatalogPage() {
                 value={itemForm.descripcion}
                 onChange={(e) => setItemForm((f) => ({ ...f, descripcion: e.target.value }))}
               />
+              {modalItem === 'duplicate' && (
+                <span className="muted mono" style={{ fontSize: 11 }}>
+                  Ajuste el nombre (la descripción debe ser única). Se copian los mismos componentes internos; no se
+                  clonan los hijos.
+                </span>
+              )}
             </label>
             <label>
               <span className="fg-lbl">Unidad</span>

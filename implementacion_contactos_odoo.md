@@ -221,7 +221,40 @@ Módulo custom (nombre tentativo `zgroup_partner_ext`):
 - `EXPLAIN` (o tiempo) de `search_read` con `write_date >= …` sobre el volumen real (~10k+).
 - Confirmar que **no** hay acciones automatizadas con `requests.post` hacia Cotizaciones.
 
-**Criterio de salida:** módulo instalado en staging; índice presente; core de `res.partner` intacto.
+**Criterio de salida:** módulo instalado en **staging**; índice presente; core de `res.partner` intacto.
+
+Documentación de espera de accesos Odoo.sh, importancia de la prueba y trabajo en paralelo: **`fase1_odoo.md`**.
+
+**Código del módulo (este repo):** `odoo_addons/zgroup_partner_ext/`
+
+| Archivo | Rol |
+|---|---|
+| `__manifest__.py` | Módulo 17.0, depende solo de `base` |
+| `models/res_partner.py` | `x_ztrack_uid` Char unique + `init()` índice `res_partner_write_date_idx` |
+
+No hereda `create`/`write`. No hace HTTP.
+
+### Cómo instalarlo (Odoo.sh — zgroup.odoo.com)
+
+Esta instancia es **Odoo.sh / producción**. El módulo **no se instala desde Cotizaciones**; hay que copiarlo al repositorio Git de Odoo.sh.
+
+1. En el proyecto Git de Odoo.sh, copiar la carpeta `zgroup_partner_ext` (tal cual) a la raíz de addons (junto a otros módulos custom).
+2. **Primero un branch staging / dev**, nunca `production` como primer intento.
+3. Esperar el build de Odoo.sh.
+4. Apps → quitar filtro «Aplicaciones» → **Actualizar lista de aplicaciones** → buscar **ZGROUP Partner Ext** → Instalar.
+5. Confirmar a mano: Ajustes → Técnico → Modelos → `res.partner` → campo `x_ztrack_uid`.
+6. Confirmar que **no** hay acciones automatizadas de Contactos con código Python que haga `requests.post` a Cotizaciones.
+7. Validar desde este repo:
+
+```bash
+npm run odoo:probe:stage1
+```
+
+Debe verse `campo x_ztrack_uid` y `search x_ztrack_uid UUID inventado: 0 filas`.
+
+**No** instalar primero en producción. Tras staging OK, merge al branch de producción de Odoo.sh.
+
+El índice `write_date` no se ve por XML-RPC; si el lote de 300 tarda >3 s, revisar en el PostgreSQL de Odoo (`\d res_partner` / `res_partner_write_date_idx`).
 
 ---
 
@@ -271,7 +304,21 @@ Migración nueva (p. ej. `023_odoo_partners.sql`):
 - Seed / demo actual sigue creando cliente local **sin** `odoo_id`.
 - Backup / `systemExport` (SUPERUSER): decidir si `odoo_partners` entra en el JSON de backup (recomendado: sí, para no rehacer full pull).
 
-**Criterio de salida:** schema aplicado en staging; app arranca; CRM actual sin regresiones.
+**Criterio de salida:** schema aplicado al arrancar la API (`023_odoo_partners.sql`); CRM actual sin regresiones (`sync_origin=local`, `odoo_id` NULL); backup SUPERUSER incluye `odoo_partners`.
+
+**Hecho en repo (etapa 2):**
+
+| Pieza | Ubicación |
+|---|---|
+| Migración | `server/db/migrations/023_odoo_partners.sql` |
+| Schema de referencia | `server/db/schema.sql` |
+| Constantes / mapeo | `server/lib/odoo/syncStatus.js` |
+| API clientes | `mapClient` expone `odooId`, `syncOrigin` (picker aún no cambia) |
+| Backup | `systemExport.js` exporta/importa caché Odoo |
+
+Etiquetas por defecto en `odoo_sync_state`: Cliente=3, Proveedor=4, Contacto=5 (inventario etapa 0). El pull (etapa 3) puede actualizarlas.
+
+**No incluido aún:** worker de bajada, endpoints `/api/odoo/sync/*`, cambios en `ClientPicker`. `ODOO_SYNC_ENABLED=0`.
 
 ---
 
@@ -314,7 +361,20 @@ Migración nueva (p. ej. `023_odoo_partners.sql`):
 | Carga Odoo | durante el pull, usar Contactos en Odoo | UI Odoo usable (no 20 RPC paralelos) |
 | Parser | partner con `email=False`, `parent_id=False` | columnas NULL, no string `"False"` |
 
-**Criterio de salida:** caché poblada en staging; health de sync visible para SUPERUSER; CRM y presupuestos intactos.
+**Criterio de salida:** caché poblada (botón SUPERUSER o `npm run odoo:sync`); health en `/superusuario`; CRM y presupuestos intactos. El picker usa la caché desde etapa 4.
+
+**Hecho en repo (etapa 3):**
+
+| Pieza | Ubicación |
+|---|---|
+| Pull + watermark + solape 2 min | `server/lib/odoo/pullPartners.js` |
+| Lock PG + debounce 60 s | `syncLock.js` + `pullHelpers.js` |
+| Cron 15 min si `ODOO_SYNC_ENABLED=1` | `server/workers/odooSync.worker.js` |
+| API SUPERUSER | `GET/POST /api/odoo/sync/*` |
+| UI | Panel Contactos Odoo en `SuperuserPage` |
+| CLI primera carga | `npm run odoo:sync` (no exige el cron) |
+
+El POST **no espera** el pull (evita timeout HTTP). Consulte `GET /health`. Primera carga ~10k ≈ 35 lotes; programar fuera de punta si Odoo va lento (índice `write_date` aún falta: etapa 1).
 
 ---
 
@@ -362,7 +422,40 @@ Migración nueva (p. ej. `023_odoo_partners.sql`):
 | PDF / listado proyectos | Sigue usando `client_razon_social` local (ya proyectado) |
 | VIEWER | No usa el picker; no ve CRM |
 
+**Hecho en repo (etapa 4):**
+
+| Pieza | Ubicación |
+|---|---|
+| Proyección empresas elegibles → `clients` | `server/lib/odoo/projectClients.js` (tras cada pull y `POST /api/odoo/sync/project-clients`) |
+| Link RUC 1:1 + informe de ambiguos | mismo módulo; `GET /api/odoo/sync/clients-link` |
+| Typeahead picker | `GET /api/clients/picker?q=&limit=30` + `POST /api/clients/from-odoo` |
+| ClientPicker | debounce 250 ms; empresa negrita / hijo indentado; sin XML-RPC |
+| CRM | badge Odoo / local; campos Odoo read-only |
+
+El POST de proyecto **no** llama a Odoo. Si la proyección aún no corrió, `from-odoo` crea la fila `clients` al elegir.
+
 **Criterio de salida:** un comercial crea un proyecto eligiendo un contacto Odoo; `projects.client_id` apunta a `clients.odoo_id` correcto; cero llamadas XML-RPC en ese POST.
+
+---
+
+### Etapa 4.1 — Ficha Odoo (lectura) e integración en el cotizador
+
+**Objetivo:** el módulo Clientes se parece a la ficha de Contactos de Odoo 17 y esos datos (RUC, dirección, contacto hijo) aparecen en presupuesto y PDF. Sin escritura a Odoo.
+
+**Reglas**
+
+- Ver ficha: todos los roles que ya entran a Clientes.
+- Crear cliente **local**: solo **SUPERUSER**.
+- Editar / archivar / eliminar: **bloqueado** (`PUT` 403) hasta etapa 5 (Odoo.sh).
+- Picker de proyecto: no crea locales (salvo SUPERUSER).
+
+**Hecho en repo**
+
+| Pieza | Ubicación |
+|---|---|
+| Ficha desde `odoo_partners.raw` + hijos | `GET /api/clients/:id` → `ficha` (`partnerCard.js`) |
+| UI tipo Odoo | `ClientOdooFicha.jsx` + `ClientsPage` (lista + panel) |
+| Cotizador | `mapProject` incluye RUC, dirección, contacto; tira en presupuesto; PDF gerencia/cabecera |
 
 ---
 
@@ -475,13 +568,14 @@ Las etapas 0–3 son bloqueantes: sin conexión validada y sin caché, no se eng
 - [ ] Crear usuario de integración en Odoo + API key *(ops, no código)*
 - [x] Cliente RPC con timeouts, reintentos y circuit breaker *(etapa 0: código; falta probe verde)*
 - [x] `fields_get` y whitelist congelada en código (`partnerFields.js`); inventario real al correr el probe
-- [ ] Instalar módulo mínimo (`x_ztrack_uid` + índice en `write_date`) — etapa 1
-- [ ] Tablas `odoo_partners`, `odoo_sync_state`, `odoo_outbox` (+ extensión `clients`) — **Postgres, no Mongo**
-- [ ] Worker de bajada: watermark + solape 2 min + paginación + upsert por `odoo_id`
-- [ ] Lock y debounce del botón manual
+- [ ] Instalar módulo mínimo (`x_ztrack_uid` + índice en `write_date`) — etapa 1 *(código en `odoo_addons/zgroup_partner_ext`; falta instalarlo en staging Odoo.sh)*
+- [x] Tablas `odoo_partners`, `odoo_sync_state`, `odoo_sync_locks` + columnas en `clients` — etapa 2
+- [ ] Tabla `odoo_outbox` — etapa 5
+- [x] Worker de bajada: watermark + solape 2 min + paginación + upsert por `odoo_id`
+- [x] Lock y debounce del botón manual
 - [ ] Worker de subida (etapa 5): outbox, UUID, eco
-- [ ] Job diario de reconciliación de borrados
+- [x] Job diario de reconciliación de borrados
 - [ ] Validaciones espejo en formulario (etapa 5)
 - [ ] Mapeo de `Fault` a mensajes legibles
-- [ ] Endpoint de salud + alertas
-- [ ] **Extra de este producto:** `ClientPicker` no llama a Odoo; `projects.client_id` vinculado a `clients.odoo_id`; typeahead con >10k contactos
+- [x] Endpoint de salud + alertas
+- [x] **Extra de este producto:** `ClientPicker` no llama a Odoo; `projects.client_id` vinculado a `clients.odoo_id`; typeahead con >10k contactos

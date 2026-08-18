@@ -50,7 +50,7 @@ describe('Sprint 1 — employees & clients', () => {
     if (demo) expect(demo.projectCount).toBeGreaterThanOrEqual(0);
   });
 
-  it('POST /api/clients crea cliente (comercial)', async () => {
+  it('POST /api/clients comercial no puede crear cliente local', async () => {
     const res = await request(app)
       .post('/api/clients')
       .set('Authorization', `Bearer ${comercialToken}`)
@@ -59,9 +59,8 @@ describe('Sprint 1 — employees & clients', () => {
         ruc: '20999999999',
         ciudad: 'Lima',
       })
-      .expect(201);
-    expect(res.body.success).toBe(true);
-    expect(res.body.data.razonSocial).toContain('Test API');
+      .expect(403);
+    expect(res.body.success).toBe(false);
   });
 
   it('GET /api/users/viewers devuelve array (comercial)', async () => {

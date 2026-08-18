@@ -1,9 +1,8 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { api, getBlob, postFormData } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { canWriteProjects } from '../lib/userRoles';
 import { Modal } from '../components/Modal';
-import { ClientHistoryModal } from '../components/ClientHistoryModal';
+import { ClientOdooFicha } from '../components/ClientOdooFicha';
 
 const ISSUE_LABELS = {
   FALTA_RAZON_SOCIAL: 'Falta razón social',
@@ -28,8 +27,8 @@ const emptyForm = {
 };
 
 export function ClientsPage() {
-  const { user } = useAuth();
-  const canWrite = canWriteProjects(user);
+  const { isSuperuser } = useAuth();
+  const canCreateLocal = isSuperuser();
 
   const [list, setList] = useState([]);
   const [q, setQ] = useState('');
@@ -37,7 +36,10 @@ export function ClientsPage() {
   const [modal, setModal] = useState(null);
   const [form, setForm] = useState(emptyForm);
   const [err, setErr] = useState(null);
-  const [historyTarget, setHistoryTarget] = useState(null);
+
+  const [selectedId, setSelectedId] = useState(null);
+  const [detail, setDetail] = useState(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   const fileInputRef = useRef(null);
   const [importModal, setImportModal] = useState(false);
@@ -54,9 +56,10 @@ export function ClientsPage() {
         const params = new URLSearchParams();
         if (search) params.set('q', search);
         if (includeInactive) params.set('includeInactive', 'true');
+        params.set('limit', '100');
         const qs = params.toString() ? `?${params.toString()}` : '';
         const data = await api.get(`/api/clients${qs}`);
-        setList(data);
+        setList(Array.isArray(data) ? data : []);
       } catch (e) {
         setErr(e.message);
       } finally {
@@ -71,47 +74,24 @@ export function ClientsPage() {
     return () => clearTimeout(t);
   }, [q, fetchList]);
 
+  async function openFicha(row) {
+    setSelectedId(row.id);
+    setDetailLoading(true);
+    setErr(null);
+    try {
+      const data = await api.get(`/api/clients/${row.id}`);
+      setDetail(data);
+    } catch (e) {
+      setErr(e.message);
+      setDetail(null);
+    } finally {
+      setDetailLoading(false);
+    }
+  }
+
   function openNew() {
     setForm(emptyForm);
     setModal('new');
-  }
-
-  function openEdit(row) {
-    setForm({
-      razonSocial: row.razonSocial || '',
-      ruc: row.ruc || '',
-      contactoNombre: row.contactoNombre || '',
-      contactoEmail: row.contactoEmail || '',
-      contactoTelefono: row.contactoTelefono || '',
-      ciudad: row.ciudad || '',
-      direccion: row.direccion || '',
-      notas: row.notas || '',
-      active: row.active !== false,
-      _id: row.id,
-    });
-    setModal('edit');
-  }
-
-  async function toggleClientActive(row, nextActive) {
-    const label = nextActive ? 'restaurar' : 'archivar';
-    if (!window.confirm(`¿${label} el cliente "${row.razonSocial}"?`)) return;
-    setErr(null);
-    try {
-      await api.put(`/api/clients/${row.id}`, {
-        razonSocial: row.razonSocial,
-        ruc: row.ruc || undefined,
-        contactoNombre: row.contactoNombre || undefined,
-        contactoEmail: row.contactoEmail || undefined,
-        contactoTelefono: row.contactoTelefono || undefined,
-        ciudad: row.ciudad || undefined,
-        direccion: row.direccion || undefined,
-        notas: row.notas || undefined,
-        active: nextActive,
-      });
-      fetchList(q);
-    } catch (e2) {
-      setErr(e2.message);
-    }
   }
 
   async function downloadExcel() {
@@ -166,25 +146,17 @@ export function ClientsPage() {
   async function submitClient(e) {
     e.preventDefault();
     setErr(null);
-    const body = {
-      razonSocial: form.razonSocial,
-      ruc: form.ruc || undefined,
-      contactoNombre: form.contactoNombre || undefined,
-      contactoEmail: form.contactoEmail || undefined,
-      contactoTelefono: form.contactoTelefono || undefined,
-      ciudad: form.ciudad || undefined,
-      direccion: form.direccion || undefined,
-      notas: form.notas || undefined,
-    };
     try {
-      if (modal === 'new') {
-        await api.post('/api/clients', body);
-      } else {
-        await api.put(`/api/clients/${form._id}`, {
-          ...body,
-          active: form.active !== false,
-        });
-      }
+      await api.post('/api/clients', {
+        razonSocial: form.razonSocial,
+        ruc: form.ruc || undefined,
+        contactoNombre: form.contactoNombre || undefined,
+        contactoEmail: form.contactoEmail || undefined,
+        contactoTelefono: form.contactoTelefono || undefined,
+        ciudad: form.ciudad || undefined,
+        direccion: form.direccion || undefined,
+        notas: form.notas || undefined,
+      });
       setModal(null);
       fetchList(q);
     } catch (e2) {
@@ -197,13 +169,15 @@ export function ClientsPage() {
       <div className="page-header page-header--row">
         <div>
           <h1 className="page-title">Clientes</h1>
-          <p className="page-sub muted">CRM · contador de proyectos activos por cliente</p>
+          <p className="page-sub muted">
+            Ficha tipo Odoo · solo lectura de la caché. Alta/edición hacia Odoo cuando esté Odoo.sh.
+          </p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
           <button type="button" className="btn btn-ghost mono" onClick={downloadExcel} disabled={loading}>
             Descargar Excel
           </button>
-          {canWrite && (
+          {canCreateLocal && (
             <>
               <button
                 type="button"
@@ -221,7 +195,7 @@ export function ClientsPage() {
                 onChange={onImportFile}
               />
               <button type="button" className="btn btn-primary" onClick={openNew}>
-                Nuevo cliente
+                Nuevo cliente local
               </button>
             </>
           )}
@@ -236,16 +210,14 @@ export function ClientsPage() {
           value={q}
           onChange={(e) => setQ(e.target.value)}
         />
-        {canWrite && (
-          <label className="chk mono" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
-            <input
-              type="checkbox"
-              checked={includeInactive}
-              onChange={(e) => setIncludeInactive(e.target.checked)}
-            />
-            Mostrar archivados
-          </label>
-        )}
+        <label className="chk mono" style={{ fontSize: 11, whiteSpace: 'nowrap' }}>
+          <input
+            type="checkbox"
+            checked={includeInactive}
+            onChange={(e) => setIncludeInactive(e.target.checked)}
+          />
+          Mostrar archivados
+        </label>
       </div>
 
       {err && (
@@ -254,134 +226,91 @@ export function ClientsPage() {
         </div>
       )}
 
-      <div className="panel panel--flush">
-        <div className="table-wrap">
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Razón social</th>
-                <th>RUC</th>
-                <th>Ciudad</th>
-                <th className="num">Proyectos</th>
-                <th>Estado</th>
-                <th className="actions-col">Acciones</th>
-              </tr>
-            </thead>
-            <tbody>
-              {loading ? (
+      <div className="clients-odoo-layout">
+        <div className="panel panel--flush">
+          <div className="table-wrap">
+            <table className="data-table">
+              <thead>
                 <tr>
-                  <td colSpan={6} className="muted mono">
-                    Cargando…
-                  </td>
+                  <th>Razón social</th>
+                  <th>RUC</th>
+                  <th>Ciudad</th>
+                  <th>Origen</th>
+                  <th className="num">Proyectos</th>
                 </tr>
-              ) : list.length === 0 ? (
-                <tr>
-                  <td colSpan={6} className="muted">
-                    Sin resultados
-                  </td>
-                </tr>
-              ) : (
-                list.map((row) => (
-                  <tr key={row.id} className={row.active === false ? 'row-dim' : ''}>
-                    <td>{row.razonSocial}</td>
-                    <td className="mono">{row.ruc || '—'}</td>
-                    <td>{row.ciudad || '—'}</td>
-                    <td className="num mono">{row.projectCount ?? 0}</td>
-                    <td>
-                      {row.active === false ? (
-                        <span className="tag tag--off">Archivado</span>
-                      ) : (
-                        <span className="tag tag--ok">Activo</span>
-                      )}
+              </thead>
+              <tbody>
+                {loading ? (
+                  <tr>
+                    <td colSpan={5} className="muted mono">
+                      Cargando…
                     </td>
-                    {canWrite && (
-                      <td className="actions-cell">
-                        <div className="proj-actions proj-actions--inline">
-                          <button type="button" className="btn-action" onClick={() => openEdit(row)}>
-                            <span className="btn-action__ic" aria-hidden>
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7" />
-                                <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z" />
-                              </svg>
-                            </span>
-                            Editar
-                          </button>
-                          <button
-                            type="button"
-                            className="btn-action"
-                            onClick={() =>
-                              setHistoryTarget({
-                                clientId: row.id,
-                                title: `Historial — ${row.razonSocial}`,
-                              })
-                            }
-                          >
-                            <span className="btn-action__ic" aria-hidden>
-                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                <circle cx="12" cy="12" r="10" />
-                                <polyline points="12 6 12 12 16 14" />
-                              </svg>
-                            </span>
-                            Historial
-                          </button>
-                          {row.active !== false ? (
-                            <button
-                              type="button"
-                              className="btn-action btn-action--danger"
-                              onClick={() => toggleClientActive(row, false)}
-                            >
-                              <span className="btn-action__ic" aria-hidden>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M21 8v13H3V8" />
-                                  <path d="M1 3h22v5H1z" />
-                                  <path d="M10 12h4" />
-                                </svg>
-                              </span>
-                              Archivar
-                            </button>
-                          ) : (
-                            <button
-                              type="button"
-                              className="btn-action btn-action--ok"
-                              onClick={() => toggleClientActive(row, true)}
-                            >
-                              <span className="btn-action__ic" aria-hidden>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
-                                  <polyline points="22 4 12 14.01 9 11.01" />
-                                </svg>
-                              </span>
-                              Restaurar
-                            </button>
-                          )}
-                        </div>
-                      </td>
-                    )}
-                    {!canWrite && (
-                      <td className="actions-cell">
-                        <button
-                          type="button"
-                          className="btn-link mono"
-                          onClick={() =>
-                            setHistoryTarget({
-                              clientId: row.id,
-                              title: `Historial — ${row.razonSocial}`,
-                            })
-                          }
-                        >
-                          Historial
-                        </button>
-                      </td>
-                    )}
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : list.length === 0 ? (
+                  <tr>
+                    <td colSpan={5} className="muted">
+                      Sin resultados
+                    </td>
+                  </tr>
+                ) : (
+                  list.map((row) => (
+                    <tr
+                      key={row.id}
+                      className={
+                        (row.active === false ? 'row-dim ' : '') +
+                        (row.id === selectedId ? 'clients-odoo-row--on' : '')
+                      }
+                      style={{ cursor: 'pointer' }}
+                      onClick={() => openFicha(row)}
+                    >
+                      <td>{row.razonSocial}</td>
+                      <td className="mono">{row.ruc || '—'}</td>
+                      <td>{row.ciudad || '—'}</td>
+                      <td>
+                        {row.syncOrigin === 'odoo' ? (
+                          <span className="tag tag--cyan">Odoo</span>
+                        ) : row.syncOrigin === 'linked' ? (
+                          <span className="tag tag--ok">Vinculado</span>
+                        ) : (
+                          <span className="tag tag--warn">No está en Odoo</span>
+                        )}
+                      </td>
+                      <td className="num mono">{row.projectCount ?? 0}</td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+          {!loading && list.length >= 100 && (
+            <p className="muted mono" style={{ padding: '8px 12px', fontSize: 11 }}>
+              Mostrando 100. Refine la búsqueda o pulse una fila para ver la ficha.
+            </p>
+          )}
+        </div>
+
+        <div className="panel odoo-ficha-panel">
+          {detailLoading ? (
+            <p className="muted mono">Cargando ficha…</p>
+          ) : detail ? (
+            <ClientOdooFicha
+              client={detail}
+              ficha={detail.ficha}
+              onClose={() => {
+                setDetail(null);
+                setSelectedId(null);
+              }}
+            />
+          ) : (
+            <p className="muted" style={{ padding: 8 }}>
+              Seleccione un cliente para ver la ficha (dirección, RUC, etiquetas y contactos hijos). No se puede
+              editar ni eliminar hasta la integración con Odoo.sh.
+            </p>
+          )}
         </div>
       </div>
 
-      {importModal && importPreview && canWrite && (
+      {importModal && importPreview && canCreateLocal && (
         <Modal
           wide
           title="Previsualización de importación"
@@ -413,7 +342,7 @@ export function ClientsPage() {
           }
         >
           <p className="muted mono" style={{ fontSize: 12, marginBottom: 10 }}>
-            Filas: {importPreview.total}. Se valida razón social y RUC (11 dígitos) frente al archivo y a la base.{' '}
+            Filas: {importPreview.total}. Alta local (SUPERUSER). No escribe a Odoo.{' '}
             {importPreview.canApply ? (
               <span style={{ color: 'var(--green)' }}>Listo para importar.</span>
             ) : (
@@ -461,9 +390,9 @@ export function ClientsPage() {
         </Modal>
       )}
 
-      {modal && canWrite && (
+      {modal === 'new' && canCreateLocal && (
         <Modal
-          title={modal === 'new' ? 'Nuevo cliente' : 'Editar cliente'}
+          title="Nuevo cliente local"
           onClose={() => setModal(null)}
           footer={
             <>
@@ -471,11 +400,14 @@ export function ClientsPage() {
                 Cancelar
               </button>
               <button type="submit" form="client-form" className="btn btn-primary">
-                Guardar
+                Crear
               </button>
             </>
           }
         >
+          <p className="muted mono" style={{ fontSize: 11, marginBottom: 10 }}>
+            Quedará marcado «No está en Odoo». Preferible crearlo en Odoo y actualizar contactos.
+          </p>
           <form id="client-form" className="stack-form" onSubmit={submitClient}>
             <label>
               <span className="fg-lbl">Razón social *</span>
@@ -545,26 +477,9 @@ export function ClientsPage() {
                 onChange={(e) => setForm((f) => ({ ...f, notas: e.target.value }))}
               />
             </label>
-            {modal === 'edit' && (
-              <label className="chk mono" style={{ marginTop: 4 }}>
-                <input
-                  type="checkbox"
-                  checked={form.active !== false}
-                  onChange={(e) => setForm((f) => ({ ...f, active: e.target.checked }))}
-                />
-                Cliente activo (visible en listados y asignable a proyectos)
-              </label>
-            )}
           </form>
         </Modal>
       )}
-
-      <ClientHistoryModal
-        open={!!historyTarget}
-        clientId={historyTarget?.clientId}
-        title={historyTarget?.title}
-        onClose={() => setHistoryTarget(null)}
-      />
     </section>
   );
 }

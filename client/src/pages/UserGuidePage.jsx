@@ -275,15 +275,16 @@ export function UserGuidePage() {
             {isAdmin ? (
               <Steps
                 items={[
-                  'Desde el menú Clientes: alta, edición y búsqueda de razón social y datos de contacto.',
-                  'Al crear o editar un proyecto puedes asociar un cliente existente.',
+                  'El CRM muestra la ficha tipo Odoo (dirección, RUC, etiquetas, contactos hijos) en solo lectura.',
+                  'Alta local e importación Excel: solo SUPERUSER. Edición/archivo hacia Odoo: pendiente de Odoo.sh.',
+                  'Al crear o editar un proyecto se elige un contacto de la caché; RUC y contacto pasan al presupuesto y al PDF.',
                 ]}
               />
             ) : (
               <p className="muted">
-                La administración del CRM (listado y edición de clientes) es solo <strong>ADMIN</strong>. En{' '}
-                <strong>Proyectos</strong> y en el flujo de nuevo proyecto podés elegir un cliente existente o dar de
-                alta uno si el API lo permite en tu flujo de trabajo.
+                El listado y la ficha de clientes (caché Odoo) son de consulta. El alta local es solo{' '}
+                <strong>SUPERUSER</strong>. En <strong>Proyectos</strong> se elige un contacto de la caché; no se crea
+                cliente local desde el picker.
               </p>
             )}
           </GuideSection>

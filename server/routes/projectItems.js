@@ -30,6 +30,7 @@ const {
   sanitizeBudgetItemsResponse,
   sanitizeBundleEditPayload,
 } = require('../lib/commercialVisibility');
+const { recordBudgetRevision } = require('../lib/budgetRevisions');
 
 const uploadBudgetImport = multer({
   storage: multer.memoryStorage(),
@@ -181,6 +182,10 @@ function auditItemPayload(user, itemData) {
 
 async function touchProjectUpdated(projectId, client = pool) {
   await client.query(`UPDATE projects SET updated_at = NOW() WHERE id = $1`, [projectId]);
+}
+
+async function snapshotBudget(projectId, user, cause, client = pool) {
+  return recordBudgetRevision(projectId, { actorId: user?.id, cause }, client);
 }
 
 async function fetchItemRow(client, id) {
@@ -501,6 +506,8 @@ router.post(
           .json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
       }
 
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_IMPORT_APPLY');
+
       const { items: toApply } = req.body;
       client = await pool.connect();
       const { rows: cntRows } = await client.query(
@@ -538,6 +545,7 @@ router.post(
         await touchProjectUpdated(req.params.id, client);
       }
       await client.query('COMMIT');
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_IMPORT_APPLY');
 
       const { rows: all } = await pool.query(
         `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
@@ -654,6 +662,8 @@ router.post('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERU
       await client.query('ROLLBACK');
       return res.status(400).json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
     }
+
+    await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_ADD');
 
     const { rows: cntRows } = await client.query(
       `SELECT COUNT(*)::int AS n FROM project_items WHERE project_id = $1`,
@@ -872,6 +882,7 @@ router.post('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERU
     }
 
     await client.query('COMMIT');
+    await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_ADD');
 
     const { rows: all } = await pool.query(
       `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
@@ -931,6 +942,8 @@ router.post(
           .json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
       }
 
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_ADD');
+
       client = await pool.connect();
       const { rows: cntRows } = await client.query(
         `SELECT COUNT(*)::int AS n FROM project_items WHERE project_id = $1`,
@@ -972,6 +985,7 @@ router.post(
         await touchProjectUpdated(req.params.id, client);
       }
       await client.query('COMMIT');
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_ADD');
 
       const { rows: all } = await pool.query(
         `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
@@ -1073,6 +1087,8 @@ router.post(
           .json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
       }
 
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_BUNDLE_ADD');
+
       client = await pool.connect();
       const { rows: cntRows } = await client.query(
         `SELECT COUNT(*)::int AS n FROM project_items WHERE project_id = $1 AND is_bundle_component IS NOT TRUE`,
@@ -1108,6 +1124,7 @@ router.post(
         await touchProjectUpdated(req.params.id, client);
       }
       await client.query('COMMIT');
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_BUNDLE_ADD');
 
       const { rows: all } = await pool.query(
         `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
@@ -1194,6 +1211,8 @@ router.put(
           .json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
       }
 
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_BUNDLE_UPDATE');
+
       client = await pool.connect();
       await client.query('BEGIN');
       const result = await updateProjectBundle(client, {
@@ -1217,6 +1236,7 @@ router.put(
 
       await touchProjectUpdated(req.params.id, client);
       await client.query('COMMIT');
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_BUNDLE_UPDATE');
 
       const { rows: all } = await pool.query(
         `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
@@ -1292,6 +1312,8 @@ router.put(
         return res.status(400).json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
       }
 
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_UPDATE');
+
       const { rows: cur } = await pool.query(
         `${ITEMS_SELECT} WHERE pi.id = $1 AND pi.project_id = $2`,
         [req.params.itemId, req.params.id]
@@ -1347,6 +1369,7 @@ router.put(
       const { rows: upRows } = await pool.query(`${ITEMS_SELECT} WHERE pi.id = $1`, [req.params.itemId]);
 
       await touchProjectUpdated(req.params.id);
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_UPDATE');
 
       logAuditEvent({
         projectId: req.params.id,
@@ -1391,6 +1414,8 @@ router.delete('/:id/items/:itemId', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL
       return res.status(400).json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
     }
 
+    await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_DELETE');
+
     const { rows: cur } = await pool.query(
       `${ITEMS_SELECT} WHERE pi.id = $1 AND pi.project_id = $2`,
       [req.params.itemId, req.params.id]
@@ -1411,6 +1436,7 @@ router.delete('/:id/items/:itemId', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL
     }
 
     await touchProjectUpdated(req.params.id);
+    await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_DELETE');
 
     logAuditEvent({
       projectId: req.params.id,
@@ -1453,9 +1479,12 @@ router.delete('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPE
       return res.status(400).json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
     }
 
+    await snapshotBudget(req.params.id, req.user, 'BUDGET_CLEAR');
+
     await pool.query(`DELETE FROM project_item_bundles WHERE project_id = $1`, [req.params.id]);
     const { rowCount } = await pool.query(`DELETE FROM project_items WHERE project_id = $1`, [req.params.id]);
     await touchProjectUpdated(req.params.id);
+    await snapshotBudget(req.params.id, req.user, 'BUDGET_CLEAR');
 
     logAuditEvent({
       projectId: req.params.id,

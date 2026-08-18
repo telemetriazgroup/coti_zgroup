@@ -40,6 +40,12 @@ async function start() {
     } catch (e) {
       console.warn('[EXPORT] Worker PDF:', e.message);
     }
+    try {
+      const { startOdooSyncScheduler } = require('./workers/odooSync.worker');
+      startOdooSyncScheduler();
+    } catch (e) {
+      console.warn('[ODOO SYNC] Scheduler:', e.message);
+    }
     app.listen(PORT, () => {
       const baseLbl = PUBLIC_BASE_PATH ? `${PUBLIC_BASE_PATH}/` : '(raíz)';
       console.log(`\n╔══════════════════════════════════════════╗`);

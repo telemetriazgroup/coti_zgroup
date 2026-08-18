@@ -11,6 +11,7 @@
 -- Extensiones
 CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
 CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+CREATE EXTENSION IF NOT EXISTS pg_trgm;
 
 -- ─── ENUM TYPES ────────────────────────────────────────────────
 
@@ -31,6 +32,8 @@ CREATE TYPE pricing_market AS ENUM ('NACIONAL', 'INTERNACIONAL');
 
 CREATE TYPE snapshot_kind AS ENUM ('CLIENTE', 'GERENCIA', 'INTERNO');
 
+CREATE TYPE budget_revision_kind AS ENUM ('AUTO', 'RESTORE');
+
 CREATE TYPE audit_event AS ENUM (
   'PROJECT_CREATE',
   'PROJECT_UPDATE',
@@ -42,6 +45,10 @@ CREATE TYPE audit_event AS ENUM (
   'BUDGET_ITEM_DELETE',
   'BUDGET_CLEAR',
   'BUDGET_SNAPSHOT',
+  'BUDGET_BUNDLE_ADD',
+  'BUDGET_BUNDLE_UPDATE',
+  'BUDGET_IMPORT_APPLY',
+  'BUDGET_RESTORE',
   'PLAN_UPLOAD',
   'PLAN_DELETE',
   'CLIENT_ASSIGN',
@@ -159,23 +166,31 @@ CREATE INDEX idx_login_lockouts_user_id ON login_lockouts(user_id);
 CREATE TABLE clients (
   id                UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   active            BOOLEAN NOT NULL DEFAULT true,
-  razon_social      VARCHAR(200) NOT NULL,
-  ruc               VARCHAR(20),
+  razon_social      VARCHAR(512) NOT NULL,
+  ruc               VARCHAR(32),
   contacto_nombre   VARCHAR(150),
   contacto_email    VARCHAR(255),
-  contacto_telefono VARCHAR(20),
+  contacto_telefono VARCHAR(64),
   direccion         TEXT,
-  ciudad            VARCHAR(100),
+  ciudad            VARCHAR(128),
   notas             TEXT,
   created_by        UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  odoo_id           INTEGER UNIQUE,
+  odoo_parent_id    INTEGER,
+  odoo_contact_id   INTEGER,
+  sync_origin       VARCHAR(16) NOT NULL DEFAULT 'local'
+                    CHECK (sync_origin IN ('local', 'odoo', 'linked')),
+  odoo_write_date   TIMESTAMPTZ
 );
 
 CREATE INDEX idx_clients_active ON clients(active);
 CREATE INDEX idx_clients_razon_social ON clients(razon_social);
 CREATE INDEX idx_clients_ruc ON clients(ruc);
 CREATE INDEX idx_clients_created_by ON clients(created_by);
+CREATE INDEX idx_clients_odoo_id ON clients(odoo_id);
+CREATE INDEX idx_clients_sync_origin ON clients(sync_origin);
 
 CREATE TABLE client_change_log (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -191,6 +206,68 @@ CREATE TABLE client_change_log (
 
 CREATE INDEX idx_client_change_client ON client_change_log(client_id);
 CREATE INDEX idx_client_change_created ON client_change_log(created_at DESC);
+
+-- ─── ODOO PARTNERS (caché etapa 2; pull en etapa 3) ────────────
+
+CREATE TABLE odoo_partners (
+  odoo_id                   INTEGER PRIMARY KEY,
+  x_ztrack_uid              UUID UNIQUE,
+  raw                       JSONB NOT NULL DEFAULT '{}'::jsonb,
+  name                      VARCHAR(512),
+  display_name              VARCHAR(512),
+  vat                       VARCHAR(32),
+  email                     VARCHAR(255),
+  phone                     VARCHAR(64),
+  mobile                    VARCHAR(64),
+  city                      VARCHAR(128),
+  is_company                BOOLEAN NOT NULL DEFAULT false,
+  parent_odoo_id            INTEGER,
+  type                      VARCHAR(32),
+  active                    BOOLEAN NOT NULL DEFAULT true,
+  customer_rank             INTEGER NOT NULL DEFAULT 0,
+  supplier_rank             INTEGER NOT NULL DEFAULT 0,
+  category_ids              INTEGER[] NOT NULL DEFAULT '{}',
+  odoo_write_date           TIMESTAMPTZ NOT NULL,
+  last_pushed_write_date    TIMESTAMPTZ,
+  sync_status               VARCHAR(24) NOT NULL DEFAULT 'sincronizado'
+    CHECK (sync_status IN ('sincronizado', 'pendiente', 'conflicto', 'borrado_en_odoo')),
+  updated_at                TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_odoo_partners_vat ON odoo_partners (vat);
+CREATE INDEX idx_odoo_partners_name ON odoo_partners (name);
+CREATE INDEX idx_odoo_partners_name_trgm ON odoo_partners USING gin (name gin_trgm_ops);
+CREATE INDEX idx_odoo_partners_parent ON odoo_partners (parent_odoo_id);
+CREATE INDEX idx_odoo_partners_write_date ON odoo_partners (odoo_write_date);
+CREATE INDEX idx_odoo_partners_status ON odoo_partners (sync_status);
+CREATE INDEX idx_odoo_partners_category_ids ON odoo_partners USING gin (category_ids);
+CREATE INDEX idx_odoo_partners_active_company ON odoo_partners (active, is_company);
+
+CREATE TABLE odoo_sync_state (
+  model                  VARCHAR(64) PRIMARY KEY,
+  watermark              TIMESTAMPTZ,
+  last_run_at            TIMESTAMPTZ,
+  last_ok_at             TIMESTAMPTZ,
+  duration_ms            INTEGER,
+  created_n              INTEGER NOT NULL DEFAULT 0,
+  updated_n              INTEGER NOT NULL DEFAULT 0,
+  error_n                INTEGER NOT NULL DEFAULT 0,
+  last_error             TEXT,
+  category_cliente_id    INTEGER,
+  category_proveedor_id  INTEGER,
+  category_contacto_id   INTEGER,
+  updated_at             TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+INSERT INTO odoo_sync_state (model, category_cliente_id, category_proveedor_id, category_contacto_id)
+VALUES ('res.partner', 3, 4, 5)
+ON CONFLICT (model) DO NOTHING;
+
+CREATE TABLE odoo_sync_locks (
+  lock_key    VARCHAR(64) PRIMARY KEY,
+  holder      VARCHAR(80),
+  expires_at  TIMESTAMPTZ NOT NULL
+);
 
 -- ─── PROJECTS ──────────────────────────────────────────────────
 
@@ -447,6 +524,30 @@ CREATE TABLE project_budget_snapshots (
 CREATE INDEX idx_snapshots_project_id ON project_budget_snapshots(project_id);
 CREATE INDEX idx_snapshots_kind ON project_budget_snapshots(kind);
 
+-- ─── PROJECT BUDGET REVISIONS (historial restaurable) ──────────
+
+CREATE TABLE project_budget_revisions (
+  id               UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id       UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  seq              INTEGER NOT NULL,
+  kind             budget_revision_kind NOT NULL DEFAULT 'AUTO',
+  cause            VARCHAR(64),
+  restored_from_id UUID REFERENCES project_budget_revisions(id) ON DELETE SET NULL,
+  actor_id         UUID REFERENCES users(id) ON DELETE SET NULL,
+  payload          JSONB NOT NULL DEFAULT '{}',
+  content_hash     VARCHAR(64) NOT NULL,
+  item_count       INTEGER NOT NULL DEFAULT 0,
+  added_count      INTEGER NOT NULL DEFAULT 0,
+  removed_count    INTEGER NOT NULL DEFAULT 0,
+  changed_count    INTEGER NOT NULL DEFAULT 0,
+  created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  UNIQUE (project_id, seq)
+);
+
+CREATE INDEX idx_budget_revisions_project_seq ON project_budget_revisions(project_id, seq DESC);
+CREATE INDEX idx_budget_revisions_project_created ON project_budget_revisions(project_id, created_at DESC);
+CREATE INDEX idx_budget_revisions_hash ON project_budget_revisions(project_id, content_hash);
+
 -- ─── PROJECT AUDIT LOG ─────────────────────────────────────────
 
 CREATE TABLE project_audit_log (
@@ -501,4 +602,12 @@ CREATE TRIGGER trg_catalog_items_updated_at
 
 CREATE TRIGGER trg_project_items_updated_at
   BEFORE UPDATE ON project_items
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER trg_odoo_partners_updated_at
+  BEFORE UPDATE ON odoo_partners
+  FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE TRIGGER trg_odoo_sync_state_updated_at
+  BEFORE UPDATE ON odoo_sync_state
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
