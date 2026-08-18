@@ -423,69 +423,6 @@ router.post(
   }
 );
 
-// ─── PATCH /api/projects/:id/viewer — asignar VIEWER ─────────────
-router.patch(
-  '/:id/viewer',
-  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
-  [body('assignedViewerId').optional({ nullable: true }).isUUID()],
-  async (req, res) => {
-    const errors = validationResult(req);
-    if (!errors.isEmpty()) {
-      return res.status(400).json({
-        success: false,
-        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
-      });
-    }
-
-    const { assignedViewerId } = req.body;
-
-    try {
-      const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
-      if (!pr[0]) {
-        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
-      }
-      if (!canManageProject(req.user, pr[0])) {
-        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
-      }
-
-      if (assignedViewerId) {
-        const { rows: vu } = await pool.query(
-          `SELECT id, role FROM users WHERE id = $1 AND active = true`,
-          [assignedViewerId]
-        );
-        if (!vu[0] || vu[0].role !== 'VIEWER') {
-          return res.status(400).json({
-            success: false,
-            error: { code: 'INVALID_VIEWER', message: 'Debe ser un usuario VIEWER activo' },
-          });
-        }
-      }
-
-      const prev = { assignedViewer: pr[0].assigned_viewer };
-      const { rows: up } = await pool.query(
-        `UPDATE projects SET assigned_viewer = $1 WHERE id = $2 RETURNING *`,
-        [assignedViewerId || null, req.params.id]
-      );
-
-      const ip = getClientIp(req);
-      logAuditEvent({
-        projectId: req.params.id,
-        eventType: 'CLIENT_ASSIGN',
-        actorId: req.user.id,
-        prevData: prev,
-        newData: { assignedViewer: up[0].assigned_viewer },
-        ip,
-      });
-
-      const { rows: full } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [req.user.id, req.user.role, req.params.id]);
-      return res.json({ success: true, data: mapProject(full[0], req.user.id, req.user.role) });
-    } catch (err) {
-      console.error('[PROJECTS] viewer:', err);
-      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
-    }
-  }
-);
-
 const createValidation = [
   body('nombre')
     .trim()

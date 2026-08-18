@@ -23,10 +23,17 @@ function canWriteProject(user, row, ctx = {}) {
   return false;
 }
 
-/** Compartir, asignar VIEWER, archivar — solo dueño ADMIN o superusuario. */
+/** Compartir y archivar — dueño ADMIN/SEMIADMIN o superusuario. */
 function canManageProject(user, row) {
   if (isSuperuser(user)) return true;
   if (isAdminLikeRole(user.role) && row.created_by === user.id) return true;
+  return false;
+}
+
+/** Asignar VIEWER: comercial dueño o superusuario. ADMIN no asigna vista. */
+function canAssignProjectViewer(user, row) {
+  if (isSuperuser(user)) return true;
+  if (user.role === 'COMERCIAL' && row.created_by === user.id) return true;
   return false;
 }
 
@@ -51,6 +58,7 @@ module.exports = {
   canReadProject,
   canWriteProject,
   canManageProject,
+  canAssignProjectViewer,
   canCloneProject,
   canEditProjectMetadata,
   canViewProjectAudit,

@@ -140,6 +140,7 @@ web.use('/api/auth', authRoutes);
 web.use('/api/users', userRoutes);
 web.use('/api/employees', employeeRoutes);
 web.use('/api/clients', clientRoutes);
+// Revisiones ANTES de /:id; el router no debe usar requireRole global (bloquearía ADMIN en GET /:id).
 web.use('/api/projects', projectBudgetRevisionRoutes);
 web.use('/api/projects', projectItemRoutes);
 web.use('/api/projects', planRoutes);

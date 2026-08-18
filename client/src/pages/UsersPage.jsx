@@ -277,7 +277,7 @@ export function UsersPage() {
           <h1 className="page-title">Usuarios</h1>
           <p className="page-sub muted">
             {isCommercialOnly
-              ? 'Alta de usuarios VIEWER para asignar a proyectos'
+              ? 'Alta de usuarios VIEWER'
               : 'Alta, roles y desactivación según su jerarquía'}
           </p>
         </div>

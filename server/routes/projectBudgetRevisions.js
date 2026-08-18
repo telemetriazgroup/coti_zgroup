@@ -12,7 +12,8 @@ const {
 
 const router = express.Router();
 router.use(requireAuth);
-router.use(requireRole('SUPERUSER'));
+
+const superuserOnly = requireRole('SUPERUSER');
 
 async function loadProjectOr404(req, res) {
   const { rows } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
@@ -30,7 +31,7 @@ async function loadProjectOr404(req, res) {
 }
 
 // ─── GET /api/projects/:id/budget-revisions ────────────────────
-router.get('/:id/budget-revisions', async (req, res) => {
+router.get('/:id/budget-revisions', superuserOnly, async (req, res) => {
   try {
     const project = await loadProjectOr404(req, res);
     if (!project) return;
@@ -43,7 +44,7 @@ router.get('/:id/budget-revisions', async (req, res) => {
 });
 
 // ─── GET /api/projects/:id/budget-revisions/:revId ─────────────
-router.get('/:id/budget-revisions/:revId', async (req, res) => {
+router.get('/:id/budget-revisions/:revId', superuserOnly, async (req, res) => {
   try {
     const project = await loadProjectOr404(req, res);
     if (!project) return;
@@ -59,7 +60,7 @@ router.get('/:id/budget-revisions/:revId', async (req, res) => {
 });
 
 // ─── POST /api/projects/:id/budget-revisions/:revId/restore ────
-router.post('/:id/budget-revisions/:revId/restore', async (req, res) => {
+router.post('/:id/budget-revisions/:revId/restore', superuserOnly, async (req, res) => {
   try {
     const project = await loadProjectOr404(req, res);
     if (!project) return;

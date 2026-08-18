@@ -20,7 +20,6 @@ export function ProjectsPage() {
   const colCount = showCreatorCol ? 7 : 6;
 
   const [list, setList] = useState([]);
-  const [viewers, setViewers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [includeDeleted, setIncludeDeleted] = useState(false);
   const [err, setErr] = useState(null);
@@ -32,7 +31,6 @@ export function ProjectsPage() {
   const [formNew, setFormNew] = useState({ nombre: '', odooRef: '', clientId: '' });
   const [formEdit, setFormEdit] = useState({ nombre: '', odooRef: '', clientId: '' });
   const [editBusy, setEditBusy] = useState(false);
-  const [formViewer, setFormViewer] = useState({ assignedViewerId: '' });
   const [formShare, setFormShare] = useState([]);
   const [shareUsers, setShareUsers] = useState([]);
   const [shareSelected, setShareSelected] = useState([]);
@@ -70,23 +68,9 @@ export function ProjectsPage() {
       .catch(() => setCreators([]));
   }, [showCreatorCol, isSuperuser, canViewArchivedProjects, includeDeleted]);
 
-  const loadMeta = useCallback(async () => {
-    try {
-      if (!canWrite) return;
-      const vw = await api.get('/api/users/viewers');
-      setViewers(vw);
-    } catch {
-      /* opcional */
-    }
-  }, [canWrite]);
-
   useEffect(() => {
     load();
   }, [load]);
-
-  useEffect(() => {
-    loadMeta();
-  }, [loadMeta]);
 
   async function createProject(e) {
     e.preventDefault();
@@ -132,21 +116,6 @@ export function ProjectsPage() {
       setErr(e2.message);
     } finally {
       setEditBusy(false);
-    }
-  }
-
-  async function assignViewer(e) {
-    e.preventDefault();
-    if (!sel) return;
-    setErr(null);
-    try {
-      await api.patch(`/api/projects/${sel.id}/viewer`, {
-        assignedViewerId: formViewer.assignedViewerId || null,
-      });
-      setModal(null);
-      load();
-    } catch (e2) {
-      setErr(e2.message);
     }
   }
 
@@ -307,12 +276,6 @@ export function ProjectsPage() {
     return null;
   }
 
-  function openViewer(row) {
-    setSel(row);
-    setFormViewer({ assignedViewerId: row.assignedViewer || '' });
-    setModal('viewer');
-  }
-
   function openClone(row) {
     setSel(row);
     setCloneName(`Copia de ${row.nombre}`);
@@ -329,9 +292,11 @@ export function ProjectsPage() {
               ? 'Todos los proyectos · archivados y restauración · auditoría'
               : user?.role === 'ADMIN'
                 ? 'Todos los proyectos activos'
-                : canWrite
-                  ? 'Sus proyectos y los que le compartieron · asignación VIEWER'
-                  : 'Proyectos asignados a tu usuario'}
+                : user?.role === 'COMERCIAL'
+                  ? 'Sus proyectos y los que le compartieron'
+                  : canWrite
+                    ? 'Sus proyectos y los que le compartieron'
+                    : 'Proyectos asignados a tu usuario'}
           </p>
         </div>
         <div className="page-header-actions">
@@ -527,37 +492,21 @@ export function ProjectsPage() {
                           </button>
                         )}
                         {canManageRow(row) && !row.deletedAt && (
-                          <>
-                            <button
-                              type="button"
-                              className="btn-action btn-action--amber"
-                              title="Usuario VIEWER del proyecto"
-                              onClick={() => openViewer(row)}
-                            >
-                              <span className="btn-action__ic" aria-hidden>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
-                                  <circle cx="12" cy="12" r="3" />
-                                </svg>
-                              </span>
-                              VIEWER
-                            </button>
-                            <button
-                              type="button"
-                              className="btn-action btn-action--danger"
-                              title="Archivar proyecto"
-                              onClick={() => softDelete(row)}
-                            >
-                              <span className="btn-action__ic" aria-hidden>
-                                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
-                                  <polyline points="21 8 21 21 3 21 3 8" />
-                                  <rect x="1" y="3" width="22" height="5" />
-                                  <line x1="10" y1="12" x2="14" y2="12" />
-                                </svg>
-                              </span>
-                              Archivar
-                            </button>
-                          </>
+                          <button
+                            type="button"
+                            className="btn-action btn-action--danger"
+                            title="Archivar proyecto"
+                            onClick={() => softDelete(row)}
+                          >
+                            <span className="btn-action__ic" aria-hidden>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="21 8 21 21 3 21 3 8" />
+                                <rect x="1" y="3" width="22" height="5" />
+                                <line x1="10" y1="12" x2="14" y2="12" />
+                              </svg>
+                            </span>
+                            Archivar
+                          </button>
                         )}
                         {isSuperuser() && row.deletedAt && (
                           <button
@@ -693,44 +642,6 @@ export function ProjectsPage() {
                 inlineList
               />
             </div>
-          </form>
-        </Modal>
-      )}
-
-      {modal === 'viewer' && sel && (
-        <Modal
-          title="Asignar VIEWER"
-          onClose={() => setModal(null)}
-          footer={
-            <>
-              <button type="button" className="btn btn-ghost" onClick={() => setModal(null)}>
-                Cancelar
-              </button>
-              <button type="submit" form="viewer-form" className="btn btn-primary">
-                Guardar
-              </button>
-            </>
-          }
-        >
-          <p className="muted mono" style={{ marginBottom: 12, fontSize: 12 }}>
-            Proyecto: <strong>{sel.nombre}</strong>
-          </p>
-          <form id="viewer-form" className="stack-form" onSubmit={assignViewer}>
-            <label>
-              <span className="fg-lbl">Usuario VIEWER</span>
-              <select
-                className="form-input"
-                value={formViewer.assignedViewerId}
-                onChange={(e) => setFormViewer({ assignedViewerId: e.target.value })}
-              >
-                <option value="">— Sin asignar —</option>
-                {viewers.map((v) => (
-                  <option key={v.id} value={v.id}>
-                    {v.email}
-                  </option>
-                ))}
-              </select>
-            </label>
           </form>
         </Modal>
       )}
