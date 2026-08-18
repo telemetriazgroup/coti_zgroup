@@ -85,15 +85,14 @@ router.get('/', async (req, res) => {
   }
 });
 
-// ─── GET /api/projects/:id/audit — admin (propio/equipo) o superusuario ─
-router.get('/:id/audit', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
+// ─── GET /api/projects/:id/audit — solo SUPERUSER ──────────────
+router.get('/:id/audit', requireRole('SUPERUSER'), async (req, res) => {
   try {
     const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
     if (!pr[0]) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
-    const shareCtx = await loadProjectAccessContext(req.user, pr[0]);
-    if (!canViewProjectAudit(req.user, pr[0], shareCtx)) {
+    if (!canViewProjectAudit(req.user)) {
       return res.status(403).json({
         success: false,
         error: { code: 'FORBIDDEN', message: 'No puede ver el historial de este proyecto' },
@@ -794,6 +793,44 @@ router.delete('/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req
   }
 });
 
+// ─── POST /api/projects/:id/restore — desarchivar (solo SUPERUSER) ─
+router.post('/:id/restore', requireRole('SUPERUSER'), async (req, res) => {
+  try {
+    const { rows: pr } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
+    if (!pr[0]) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+    }
+    if (!pr[0].deleted_at) {
+      return res.json({ success: true, data: { message: 'El proyecto no estaba archivado', id: pr[0].id } });
+    }
+
+    await pool.query(`UPDATE projects SET deleted_at = NULL, updated_at = NOW() WHERE id = $1`, [req.params.id]);
+
+    const ip = getClientIp(req);
+    logAuditEvent({
+      projectId: req.params.id,
+      eventType: 'PROJECT_RESTORE',
+      actorId: req.user.id,
+      prevData: { deletedAt: pr[0].deleted_at },
+      newData: { deletedAt: null },
+      ip,
+    });
+
+    const { rows: full } = await pool.query(`${PROJECT_SELECT} WHERE p.id = $3`, [
+      req.user.id,
+      req.user.role,
+      req.params.id,
+    ]);
+    return res.json({
+      success: true,
+      data: full[0] ? mapProject(full[0], req.user.id, req.user.role) : { id: req.params.id },
+    });
+  } catch (err) {
+    console.error('[PROJECTS] restore:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
 // ─── GET /api/projects/:id ─────────────────────────────────────
 router.get('/:id', async (req, res) => {
   try {
@@ -806,11 +843,7 @@ router.get('/:id', async (req, res) => {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     if (rows[0].deleted_at && !isSuperuser(req.user)) {
-      const isOwnerAdmin =
-        req.user.role === 'ADMIN' && rows[0].created_by === req.user.id && req.query.includeDeleted === 'true';
-      if (!isOwnerAdmin) {
-        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
-      }
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
 
     return res.json({ success: true, data: mapProject(rows[0], req.user.id, req.user.role) });

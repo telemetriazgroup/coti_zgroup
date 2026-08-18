@@ -175,6 +175,18 @@ export function ProjectsPage() {
     }
   }
 
+  async function restoreProject(row) {
+    if (!isSuperuser()) return;
+    if (!window.confirm(`¿Restaurar el proyecto archivado «${row.nombre}»?`)) return;
+    setErr(null);
+    try {
+      await api.post(`/api/projects/${row.id}/restore`, {});
+      load();
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  }
+
   async function openAudit(row) {
     if (!isSuperuser()) return;
     setSel(row);
@@ -291,7 +303,7 @@ export function ProjectsPage() {
       const who = row.createdByName || row.createdByEmail || 'admin/comercial';
       return `Grupo: ${who}`;
     }
-    if (isSuperuser()) return row.createdByName || row.createdByEmail || '—';
+    if (isSuperuser() || user?.role === 'ADMIN') return row.createdByName || row.createdByEmail || '—';
     return null;
   }
 
@@ -313,7 +325,13 @@ export function ProjectsPage() {
         <div>
           <h1 className="page-title">Proyectos</h1>
           <p className="page-sub muted">
-            {canWrite ? 'Gestión y clonado · asignación VIEWER' : 'Proyectos asignados a tu usuario'}
+            {isSuperuser()
+              ? 'Todos los proyectos · archivados y restauración · auditoría'
+              : user?.role === 'ADMIN'
+                ? 'Todos los proyectos activos'
+                : canWrite
+                  ? 'Sus proyectos y los que le compartieron · asignación VIEWER'
+                  : 'Proyectos asignados a tu usuario'}
           </p>
         </div>
         <div className="page-header-actions">
@@ -540,6 +558,22 @@ export function ProjectsPage() {
                               Archivar
                             </button>
                           </>
+                        )}
+                        {isSuperuser() && row.deletedAt && (
+                          <button
+                            type="button"
+                            className="btn-action btn-action--cyan"
+                            title="Restaurar proyecto archivado"
+                            onClick={() => restoreProject(row)}
+                          >
+                            <span className="btn-action__ic" aria-hidden>
+                              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                                <polyline points="1 4 1 10 7 10" />
+                                <path d="M3.51 15a9 9 0 1 0 2.13-9.36L1 10" />
+                              </svg>
+                            </span>
+                            Restaurar
+                          </button>
                         )}
                         {canWrite && !row.deletedAt && (
                           <button

@@ -64,7 +64,7 @@ function mapProject(row, viewerId, viewerRole) {
     sharedByName: row.shared_by_name || null,
     shareCount: row.share_count != null ? Number(row.share_count) : undefined,
     canEditMetadata,
-    canViewAudit: canEditMetadata,
+    canViewAudit: viewerRole === 'SUPERUSER',
   };
 }
 
@@ -114,7 +114,8 @@ function projectVisibilityWhere(paramRole = '$2', paramUid = '$1', paramIncludeD
   const adminExtended = sqlAdminTeamAndGroupAccess(paramUid);
   return `(
     ${paramRole} = 'SUPERUSER' OR
-    (${paramRole} IN ('ADMIN', 'SEMIADMIN') AND (
+    ${paramRole} = 'ADMIN' OR
+    (${paramRole} = 'SEMIADMIN' AND (
       p.created_by = ${paramUid}::uuid OR
       EXISTS (SELECT 1 FROM project_shares ps WHERE ps.project_id = p.id AND ps.user_id = ${paramUid}::uuid) OR
       ${adminExtended}
@@ -127,8 +128,7 @@ function projectVisibilityWhere(paramRole = '$2', paramUid = '$1', paramIncludeD
   )
   AND (
     p.deleted_at IS NULL OR
-    (${paramRole} = 'SUPERUSER' AND ${paramIncludeDeleted} = true) OR
-    (${paramRole} = 'ADMIN' AND p.created_by = ${paramUid}::uuid AND ${paramIncludeDeleted} = true)
+    (${paramRole} = 'SUPERUSER' AND ${paramIncludeDeleted} = true)
   )`;
 }
 

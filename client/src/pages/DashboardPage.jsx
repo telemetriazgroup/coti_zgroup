@@ -214,10 +214,10 @@ export function DashboardPage() {
               Como superusuario ves todos los proyectos y creadores, la auditoría global y el backup del sistema en{' '}
               <strong>Sistema / Backup</strong>.
             </>
-          ) : isAdminUser ? (
+          ) : isAdminUser && !isSuper ? (
             <>
-              Desde el menú administrás <strong>Clientes</strong>, <strong>Catálogo</strong>, <strong>Empleados</strong> y{' '}
-              <strong>Usuarios</strong>; podés compartir proyectos con otros ADMIN o COMERCIAL.
+              Ves <strong>todos los proyectos activos</strong>. Catálogo, clientes, empleados y usuarios. Backup, base de
+              datos, grupos admin, asignar comerciales y archivados son exclusivos del superusuario.
             </>
           ) : hasRole('COMERCIAL') ? (
             <>

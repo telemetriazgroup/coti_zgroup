@@ -7,6 +7,7 @@ function isProjectOwner(user, row) {
 
 function canReadProject(user, row, ctx = {}) {
   if (isSuperuser(user)) return true;
+  if (user.role === 'ADMIN') return true;
   if (user.role === 'VIEWER' && row.assigned_viewer === user.id) return true;
   if (row.created_by === user.id) return true;
   if (ctx.isSharedWithMe) return true;
@@ -41,8 +42,8 @@ function canEditProjectMetadata(user, row, ctx = {}) {
   return false;
 }
 
-function canViewProjectAudit(user, row, ctx = {}) {
-  return canEditProjectMetadata(user, row, ctx);
+function canViewProjectAudit(user) {
+  return isSuperuser(user);
 }
 
 module.exports = {

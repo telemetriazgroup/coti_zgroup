@@ -25,7 +25,7 @@ export function canShareProjects(user) {
 }
 
 export function canViewArchivedProjects(user) {
-  return user?.role === 'ADMIN' || isSuperuser(user);
+  return isSuperuser(user);
 }
 
 export function canViewInactiveCatalog(user) {

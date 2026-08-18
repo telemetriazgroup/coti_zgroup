@@ -24,9 +24,9 @@ function canShareProjects(user) {
   return user?.role === 'ADMIN' || isSemiAdmin(user) || isSuperuser(user);
 }
 
-/** Archivados: solo ADMIN (propios) y SUPERUSER. */
+/** Archivados y restauración: solo SUPERUSER. */
 function canViewArchivedProjects(user) {
-  return user?.role === 'ADMIN' || isSuperuser(user);
+  return isSuperuser(user);
 }
 
 /** Ítems/categorías inactivos en catálogo: solo ADMIN y SUPERUSER. */

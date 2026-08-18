@@ -4,6 +4,7 @@ export const AUDIT_EVENT_LABEL = {
   PROJECT_CREATE: 'Proyecto creado',
   PROJECT_UPDATE: 'Proyecto actualizado',
   PROJECT_DELETE: 'Proyecto archivado',
+  PROJECT_RESTORE: 'Proyecto restaurado',
   PROJECT_CLONE: 'Proyecto clonado',
   PROJECT_STATUS_CHANGE: 'Cambio de estado',
   BUDGET_ITEM_ADD: 'Línea agregada',

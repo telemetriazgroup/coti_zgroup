@@ -1,7 +1,6 @@
 const express = require('express');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { sqlAdminTeamAndGroupAccess } = require('../lib/adminGroups');
 const { loadSuperuserAnalytics } = require('../lib/superuserAnalytics');
 
 const router = express.Router();
@@ -30,20 +29,13 @@ router.get('/summary', async (req, res) => {
 
     if (role === 'ADMIN') {
       const { rows: cRows } = await pool.query(`SELECT COUNT(*)::int AS n FROM clients`);
-      const adminExtended = sqlAdminTeamAndGroupAccess('$1');
       const { rows: pRows } = await pool.query(
-        `SELECT COUNT(*)::int AS n FROM projects p
-         WHERE p.deleted_at IS NULL AND (
-           p.created_by = $1::uuid OR
-           EXISTS (SELECT 1 FROM project_shares ps WHERE ps.project_id = p.id AND ps.user_id = $1::uuid) OR
-           ${adminExtended}
-         )`,
-        [uid]
+        `SELECT COUNT(*)::int AS n FROM projects p WHERE p.deleted_at IS NULL`
       );
       return res.json({
         success: true,
         data: {
-          scope: 'mine_and_shared',
+          scope: 'all',
           clientsTotal: cRows[0].n,
           projectsActive: pRows[0].n,
         },

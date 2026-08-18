@@ -6,7 +6,7 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
 const { canReadProject, canWriteProject } = require('../utils/projectAccess');
-const { isSuperuser, canViewArchivedProjects } = require('../utils/userRoles');
+const { isSuperuser } = require('../utils/userRoles');
 const { loadShareContext } = require('../utils/projectShare');
 const {
   parseBudgetImportBuffer,
@@ -157,15 +157,9 @@ async function loadProject(req, res, id) {
     res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     return null;
   }
-  if (p.deleted_at && !canViewArchivedProjects(req.user)) {
+  if (p.deleted_at && !isSuperuser(req.user)) {
     res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     return null;
-  }
-  if (p.deleted_at && !isSuperuser(req.user)) {
-    if (!(req.user.role === 'ADMIN' && p.created_by === req.user.id && req.query.includeDeleted === 'true')) {
-      res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
-      return null;
-    }
   }
   p._shareCtx = shareCtx;
   return p;
