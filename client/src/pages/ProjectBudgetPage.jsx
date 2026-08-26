@@ -1263,83 +1263,85 @@ export function ProjectBudgetPage() {
           <div className="budget-toolbar">
             <input
               type="search"
-              className="form-input mono"
+              className="form-input mono budget-toolbar__search"
               placeholder="Buscar (debounce 200ms)…"
               value={qInput}
               onChange={(e) => setQInput(e.target.value)}
             />
-            <select className="form-input" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
-              <option value="">Todas las categorías</option>
-              {sortedCats.map((c) => (
-                <option key={c.id} value={c.id}>
-                  {c.nombre}
-                </option>
-              ))}
-            </select>
-            <select className="form-input" value={filterTipo} onChange={(e) => setFilterTipo(e.target.value)}>
-              <option value="">Todos los tipos</option>
-              <option value="ACTIVO">ACTIVO</option>
-              <option value="CONSUMIBLE">CONSUMIBLE</option>
-            </select>
-            <div className="budget-add-opts mono">
-              <label>
-                Cant.
-                <input
-                  className="form-input"
-                  style={{ maxWidth: 72 }}
-                  value={addQty}
-                  onChange={(e) => setAddQty(e.target.value)}
-                />
-              </label>
-              {!hideItemPrices && (
-                <label title="Opcional">
-                  Precio USD
+            <div className="budget-toolbar__row">
+              <select className="form-input" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
+                <option value="">Todas las categorías</option>
+                {sortedCats.map((c) => (
+                  <option key={c.id} value={c.id}>
+                    {c.nombre}
+                  </option>
+                ))}
+              </select>
+              <select className="form-input" value={filterTipo} onChange={(e) => setFilterTipo(e.target.value)}>
+                <option value="">Todos los tipos</option>
+                <option value="ACTIVO">ACTIVO</option>
+                <option value="CONSUMIBLE">CONSUMIBLE</option>
+              </select>
+              <div className="budget-add-opts mono">
+                <label>
+                  Cant.
                   <input
                     className="form-input"
-                    style={{ maxWidth: 88 }}
-                    placeholder="auto"
-                    value={addPriceOverride}
-                    onChange={(e) => setAddPriceOverride(e.target.value)}
+                    style={{ maxWidth: 72 }}
+                    value={addQty}
+                    onChange={(e) => setAddQty(e.target.value)}
                   />
                 </label>
+                {!hideItemPrices && (
+                  <label title="Opcional">
+                    Precio USD
+                    <input
+                      className="form-input"
+                      style={{ maxWidth: 88 }}
+                      placeholder="auto"
+                      value={addPriceOverride}
+                      onChange={(e) => setAddPriceOverride(e.target.value)}
+                    />
+                  </label>
+                )}
+              </div>
+              {isAdmin && (
+                <div className="budget-catalog-actions">
+                  <button type="button" className="btn btn-ghost" onClick={openBudgetCatalogCategory}>
+                    + Categoría
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={openBudgetCatalogItem}
+                    disabled={sortedCats.length === 0}
+                    title={sortedCats.length === 0 ? 'Cree primero una categoría' : undefined}
+                  >
+                    + Ítem catálogo
+                  </button>
+                  <span className="budget-catalog-actions__hint muted mono">Admin · mismo catálogo global</span>
+                </div>
+              )}
+              {isCommercial && (
+                <div className="budget-catalog-actions">
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => navigate('/catalog', { state: { openRequests: 'create' } })}
+                  >
+                    Solicitar ítem
+                  </button>
+                  <button
+                    type="button"
+                    className="btn btn-ghost"
+                    onClick={() => navigate('/catalog', { state: { openRequests: 'update' } })}
+                  >
+                    Cambio precio/nombre
+                  </button>
+                  <span className="budget-catalog-actions__hint muted mono">Requiere aprobación del admin</span>
+                </div>
               )}
             </div>
-            {isAdmin && (
-              <div className="budget-catalog-actions">
-                <button type="button" className="btn btn-ghost" onClick={openBudgetCatalogCategory}>
-                  + Categoría
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={openBudgetCatalogItem}
-                  disabled={sortedCats.length === 0}
-                  title={sortedCats.length === 0 ? 'Cree primero una categoría' : undefined}
-                >
-                  + Ítem catálogo
-                </button>
-                <span className="budget-catalog-actions__hint muted mono">Admin · mismo catálogo global</span>
-              </div>
-            )}
-            {isCommercial && (
-              <div className="budget-catalog-actions">
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => navigate('/catalog', { state: { openRequests: 'create' } })}
-                >
-                  Solicitar ítem
-                </button>
-                <button
-                  type="button"
-                  className="btn btn-ghost"
-                  onClick={() => navigate('/catalog', { state: { openRequests: 'update' } })}
-                >
-                  Cambio precio/nombre
-                </button>
-                <span className="budget-catalog-actions__hint muted mono">Requiere aprobación del admin</span>
-              </div>
-            )}
           </div>
           <div className="budget-catalog-list zgroup-scroll">
             {filteredCatalog.length === 0 ? (

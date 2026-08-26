@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { api } from '../lib/api';
+import { api, getBlob } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
 import { ClientPicker } from '../components/ClientPicker';
@@ -25,6 +25,22 @@ function formatCreatedAt(iso) {
     hour: '2-digit',
     minute: '2-digit',
   });
+}
+
+function isPlanImage(mime) {
+  return Boolean(mime && String(mime).startsWith('image/'));
+}
+function isPlanPdf(mime) {
+  return mime === 'application/pdf';
+}
+
+function PlanEyeIcon() {
+  return (
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden>
+      <path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
 }
 
 export function ProjectsPage() {
@@ -57,6 +73,8 @@ export function ProjectsPage() {
   const [guideOpen, setGuideOpen] = useState(false);
   const [creators, setCreators] = useState([]);
   const [page, setPage] = useState(1);
+  const [planPreview, setPlanPreview] = useState(null);
+  const [planPreviewBusy, setPlanPreviewBusy] = useState(false);
 
   const { filters, setFilters, query } = useProjectListFilters({
     includeDeleted,
@@ -101,6 +119,48 @@ export function ProjectsPage() {
     if (!row?.id) return;
     navigate(`/projects/${row.id}/presupuesto`);
   }
+
+  function closePlanPreview() {
+    setPlanPreview((prev) => {
+      if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl);
+      return null;
+    });
+  }
+
+  async function openPlanPreview(row, e) {
+    e?.stopPropagation();
+    e?.preventDefault();
+    if (!row?.hasPlan || !row.currentPlanId) return;
+    setErr(null);
+    setPlanPreviewBusy(true);
+    try {
+      const blob = await getBlob(`/api/projects/${row.id}/plans/${row.currentPlanId}/file`);
+      const blobUrl = URL.createObjectURL(blob);
+      setPlanPreview((prev) => {
+        if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl);
+        return {
+          url: blobUrl,
+          blobUrl,
+          mimeType: row.currentPlanMime,
+          nombreOriginal: row.currentPlanNombre || 'Plano',
+          projectNombre: row.nombre,
+        };
+      });
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setPlanPreviewBusy(false);
+    }
+  }
+
+  useEffect(() => {
+    return () => {
+      setPlanPreview((prev) => {
+        if (prev?.blobUrl) URL.revokeObjectURL(prev.blobUrl);
+        return null;
+      });
+    };
+  }, []);
 
   async function createProject(e) {
     e.preventDefault();
@@ -402,7 +462,26 @@ export function ProjectsPage() {
                       )}
                     </td>
                     <td>
-                      <span className="mono status-pill">{STATUS_LABEL[row.status] || row.status}</span>
+                      <div className="proj-status-cell">
+                        <span className="mono status-pill">{STATUS_LABEL[row.status] || row.status}</span>
+                        {row.hasPlan ? (
+                          <button
+                            type="button"
+                            className="proj-plan-eye proj-plan-eye--on"
+                            title={row.currentPlanNombre ? `Ver plano: ${row.currentPlanNombre}` : 'Ver plano cargado'}
+                            aria-label="Ver plano cargado"
+                            disabled={planPreviewBusy}
+                            onClick={(e) => openPlanPreview(row, e)}
+                            onDoubleClick={(e) => e.stopPropagation()}
+                          >
+                            <PlanEyeIcon />
+                          </button>
+                        ) : (
+                          <span className="proj-plan-eye proj-plan-eye--off" title="Sin plano cargado" aria-hidden>
+                            <PlanEyeIcon />
+                          </span>
+                        )}
+                      </div>
                     </td>
                     <td>{row.clientRazonSocial || '—'}</td>
                     <td className="mono">{row.odooRef || '—'}</td>
@@ -569,6 +648,30 @@ export function ProjectsPage() {
           </div>
         )}
       </div>
+
+      {planPreview && (
+        <Modal
+          title={`${planPreview.projectNombre || 'Proyecto'} — ${planPreview.nombreOriginal}`}
+          onClose={closePlanPreview}
+        >
+          <div className="plans-preview">
+            {isPlanImage(planPreview.mimeType) && (
+              <img src={planPreview.url} alt="" className="plans-preview__img" />
+            )}
+            {isPlanPdf(planPreview.mimeType) && (
+              <iframe title="PDF" src={planPreview.url} className="plans-preview__frame" />
+            )}
+            {!isPlanImage(planPreview.mimeType) && !isPlanPdf(planPreview.mimeType) && (
+              <p className="mono muted">
+                Vista previa no disponible para este tipo.{' '}
+                <a href={planPreview.url} target="_blank" rel="noreferrer" className="btn-link">
+                  Abrir archivo
+                </a>
+              </p>
+            )}
+          </div>
+        </Modal>
+      )}
 
       {modal === 'new' && (
         <Modal

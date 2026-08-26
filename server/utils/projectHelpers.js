@@ -80,6 +80,10 @@ function mapProject(row, viewerId, viewerRole) {
     canEditKits,
     canClone,
     canViewAudit: viewerRole === 'SUPERUSER',
+    hasPlan: Boolean(row.current_plan_id),
+    currentPlanId: row.current_plan_id || null,
+    currentPlanMime: row.current_plan_mime || null,
+    currentPlanNombre: row.current_plan_nombre || null,
   };
 }
 
@@ -115,7 +119,10 @@ const PROJECT_SELECT = `
       $2::text IN ('ADMIN', 'SEMIADMIN') AND p.created_by IS DISTINCT FROM $1::uuid AND (
         ${sqlAdminGroupProjectAccess('$1')}
       )
-    ) AS is_group_access
+    ) AS is_group_access,
+    plan_cur.id AS current_plan_id,
+    plan_cur.mime_type AS current_plan_mime,
+    plan_cur.nombre_original AS current_plan_nombre
   FROM projects p
   LEFT JOIN clients c ON c.id = p.client_id
   LEFT JOIN users cu ON cu.id = p.created_by
@@ -123,6 +130,13 @@ const PROJECT_SELECT = `
   LEFT JOIN project_shares ps_me ON ps_me.project_id = p.id AND ps_me.user_id = $1::uuid
   LEFT JOIN users su ON su.id = ps_me.shared_by
   LEFT JOIN employees se ON se.user_id = ps_me.shared_by
+  LEFT JOIN LATERAL (
+    SELECT pp.id, pp.mime_type, pp.nombre_original
+    FROM project_plans pp
+    WHERE pp.project_id = p.id AND pp.is_current = true
+    ORDER BY pp.uploaded_at DESC NULLS LAST, pp.version DESC
+    LIMIT 1
+  ) plan_cur ON true
 `;
 
 function projectVisibilityWhere(paramRole = '$2', paramUid = '$1', paramIncludeDeleted = '$3') {
