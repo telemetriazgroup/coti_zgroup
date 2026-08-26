@@ -149,4 +149,21 @@ function diffBudgetPayloads(prevPayload, nextPayload) {
   };
 }
 
-module.exports = { num, hashPayload, diffBudgetPayloads };
+/** Totales de lista como en presupuesto: excluye componentes KIT (el header ya carga el precio). */
+function payloadLineTotals(payload) {
+  const items = payload?.items || [];
+  let lista = 0;
+  let lineCount = 0;
+  for (const i of items) {
+    if (i.isBundleComponent) continue;
+    lineCount += 1;
+    lista += num(i.unitPrice) * num(i.qty, 1);
+  }
+  return {
+    lineCount,
+    itemCount: items.length,
+    lista: Math.round(lista * 100) / 100,
+  };
+}
+
+module.exports = { num, hashPayload, diffBudgetPayloads, payloadLineTotals };

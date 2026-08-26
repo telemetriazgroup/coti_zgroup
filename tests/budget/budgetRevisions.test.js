@@ -1,5 +1,5 @@
 const assert = require('node:assert');
-const { hashPayload, diffBudgetPayloads } = require('../../server/lib/budgetRevisionDiff');
+const { hashPayload, diffBudgetPayloads, payloadLineTotals } = require('../../server/lib/budgetRevisionDiff');
 
 describe('budget revisions — diff tipo git', () => {
   const item = (id, extra = {}) => ({
@@ -47,5 +47,19 @@ describe('budget revisions — diff tipo git', () => {
     assert.strictEqual(d.addedCount, 1);
     assert.strictEqual(d.removedCount, 1);
     assert.strictEqual(d.changedCount, 1);
+  });
+
+  it('totales de lista ignoran componentes KIT', () => {
+    const payload = {
+      items: [
+        item('h', { unitPrice: 100, qty: 2, isBundleHeader: true }),
+        item('c', { unitPrice: 40, qty: 3, isBundleComponent: true }),
+        item('s', { unitPrice: 10, qty: 1 }),
+      ],
+    };
+    const t = payloadLineTotals(payload);
+    assert.strictEqual(t.lineCount, 2);
+    assert.strictEqual(t.itemCount, 3);
+    assert.strictEqual(t.lista, 210);
   });
 });

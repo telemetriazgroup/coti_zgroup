@@ -125,7 +125,7 @@ router.post('/import/apply', upload.single('file'), async (req, res) => {
     }
     const mode = req.body.mode === 'replace' ? 'replace' : 'merge';
     const parsed = JSON.parse(req.file.buffer.toString('utf8'));
-    const stats = await importSystemData(parsed, { mode });
+    const stats = await importSystemData(parsed, { mode, keepUserId: req.user.id });
     await invalidateCatalogCache().catch(() => {});
     return res.json({ success: true, data: { mode, stats } });
   } catch (err) {

@@ -1207,7 +1207,7 @@ export function ProjectBudgetPage() {
       />
 
       {isSuperuser() && projectId && (
-        <ProjectBudgetRevisions projectId={projectId} onRestored={loadAll} />
+        <ProjectBudgetRevisions projectId={projectId} projectName={project?.nombre} onRestored={loadAll} />
       )}
 
       {project?.canViewAudit && (

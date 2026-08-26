@@ -148,7 +148,12 @@ export function SuperuserPage() {
       setErr('Seleccione un archivo JSON');
       return;
     }
-    if (importMode === 'replace' && !window.confirm('Modo REEMPLAZO: borrará datos actuales antes de importar. ¿Continuar?')) {
+    if (
+      importMode === 'replace' &&
+      !window.confirm(
+        'Modo REEMPLAZO: borra proyectos, catálogo, clientes y usuarios actuales. Se conserva solo el SUPERUSER con el que está conectado. ¿Continuar?'
+      )
+    ) {
       return;
     }
     setImportBusy(true);
@@ -270,10 +275,11 @@ export function SuperuserPage() {
 
       <div className="panel" style={{ marginBottom: 16 }}>
         <h2 className="panel-title">Datos del sistema</h2>
-        <p className="muted mono" style={{ fontSize: 12, marginBottom: 12 }}>
-          Exporta usuarios, empleados, clientes, catálogo, proyectos, ítems, compartidos y metadatos de auditoría en un
-          JSON único.
-        </p>
+          <p className="muted mono" style={{ fontSize: 12, marginBottom: 12 }}>
+            Exporta usuarios, empleados, clientes, catálogo, proyectos, ítems, compartidos y metadatos de auditoría en un
+            JSON único. En <strong>Reemplazar</strong> se conserva el SUPERUSER con el que está conectado (email y
+            contraseña); el resto de usuarios se borra y se carga desde el archivo.
+          </p>
         <div className="page-header-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
           <button type="button" className="btn btn-primary" onClick={exportAll}>
             Exportar todo (JSON)
@@ -303,7 +309,7 @@ export function SuperuserPage() {
             <span className="fg-lbl">Modo</span>
             <select className="form-input" value={importMode} onChange={(e) => setImportMode(e.target.value)}>
               <option value="merge">Fusionar (upsert por ID)</option>
-              <option value="replace">Reemplazar (borra datos operativos antes)</option>
+              <option value="replace">Reemplazar (borra todo salvo este SUPERUSER)</option>
             </select>
           </label>
           {importPreview && (

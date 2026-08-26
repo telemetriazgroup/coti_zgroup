@@ -2,8 +2,58 @@
  * Exportación / importación masiva del sistema (SUPERUSER).
  */
 const { pool } = require('../config/db');
+const { planUserImport, remapUserId } = require('./systemExportUsers');
 
 const EXPORT_VERSION = 1;
+
+async function deleteFrom(client, sql, params) {
+  try {
+    await client.query(sql, params);
+  } catch (err) {
+    if (err.code === '42P01') return;
+    throw err;
+  }
+}
+
+/** Borra datos operativos y todos los usuarios salvo SUPERUSER. */
+async function wipeOperationalKeepingSuperuser(client) {
+  await deleteFrom(client, `DELETE FROM project_audit_log`);
+  await deleteFrom(client, `DELETE FROM project_shares`);
+  await deleteFrom(client, `DELETE FROM project_budget_revisions`);
+  await deleteFrom(client, `DELETE FROM project_budget_snapshots`);
+  await deleteFrom(client, `DELETE FROM project_plans`);
+  await deleteFrom(client, `DELETE FROM project_items`);
+  await deleteFrom(client, `DELETE FROM project_item_bundles`);
+  await deleteFrom(client, `DELETE FROM projects`);
+  await deleteFrom(client, `DELETE FROM catalog_item_requests`);
+  await deleteFrom(client, `DELETE FROM catalog_item_dependencies`);
+  await deleteFrom(client, `DELETE FROM catalog_change_log`);
+  await deleteFrom(client, `DELETE FROM catalog_items`);
+  await deleteFrom(client, `DELETE FROM catalog_categories`);
+  await deleteFrom(client, `DELETE FROM client_change_log`);
+  await deleteFrom(client, `DELETE FROM odoo_outbox`);
+  await deleteFrom(client, `DELETE FROM clients`);
+  await deleteFrom(client, `DELETE FROM odoo_sync_locks`);
+  await deleteFrom(client, `DELETE FROM odoo_partners`);
+  await deleteFrom(client, `DELETE FROM odoo_sync_state`);
+  await deleteFrom(client, `DELETE FROM admin_commercial_assignments`);
+  await deleteFrom(client, `DELETE FROM admin_group_members`);
+  await deleteFrom(client, `DELETE FROM admin_groups`);
+  await deleteFrom(
+    client,
+    `DELETE FROM login_lockouts WHERE user_id IS NULL OR user_id NOT IN (SELECT id FROM users WHERE role = 'SUPERUSER')`
+  );
+  await deleteFrom(
+    client,
+    `DELETE FROM refresh_tokens WHERE user_id NOT IN (SELECT id FROM users WHERE role = 'SUPERUSER')`
+  );
+  await deleteFrom(
+    client,
+    `DELETE FROM employees WHERE user_id IS NULL OR user_id NOT IN (SELECT id FROM users WHERE role = 'SUPERUSER')`
+  );
+  await client.query(`UPDATE users SET created_by = NULL WHERE role <> 'SUPERUSER'`);
+  await client.query(`DELETE FROM users WHERE role <> 'SUPERUSER'`);
+}
 
 async function exportSystemData() {
   const [
@@ -56,7 +106,7 @@ async function exportSystemData() {
   };
 }
 
-async function importSystemData(payload, { mode = 'merge' } = {}) {
+async function importSystemData(payload, { mode = 'merge', keepUserId = null } = {}) {
   if (!payload || typeof payload !== 'object' || !payload.modules) {
     throw new Error('Archivo inválido: falta modules');
   }
@@ -79,44 +129,94 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
     await client.query('BEGIN');
 
     if (mode === 'replace') {
-      await client.query(`DELETE FROM project_audit_log`);
-      await client.query(`DELETE FROM project_shares`);
-      await client.query(`DELETE FROM project_items`);
-      await client.query(`DELETE FROM project_budget_snapshots`);
-      await client.query(`DELETE FROM project_plans`);
-      await client.query(`DELETE FROM projects`);
-      await client.query(`DELETE FROM catalog_items`);
-      await client.query(`DELETE FROM catalog_categories`);
-      await client.query(`DELETE FROM clients`);
-      await client.query(`DELETE FROM odoo_sync_locks`);
-      await client.query(`DELETE FROM odoo_partners`);
-      await client.query(`DELETE FROM odoo_sync_state`);
-      await client.query(`DELETE FROM employees WHERE user_id NOT IN (SELECT id FROM users WHERE role = 'SUPERUSER')`);
+      await wipeOperationalKeepingSuperuser(client);
     }
 
-    for (const row of m.users || []) {
+    const { rows: keptSuperusers } = await client.query(
+      `SELECT id, email FROM users WHERE role = 'SUPERUSER'`
+    );
+    const planned = planUserImport(m.users, keptSuperusers, keepUserId);
+    const userIdMap = planned.userIdMap;
+    const uid = (id) => remapUserId(id, userIdMap);
+
+    const { rows: keepEmpRows } = await client.query(
+      `SELECT id, user_id FROM employees WHERE user_id = ANY($1::uuid[])`,
+      [keptSuperusers.map((s) => s.id)]
+    );
+    const keepEmpIds = new Set(keepEmpRows.map((r) => r.id));
+    const keepUserIds = planned.keptIds;
+
+    for (const row of planned.toInsert) {
+      const { rows: byEmail } = await client.query(`SELECT id FROM users WHERE lower(email) = lower($1)`, [
+        row.email,
+      ]);
+      if (byEmail[0]) {
+        userIdMap.set(row.id, byEmail[0].id);
+        await client.query(
+          `UPDATE users SET
+             role = $2, active = $3,
+             password_hash = CASE WHEN $4 = '' THEN password_hash ELSE $4 END,
+             updated_at = NOW()
+           WHERE id = $1 AND role <> 'SUPERUSER'`,
+          [
+            byEmail[0].id,
+            row.role,
+            row.active !== false,
+            row.password_hash || '',
+          ]
+        );
+        stats.users++;
+        continue;
+      }
+
       await client.query(
-        `INSERT INTO users (id, email, password_hash, role, active, created_at, updated_at)
-         VALUES ($1, $2, COALESCE($3, ''), $4, $5, $6, $7)
+        `INSERT INTO users (id, email, password_hash, role, active, created_at, updated_at, created_by)
+         VALUES ($1, $2, COALESCE(NULLIF($3, ''), '$2b$12$INVALIDPLACEHOLDER000000000000000000000000000000000'), $4, $5, $6, $7, $8)
          ON CONFLICT (id) DO UPDATE SET
            email = EXCLUDED.email,
            role = EXCLUDED.role,
            active = EXCLUDED.active,
-           updated_at = NOW()`,
+           password_hash = CASE WHEN EXCLUDED.password_hash LIKE '$2b$12$INVALIDPLACEHOLDER%' THEN users.password_hash ELSE EXCLUDED.password_hash END,
+           updated_at = NOW()
+         WHERE users.role <> 'SUPERUSER'`,
         [
           row.id,
           row.email,
-          row.password_hash || '$2b$12$INVALIDPLACEHOLDER000000000000000000000000000000000',
+          row.password_hash || '',
           row.role,
           row.active !== false,
           row.created_at || new Date(),
           row.updated_at || new Date(),
+          null,
         ]
       );
       stats.users++;
     }
 
+    for (const row of planned.toInsert) {
+      const actualId = userIdMap.get(row.id) || row.id;
+      const creator = uid(row.created_by);
+      if (!actualId || !creator || creator === actualId) continue;
+      await client.query(
+        `UPDATE users SET created_by = $2 WHERE id = $1 AND role <> 'SUPERUSER'`,
+        [actualId, creator]
+      );
+    }
+
     for (const row of m.employees || []) {
+      const userId = uid(row.user_id);
+      if (!userId || keepUserIds.has(userId) || keepEmpIds.has(row.id)) continue;
+      const { rows: existingEmp } = await client.query(`SELECT id FROM employees WHERE user_id = $1`, [userId]);
+      if (existingEmp[0]) {
+        await client.query(
+          `UPDATE employees SET
+             nombres = $2, apellidos = $3, cargo = $4, telefono = $5, updated_at = NOW()
+           WHERE user_id = $1`,
+          [userId, row.nombres, row.apellidos, row.cargo, row.telefono]
+        );
+        stats.employees++;
+        continue;
+      }
       await client.query(
         `INSERT INTO employees (id, user_id, nombres, apellidos, cargo, telefono, dni, foto_url, fecha_ingreso, notas, created_at, updated_at)
          VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
@@ -125,7 +225,7 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
            telefono = EXCLUDED.telefono, updated_at = NOW()`,
         [
           row.id,
-          row.user_id,
+          userId,
           row.nombres,
           row.apellidos,
           row.cargo,
@@ -237,7 +337,7 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
           row.direccion,
           row.ciudad,
           row.notas,
-          row.created_by,
+          uid(row.created_by),
           row.created_at || new Date(),
           row.updated_at || new Date(),
           row.odoo_id || null,
@@ -276,7 +376,7 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
           row.unit_price,
           row.active !== false,
           row.sort_order,
-          row.created_by,
+          uid(row.created_by),
           row.created_at || new Date(),
           row.updated_at || new Date(),
         ]
@@ -296,8 +396,8 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
           row.odoo_ref,
           row.client_id,
           row.status,
-          row.created_by,
-          row.assigned_viewer,
+          uid(row.created_by),
+          uid(row.assigned_viewer),
           row.currency || 'USD',
           row.tc,
           JSON.stringify(row.finance_params || {}),
@@ -329,7 +429,7 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
           row.is_custom,
           row.category_id,
           row.sort_order,
-          row.created_by || null,
+          uid(row.created_by) || null,
           row.created_at || new Date(),
           row.updated_at || new Date(),
         ]
@@ -338,11 +438,14 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
     }
 
     for (const row of m.projectShares || []) {
+      const shareUser = uid(row.user_id);
+      const shareBy = uid(row.shared_by);
+      if (!shareUser || !shareBy) continue;
       await client.query(
         `INSERT INTO project_shares (id, project_id, user_id, shared_by, created_at)
          VALUES ($1,$2,$3,$4,$5)
          ON CONFLICT (project_id, user_id) DO NOTHING`,
-        [row.id, row.project_id, row.user_id, row.shared_by, row.created_at || new Date()]
+        [row.id, row.project_id, shareUser, shareBy, row.created_at || new Date()]
       );
       stats.projectShares++;
     }
@@ -357,4 +460,10 @@ async function importSystemData(payload, { mode = 'merge' } = {}) {
   }
 }
 
-module.exports = { exportSystemData, importSystemData, EXPORT_VERSION };
+module.exports = {
+  exportSystemData,
+  importSystemData,
+  EXPORT_VERSION,
+  planUserImport,
+  remapUserId,
+};

@@ -8,6 +8,7 @@ const {
   listBudgetRevisions,
   getBudgetRevision,
   restoreBudgetRevision,
+  cloneProjectFromRevision,
 } = require('../lib/budgetRevisions');
 
 const router = express.Router();
@@ -85,6 +86,46 @@ router.post('/:id/budget-revisions/:revId/restore', superuserOnly, async (req, r
       return res.status(400).json({ success: false, error: { code: 'ALREADY_CURRENT', message: err.message } });
     }
     console.error('[BUDGET_REV] restore:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message || 'Error interno' } });
+  }
+});
+
+// ─── POST /api/projects/:id/budget-revisions/:revId/clone ──────
+router.post('/:id/budget-revisions/:revId/clone', superuserOnly, async (req, res) => {
+  try {
+    const project = await loadProjectOr404(req, res);
+    if (!project) return;
+    const shareCtx = await loadShareContext(req.user, project);
+    if (!canWriteProject(req.user, project, shareCtx)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+    }
+    if (project.deleted_at) {
+      return res.status(400).json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
+    }
+
+    const nombreRaw = req.body?.nombre;
+    const nombre = nombreRaw != null ? String(nombreRaw).trim() : '';
+    if (nombre.length > 200) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'Nombre máximo 200 caracteres' },
+      });
+    }
+
+    const result = await cloneProjectFromRevision(req.params.id, req.params.revId, {
+      actorId: req.user.id,
+      nombre,
+      ip: getClientIp(req),
+    });
+    return res.status(201).json({ success: true, data: result });
+  } catch (err) {
+    if (err.code === 'NOT_FOUND') {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: err.message } });
+    }
+    if (err.code === 'DELETED') {
+      return res.status(400).json({ success: false, error: { code: 'DELETED', message: err.message } });
+    }
+    console.error('[BUDGET_REV] clone:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: err.message || 'Error interno' } });
   }
 });
