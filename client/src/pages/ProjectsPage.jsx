@@ -652,6 +652,7 @@ export function ProjectsPage() {
       {planPreview && (
         <Modal
           title={`${planPreview.projectNombre || 'Proyecto'} — ${planPreview.nombreOriginal}`}
+          panelClassName="modal-panel--plan"
           onClose={closePlanPreview}
         >
           <div className="plans-preview">

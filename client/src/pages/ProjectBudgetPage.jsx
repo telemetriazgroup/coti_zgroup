@@ -1094,22 +1094,26 @@ export function ProjectBudgetPage() {
         <label className="budget-project-bar__lbl mono muted" htmlFor="budget-project-sel">
           Proyecto
         </label>
-        <SearchableSelect
-          id="budget-project-sel"
-          className="form-input budget-project-sel mono"
-          value={projectId}
-          onChange={(id) => navigate(`/projects/${id}/presupuesto`)}
-          options={projectSelectOptions}
-          placeholder="Buscar proyecto…"
-          emptyLabel="Sin proyectos coincidentes"
-        />
+        <div className="budget-project-sel">
+          <SearchableSelect
+            id="budget-project-sel"
+            className="form-input mono"
+            value={projectId}
+            onChange={(id) => navigate(`/projects/${id}/presupuesto`)}
+            options={projectSelectOptions}
+            placeholder="Buscar proyecto…"
+            emptyLabel="Sin proyectos coincidentes"
+          />
+        </div>
         {isSuperuser() && project && (
           <label className="budget-project-bar__market mono">
-            <span className="muted">Mercado cotización</span>
+            <span className="muted">Mercado</span>
             <select
               className="form-input"
               value={project.quotationMarket || 'NACIONAL'}
               onChange={(e) => changeQuotationMarket(e.target.value)}
+              title="Mercado de cotización"
+              aria-label="Mercado de cotización"
             >
               <option value="NACIONAL">Nacional</option>
               <option value="INTERNACIONAL">Internacional</option>
@@ -1119,14 +1123,27 @@ export function ProjectBudgetPage() {
         {(canWrite || canDuplicateProject) && (
           <div className="budget-project-bar__actions">
             {canWrite && project?.canEditMetadata && (
-              <button type="button" className="btn btn-ghost" onClick={openEditProjectModal}>
-                Editar proyecto
+              <button
+                type="button"
+                className="btn-action btn-action--icon"
+                title="Editar proyecto"
+                aria-label="Editar proyecto"
+                onClick={openEditProjectModal}
+              >
+                <span className="btn-action__ic" aria-hidden>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <path d="M12 20h9" />
+                    <path d="M16.5 3.5a2.121 2.121 0 013 3L7 19l-4 1 1-4L16.5 3.5z" />
+                  </svg>
+                </span>
               </button>
             )}
             {canWrite && (
               <button
                 type="button"
-                className="btn btn-ghost"
+                className="btn-action btn-action--icon"
+                title="Nuevo proyecto"
+                aria-label="Nuevo proyecto"
                 onClick={() => {
                   setNewProjectForm({
                     nombre: '',
@@ -1136,12 +1153,28 @@ export function ProjectBudgetPage() {
                   setModal('newProject');
                 }}
               >
-                Nuevo proyecto
+                <span className="btn-action__ic" aria-hidden>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="3" y="3" width="18" height="18" rx="2" />
+                    <path d="M12 8v8M8 12h8" />
+                  </svg>
+                </span>
               </button>
             )}
             {canDuplicateProject && (
-              <button type="button" className="btn btn-ghost" onClick={openDuplicateModal}>
-                Duplicar / variante
+              <button
+                type="button"
+                className="btn-action btn-action--icon"
+                title="Duplicar / variante"
+                aria-label="Duplicar / variante"
+                onClick={openDuplicateModal}
+              >
+                <span className="btn-action__ic" aria-hidden>
+                  <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                    <rect x="9" y="9" width="13" height="13" rx="2" />
+                    <path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" />
+                  </svg>
+                </span>
               </button>
             )}
           </div>

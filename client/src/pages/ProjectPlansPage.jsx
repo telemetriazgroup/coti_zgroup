@@ -324,7 +324,11 @@ export function ProjectPlansPage() {
       )}
 
       {preview && (
-        <Modal title={preview.nombreOriginal || preview.plan?.nombreOriginal} onClose={closePreview}>
+        <Modal
+          title={preview.nombreOriginal || preview.plan?.nombreOriginal}
+          panelClassName="modal-panel--plan"
+          onClose={closePreview}
+        >
           <div className="plans-preview">
             {isImage(preview.mimeType) && (
               <img src={preview.url} alt="" className="plans-preview__img" />

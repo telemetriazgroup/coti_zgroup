@@ -1407,6 +1407,33 @@ a.kpi-card--link:hover {
 .modal-panel--lg .modal-body {
   min-height: min(56vh, 520px);
 }
+.modal-panel--plan {
+  max-width: min(1280px, 98vw);
+  width: min(1280px, 98vw);
+  height: min(96vh, calc(100dvh - 12px));
+  max-height: min(96vh, calc(100dvh - 12px));
+}
+.modal-panel--plan .modal-body {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.modal-panel--plan .plans-preview {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.modal-panel--plan .plans-preview__frame {
+  flex: 1;
+  min-height: min(78vh, calc(100dvh - 120px));
+}
+.modal-panel--plan .plans-preview__img {
+  max-height: min(82vh, calc(100dvh - 100px));
+  width: auto;
+  object-fit: contain;
+}
 .modal-panel--kit {
   max-width: min(1200px, 96vw);
   width: min(1200px, 96vw);
@@ -1680,19 +1707,24 @@ select.form-input {
   }
   .modal-panel--wide,
   .modal-panel--lg,
-  .modal-panel--kit {
+  .modal-panel--kit,
+  .modal-panel--plan {
     max-width: 100%;
     width: 100%;
+  }
+  .modal-panel--plan {
+    height: min(98vh, calc(100dvh - 8px));
+    max-height: min(98vh, calc(100dvh - 8px));
   }
 }
 
 /* ── Presupuesto (Sprint 3) ─────────────────────────────────── */
 .budget-project-bar {
   display: flex;
-  flex-wrap: wrap;
+  flex-wrap: nowrap;
   align-items: center;
-  gap: 10px 14px;
-  padding: 10px 14px;
+  gap: 8px 10px;
+  padding: 8px 12px;
   margin-bottom: 14px;
   background: var(--surface);
   border: 1px solid var(--border-dim);
@@ -1705,16 +1737,36 @@ select.form-input {
   flex-shrink: 0;
 }
 .budget-project-sel {
-  flex: 1;
-  min-width: 200px;
-  max-width: min(560px, 100%);
-  cursor: pointer;
+  flex: 1 1 auto;
+  min-width: 140px;
+  max-width: none;
+}
+.budget-project-sel .searchable-select,
+.budget-project-sel .form-input {
+  width: 100%;
 }
 .budget-project-bar__actions {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-wrap: nowrap;
+  align-items: center;
+  gap: 6px;
   margin-left: auto;
+  flex-shrink: 0;
+}
+.btn-action--icon {
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  justify-content: center;
+}
+@media (max-width: 640px) {
+  .budget-project-bar__lbl,
+  .budget-project-bar__market > span {
+    display: none;
+  }
+  .budget-project-bar__market select {
+    min-width: 118px;
+  }
 }
 .budget-dup-items {
   max-height: min(48vh, 360px);
@@ -1769,7 +1821,7 @@ select.form-input {
   width: 100%;
   margin-bottom: 8px;
   /* Un solo alto acotado al viewport; el scroll es interno (catálogo / tabla / módulos) */
-  height: clamp(220px, calc(100dvh - var(--budget-chrome)), calc(100dvh - 96px));
+  height: clamp(420px, calc(100dvh - var(--budget-chrome)), calc(100dvh - 96px));
   min-height: 0;
   max-height: calc(100dvh - 96px);
   overflow: hidden;
@@ -1906,7 +1958,7 @@ select.form-input {
 }
 .budget-catalog-list {
   flex: 1;
-  min-height: 0;
+  min-height: 240px;
   max-height: none;
   overflow: auto;
   display: flex;
@@ -2430,62 +2482,57 @@ select.form-input {
 
 @media (max-width: 1240px) {
   .budget-view {
-    --budget-chrome: 260px;
+    --budget-chrome: 200px;
   }
   .budget-workspace {
     flex-direction: column;
-    height: clamp(280px, calc(100dvh - var(--budget-chrome)), calc(100dvh - 72px));
-    max-height: calc(100dvh - 72px);
-    overflow: hidden;
+    height: auto;
+    max-height: none;
+    overflow: visible;
+    gap: 12px;
   }
   .budget-main {
-    flex: 1 1 auto;
-    min-height: 220px;
+    flex: none;
     order: 1;
+    min-height: 640px;
+    height: min(74vh, 820px);
+    overflow: hidden;
   }
   .budget-fin-sidebar {
     order: 2;
-    flex: 0 0 auto;
+    flex: none;
     width: 100%;
     max-width: none;
-    min-height: 0;
-    max-height: min(32vh, 300px);
+    min-height: 480px;
+    height: min(68vh, 680px);
+    max-height: min(74vh, 720px);
     overflow: hidden;
   }
   .budget-workspace--fin-collapsed .budget-main {
-    min-height: 0;
-    flex: 1 1 auto;
+    min-height: 640px;
+    height: min(82vh, 900px);
   }
 }
 @media (max-width: 1100px) {
   .budget-grid {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(220px, 0.42fr) minmax(220px, 1fr);
+    grid-template-rows: minmax(340px, 0.55fr) minmax(280px, 1fr);
     min-height: 0;
     flex: 1;
   }
   .budget-panel--catalog {
-    min-height: 220px;
+    min-height: 340px;
     max-height: none;
   }
   .budget-panel--catalog .budget-panel-title {
     margin-bottom: 6px;
   }
   .budget-panel--table {
-    min-height: 200px;
+    min-height: 260px;
   }
   .budget-catalog-list {
-    min-height: 198px;
+    min-height: 260px;
     max-height: none;
-  }
-  .budget-workspace:not(.budget-workspace--fin-collapsed) .budget-grid {
-    grid-template-rows: minmax(168px, 0.34fr) minmax(200px, 1fr);
-  }
-  .budget-workspace:not(.budget-workspace--fin-collapsed) .budget-panel--catalog {
-    min-height: 168px;
-  }
-  .budget-workspace:not(.budget-workspace--fin-collapsed) .budget-catalog-list {
-    min-height: 132px;
   }
   .budget-catalog-actions__hint {
     display: none;
@@ -4104,12 +4151,23 @@ select.form-input {
 }
 .budget-project-bar__market {
   display: flex;
-  flex-direction: column;
-  gap: 4px;
-  min-width: 140px;
+  flex-direction: row;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+  min-width: 0;
+}
+.budget-project-bar__market > span {
+  font-size: 10px;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  white-space: nowrap;
 }
 .budget-project-bar__market select {
   font-size: 12px;
+  width: auto;
+  min-width: 132px;
+  padding: 6px 8px;
 }
 .fin-panel--summary-only .fin-summary-kpis {
   display: flex;
