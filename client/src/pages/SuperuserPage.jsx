@@ -276,9 +276,10 @@ export function SuperuserPage() {
       <div className="panel" style={{ marginBottom: 16 }}>
         <h2 className="panel-title">Datos del sistema</h2>
           <p className="muted mono" style={{ fontSize: 12, marginBottom: 12 }}>
-            Exporta usuarios, empleados, clientes, catálogo, proyectos, ítems, compartidos y metadatos de auditoría en un
-            JSON único. En <strong>Reemplazar</strong> se conserva el SUPERUSER con el que está conectado (email y
-            contraseña); el resto de usuarios se borra y se carga desde el archivo.
+            Exporta usuarios, empleados, clientes, catálogo, proyectos, conjuntos KIT (zona/instancia), líneas,
+            compartidos y metadatos de auditoría en un JSON único. En <strong>Reemplazar</strong> se conserva el
+            SUPERUSER con el que está conectado (email y contraseña); el resto de usuarios se borra y se carga desde el
+            archivo.
           </p>
         <div className="page-header-actions" style={{ flexWrap: 'wrap', gap: 8 }}>
           <button type="button" className="btn btn-primary" onClick={exportAll}>

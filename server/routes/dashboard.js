@@ -2,6 +2,7 @@ const express = require('express');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { loadSuperuserAnalytics } = require('../lib/superuserAnalytics');
+const { loadUserActivityDashboard } = require('../lib/userActivity');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -184,6 +185,16 @@ router.get('/superuser-analytics', requireRole('SUPERUSER'), async (req, res) =>
     return res.json({ success: true, data });
   } catch (err) {
     console.error('[DASHBOARD] superuser-analytics:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+router.get('/user-activity', requireRole('SUPERUSER'), async (req, res) => {
+  try {
+    const data = await loadUserActivityDashboard();
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[DASHBOARD] user-activity:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });

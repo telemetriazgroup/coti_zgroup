@@ -53,7 +53,16 @@ export function KitInstanceModal({
 
   useEffect(() => {
     if (open && template) {
-      setLines((template.lines || []).map((l) => ({ ...l })));
+      setLines(
+        [...(template.lines || [])]
+          .map((l) => ({ ...l }))
+          .sort((a, b) => {
+            const ga = Number(a.componentGroupSort) || 0;
+            const gb = Number(b.componentGroupSort) || 0;
+            if (ga !== gb) return ga - gb;
+            return String(a.codigo || '').localeCompare(String(b.codigo || ''), 'es', { numeric: true });
+          })
+      );
       const initLabel =
         (editMode ? template.instanceLabel : suggestedLabel) || suggestedLabel || 'ZONA 1';
       setInstanceLabel(initLabel);

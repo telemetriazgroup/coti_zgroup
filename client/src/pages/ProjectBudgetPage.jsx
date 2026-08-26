@@ -21,6 +21,9 @@ import { ProjectBudgetRevisions } from '../components/ProjectBudgetRevisions';
 import { formatItemTraceUser } from '../lib/projectAuditLabels';
 import { fetchCategoryNextCodigo } from '../lib/catalogCodigoApi';
 import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
+import { buildConsolidatedKitBudgetRows } from '@shared/kitBudgetRows.js';
+
+const LS_FINANCE_SIDEBAR = 'zgroup_budget_finance_open';
 
 function formatUsd(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -30,47 +33,6 @@ function formatUsd(n) {
 function parsePriceDraft(s) {
   const p = parseFloat(String(s ?? '').replace(',', '.'));
   return Number.isNaN(p) ? null : p;
-}
-
-/** Agrupa componentes KIT por catalogItemId sumando cantidades (vista consolidada). */
-function buildConsolidatedKitBudgetRows(sorted) {
-  const result = [];
-  let i = 0;
-  while (i < sorted.length) {
-    const row = sorted[i];
-    if (!row.isBundleHeader) {
-      result.push(row);
-      i += 1;
-      continue;
-    }
-    result.push(row);
-    i += 1;
-    const comps = [];
-    while (i < sorted.length && sorted[i].isBundleComponent && sorted[i].bundleId === row.bundleId) {
-      comps.push(sorted[i]);
-      i += 1;
-    }
-    const merged = new Map();
-    for (const c of comps) {
-      const k = c.catalogItemId || c.id;
-      if (!merged.has(k)) {
-        merged.set(k, {
-          ...c,
-          qty: Number(c.qty),
-          subtotal: Number(c.subtotal),
-          kitConsolidated: true,
-        });
-      } else {
-        const ex = merged.get(k);
-        ex.qty = Math.round((Number(ex.qty) + Number(c.qty)) * 1000) / 1000;
-        ex.subtotal = Math.round((Number(ex.subtotal) + Number(c.subtotal)) * 100) / 100;
-      }
-    }
-    result.push(
-      ...[...merged.values()].sort((a, b) => String(a.codigo || '').localeCompare(String(b.codigo || '')))
-    );
-  }
-  return result;
 }
 
 /** Precio de lista (ref.) vs asumido en cotización. */
@@ -156,6 +118,10 @@ export function ProjectBudgetPage() {
   const showFinanceCommercial =
     commercialModules && Object.values(commercialModules).some(Boolean);
   const showFinancePanel = !viewerMode && (!hideItemPrices || showFinanceCommercial);
+  const [financeSidebarOpen, setFinanceSidebarOpen] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return localStorage.getItem(LS_FINANCE_SIDEBAR) === '1';
+  });
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfMsg, setPdfMsg] = useState(null);
   const pdfPollRef = useRef(null);
@@ -431,24 +397,18 @@ export function ProjectBudgetPage() {
     [displayBudgetItems]
   );
 
-  /** Índice de color 1–6 por conjunto KIT (mismo color cabecera + componentes). */
+  /** Índice de color 1–6 por conjunto KIT, en el orden visual (cabecera + componentes juntos). */
   const bundleGroupById = useMemo(() => {
     const map = new Map();
     let n = 0;
-    const sorted = [...items].sort((a, b) => {
-      const sa = Number(a.sortOrder ?? 0);
-      const sb = Number(b.sortOrder ?? 0);
-      if (sa !== sb) return sa - sb;
-      return String(a.createdAt || '').localeCompare(String(b.createdAt || ''));
-    });
-    for (const row of sorted) {
+    for (const row of budgetTableItems) {
       if (row.bundleId && !map.has(row.bundleId)) {
         n += 1;
         map.set(row.bundleId, ((n - 1) % 6) + 1);
       }
     }
     return map;
-  }, [items]);
+  }, [budgetTableItems]);
 
   const projectSelectOptions = useMemo(
     () =>
@@ -828,6 +788,10 @@ export function ProjectBudgetPage() {
         const o = { catalogItemId: r.catalogItem.id, qty: Number(r.qty) };
         if (r.unitPrice != null && Number.isFinite(Number(r.unitPrice)))
           o.unitPrice = Number(r.unitPrice);
+        if (r.kit) o.kit = r.kit;
+        if (r.zona) o.zona = r.zona;
+        if (r.rol) o.rol = r.rol;
+        if (r.grupo) o.grupo = r.grupo;
         return o;
       });
     if (!toApply.length) {
@@ -1222,11 +1186,11 @@ export function ProjectBudgetPage() {
         <div className="panel-hdr">
           <span className="panel-title">Exportar / importar líneas</span>
         </div>
-        <p className="muted mono budget-io-panel__help">
-          <span className="mono" style={{ color: 'var(--cyan)' }}>Exportar:</span> solo identificación y cantidades (sin
-          precios ni subtotales), para compartir con proyectos. <span className="mono" style={{ color: 'var(--amber)' }}>Importar:</span> fila
-          1 = encabezados; hace falta cantidad y código o descripción. Opcional: precio unitario en el archivo para alinear
-          con el presupuesto. Match exacto con el catálogo (código o descripción); la vista previa detalla el resultado.
+          <p className="muted mono budget-io-panel__help">
+          <span className="mono" style={{ color: 'var(--cyan)' }}>Exportar:</span> identificación, cantidades, orden, zona
+          del KIT y rol (conjunto / componente / línea). <span className="mono" style={{ color: 'var(--amber)' }}>Importar:</span> fila
+          1 = encabezados; hace falta cantidad y código o descripción. Si el archivo trae Zona y Kit, se reconstruyen los
+          conjuntos. Match exacto con el catálogo (código o descripción); la vista previa detalla el resultado.
         </p>
         <div className="budget-io-actions">
           <button type="button" className="btn btn-ghost mono" onClick={() => downloadBudgetLines('xlsx')}>
@@ -1287,7 +1251,11 @@ export function ProjectBudgetPage() {
         )}
       </div>
 
-      <div className="budget-workspace">
+      <div
+        className={
+          'budget-workspace' + (showFinancePanel && financeSidebarOpen ? '' : ' budget-workspace--fin-collapsed')
+        }
+      >
         <div className="budget-main">
       <div className="budget-grid">
         <aside className="budget-panel budget-panel--catalog">
@@ -1431,16 +1399,44 @@ export function ProjectBudgetPage() {
         <div className="budget-panel budget-panel--table">
           <div className="budget-panel-title-row">
             <h2 className="budget-panel-title">Líneas del presupuesto</h2>
-            {items.length > 0 && (
-              <input
-                type="search"
-                className="form-input mono budget-line-search"
-                placeholder="Buscar en líneas agregadas…"
-                value={budgetLineQ}
-                onChange={(e) => setBudgetLineQ(e.target.value)}
-                aria-label="Buscar líneas del presupuesto"
-              />
-            )}
+            <div className="budget-panel-title-row__tools">
+              {showFinancePanel && (
+                <label
+                  className="budget-fin-toggle"
+                  title={
+                    financeSidebarOpen
+                      ? 'Ocultar módulos financieros y ampliar las líneas'
+                      : 'Mostrar módulos financieros a la derecha'
+                  }
+                >
+                  <input
+                    type="checkbox"
+                    checked={financeSidebarOpen}
+                    onChange={(e) => {
+                      const on = e.target.checked;
+                      setFinanceSidebarOpen(on);
+                      try {
+                        localStorage.setItem(LS_FINANCE_SIDEBAR, on ? '1' : '0');
+                      } catch {
+                        /* ignore */
+                      }
+                    }}
+                    aria-controls="budget-fin-sidebar"
+                  />
+                  <span>Módulos financieros</span>
+                </label>
+              )}
+              {items.length > 0 && (
+                <input
+                  type="search"
+                  className="form-input mono budget-line-search"
+                  placeholder="Buscar en líneas agregadas…"
+                  value={budgetLineQ}
+                  onChange={(e) => setBudgetLineQ(e.target.value)}
+                  aria-label="Buscar líneas del presupuesto"
+                />
+              )}
+            </div>
           </div>
           <p className="budget-table-hint mono muted" role="note">
             Filas agrupadas por color según conjunto KIT; componentes con cantidades consolidadas por código. Para
@@ -1540,6 +1536,11 @@ export function ProjectBudgetPage() {
                               KIT
                             </span>
                           )}
+                          {isHeader && row.bundleInstanceLabel ? (
+                            <span className="tag budget-kit-zona-tag" title="Zona / instancia" style={{ marginRight: 6, fontSize: 9 }}>
+                              {row.bundleInstanceLabel}
+                            </span>
+                          ) : null}
                           {isHeader && canEditKits ? (
                             <button
                               type="button"
@@ -1822,8 +1823,8 @@ export function ProjectBudgetPage() {
       </div>
         </div>
 
-        <aside className="budget-fin-sidebar" aria-label="Módulos financieros">
-      {showFinancePanel && (
+        {showFinancePanel && financeSidebarOpen ? (
+        <aside id="budget-fin-sidebar" className="budget-fin-sidebar" aria-label="Módulos financieros">
       <FinanceModules
         baseLista={totals.lista}
         baseActivos={totals.activos}
@@ -1842,8 +1843,8 @@ export function ProjectBudgetPage() {
         onTcChange={canWrite && !hideItemPrices ? handleTcChange : undefined}
         finPanelClassName="zgroup-scroll"
       />
-      )}
         </aside>
+        ) : null}
       </div>
 
       {canWrite && (

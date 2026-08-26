@@ -14,6 +14,7 @@ const {
   validateImportRows,
   buildProjectItemsExportSheet,
   buildProjectItemsExportCsv,
+  partitionImportItems,
 } = require('../lib/budgetItemsExcel');
 const { isKitItem } = require('../lib/catalogKit');
 const { fetchDirectDependencies } = require('../lib/catalogItemDependencies');
@@ -477,6 +478,10 @@ router.post(
     body('items.*.catalogItemId').isUUID(),
     body('items.*.qty').isFloat({ min: 0.001 }),
     body('items.*.unitPrice').optional().isFloat({ min: 0 }),
+    body('items.*.kit').optional().isString(),
+    body('items.*.zona').optional().isString(),
+    body('items.*.rol').optional().isString(),
+    body('items.*.grupo').optional().isString(),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -510,18 +515,78 @@ router.post(
       );
       const wasInitiallyEmpty = cntRows[0].n === 0;
 
+      const shareCtx = await loadShareContext(req.user, project);
+      const canKits = canEditProjectKits(req.user, project, shareCtx);
+      const { stand, kitGroups } = canKits
+        ? partitionImportItems(toApply)
+        : { stand: toApply, kitGroups: [] };
+
       await client.query('BEGIN');
-      for (const line of toApply) {
-        const { catalogItemId, qty, unitPrice } = line;
-        const u = unitPrice != null && Number.isFinite(Number(unitPrice)) ? Number(unitPrice) : null;
-        const r = await addCatalogItemToProject(client, {
+
+      const addOne = async (line) => {
+        const u = line.unitPrice != null && Number.isFinite(Number(line.unitPrice)) ? Number(line.unitPrice) : null;
+        return addCatalogItemToProject(client, {
           projectId: req.params.id,
           userId: req.user.id,
-          catalogItemId,
-          qty: Number(qty),
+          catalogItemId: line.catalogItemId,
+          qty: Number(line.qty),
           unitPriceOverride: u,
           ip,
         });
+      };
+
+      for (const g of kitGroups) {
+        let headerId = g.header?.catalogItemId || null;
+        if (!headerId && g.kit) {
+          const { rows: kitRows } = await client.query(
+            `SELECT id FROM catalog_items WHERE lower(codigo) = lower($1) AND active = true LIMIT 1`,
+            [g.kit]
+          );
+          headerId = kitRows[0]?.id || null;
+        }
+        const isKit = headerId ? await isKitItem(headerId, client) : false;
+        if (!headerId || !isKit || !g.comps.length) {
+          const fallback = [...(g.header && !isKit ? [g.header] : []), ...g.comps];
+          for (const c of fallback) {
+            const r = await addOne(c);
+            if (r.errorCode) {
+              await client.query('ROLLBACK');
+              return res.status(400).json({
+                success: false,
+                error: { code: r.errorCode, message: r.message || 'Un ítem de catálogo ya no es válido' },
+              });
+            }
+          }
+          continue;
+        }
+        const result = await createProjectBundle(client, {
+          projectId: req.params.id,
+          userId: req.user.id,
+          catalogItemId: headerId,
+          instanceLabel: g.zona || 'ZONA 1',
+          qty: g.header?.qty || 1,
+          lines: g.comps.map((c, i) => ({
+            catalogItemId: c.catalogItemId,
+            qty: Number(c.qty),
+            unitPrice: c.unitPrice,
+            included: true,
+            componentGroupLabel: c.grupo || null,
+            componentGroupKey: c.grupo ? `imp-${i}` : 'template',
+            componentGroupSort: i,
+          })),
+          ip,
+        });
+        if (result.errorCode) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            success: false,
+            error: { code: result.errorCode, message: result.message || 'No se pudo recrear el conjunto KIT' },
+          });
+        }
+      }
+
+      for (const line of stand) {
+        const r = await addOne(line);
         if (r.errorCode) {
           await client.query('ROLLBACK');
           return res.status(400).json({

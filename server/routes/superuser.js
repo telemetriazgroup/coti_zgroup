@@ -108,6 +108,7 @@ router.post('/import/preview', upload.single('file'), async (req, res) => {
           catalogItems: (mods.catalogItems || []).length,
           projects: (mods.projects || []).length,
           projectItems: (mods.projectItems || []).length,
+          projectBundles: (mods.projectBundles || []).length,
           projectShares: (mods.projectShares || []).length,
           projectAuditLog: (mods.projectAuditLog || []).length,
         },

@@ -16,6 +16,8 @@ const {
   clearLoginLockout,
   normalizeLoginEmail,
 } = require('../lib/loginLockout');
+const { getClientIp } = require('../utils/ip');
+const { logUserActivity, markUserLogin } = require('../lib/userActivity');
 const {
   loadUserRow,
   loadActiveRefresh,
@@ -168,6 +170,16 @@ router.post('/login', async (req, res) => {
       [user.id, tokenHash, expiresAt, req.ip, req.get('user-agent')]
     );
 
+    const ip = getClientIp(req);
+    await markUserLogin(user.id, ip);
+    logUserActivity({
+      userId: user.id,
+      kind: 'LOGIN',
+      summary: 'Inicio de sesión',
+      path: '/login',
+      ip,
+    });
+
     // Cookie: path '/' para que el navegador la envíe en toda la app; lax evita problemas con redirecciones
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,
@@ -262,6 +274,12 @@ router.post('/logout', requireAuth, async (req, res) => {
 
   res.clearCookie('refreshToken', { path: '/' });
   res.clearCookie('refreshToken', { path: '/api/auth' });
+  logUserActivity({
+    userId: req.user.id,
+    kind: 'LOGOUT',
+    summary: 'Cierre de sesión',
+    ip: getClientIp(req),
+  });
   return res.json({ success: true, data: { message: 'Sesión cerrada correctamente' } });
 });
 

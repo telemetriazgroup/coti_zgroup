@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
@@ -12,9 +12,25 @@ import {
   extractProjectCreators,
 } from '../components/ProjectFiltersBar';
 
+const PAGE_SIZE = 10;
+
+function formatCreatedAt(iso) {
+  if (!iso) return '—';
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '—';
+  return d.toLocaleString('es-PE', {
+    day: '2-digit',
+    month: '2-digit',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  });
+}
+
 export function ProjectsPage() {
   const { hasRole, user, isAdmin, isSuperuser, canShareProjects, canViewArchivedProjects, hasAdminPanelAccess } =
     useAuth();
+  const navigate = useNavigate();
   const canWrite = hasRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER');
   const showCreatorCol = isSuperuser() || hasAdminPanelAccess();
   const colCount = showCreatorCol ? 7 : 6;
@@ -40,6 +56,7 @@ export function ProjectsPage() {
   const [cloneName, setCloneName] = useState('');
   const [guideOpen, setGuideOpen] = useState(false);
   const [creators, setCreators] = useState([]);
+  const [page, setPage] = useState(1);
 
   const { filters, setFilters, query } = useProjectListFilters({
     includeDeleted,
@@ -71,6 +88,19 @@ export function ProjectsPage() {
   useEffect(() => {
     load();
   }, [load]);
+
+  useEffect(() => {
+    setPage(1);
+  }, [query]);
+
+  const totalPages = Math.max(1, Math.ceil(list.length / PAGE_SIZE));
+  const pageSafe = Math.min(page, totalPages);
+  const pageRows = list.slice((pageSafe - 1) * PAGE_SIZE, pageSafe * PAGE_SIZE);
+
+  function openProject(row) {
+    if (!row?.id) return;
+    navigate(`/projects/${row.id}/presupuesto`);
+  }
 
   async function createProject(e) {
     e.preventDefault();
@@ -258,24 +288,6 @@ export function ProjectsPage() {
     return row.accessKind === 'own' || row.accessKind === 'team';
   }
 
-  function accessLabel(row) {
-    if (row.accessKind === 'own') return null;
-    if (row.accessKind === 'shared') {
-      const who = row.sharedByName || row.sharedByEmail || 'admin';
-      return `Compartido por ${who}`;
-    }
-    if (row.accessKind === 'team') {
-      const who = row.createdByName || row.createdByEmail || 'comercial';
-      return `Equipo: ${who}`;
-    }
-    if (row.accessKind === 'group') {
-      const who = row.createdByName || row.createdByEmail || 'admin/comercial';
-      return `Grupo: ${who}`;
-    }
-    if (isSuperuser() || user?.role === 'ADMIN') return row.createdByName || row.createdByEmail || '—';
-    return null;
-  }
-
   function openClone(row) {
     setSel(row);
     setCloneName(`Copia de ${row.nombre}`);
@@ -356,7 +368,7 @@ export function ProjectsPage() {
                 <th>Cliente</th>
                 <th>Odoo</th>
                 {showCreatorCol && <th>Creador</th>}
-                <th>Acceso</th>
+                <th>Creación</th>
                 <th className="actions-col">Acciones</th>
               </tr>
             </thead>
@@ -374,8 +386,13 @@ export function ProjectsPage() {
                   </td>
                 </tr>
               ) : (
-                list.map((row) => (
-                  <tr key={row.id} className={row.deletedAt ? 'row-dim' : ''}>
+                pageRows.map((row) => (
+                  <tr
+                    key={row.id}
+                    className={(row.deletedAt ? 'row-dim ' : '') + 'proj-row--open'}
+                    onDoubleClick={() => openProject(row)}
+                    title="Doble clic para abrir el presupuesto"
+                  >
                     <td>
                       {row.nombre}
                       {row.deletedAt && (
@@ -396,30 +413,10 @@ export function ProjectsPage() {
                           : row.createdByName || row.createdByEmail || row.createdBy?.slice(0, 8) + '…'}
                       </td>
                     )}
-                    <td className="mono" style={{ fontSize: 11 }}>
-                      {row.accessKind === 'own' && <span className="tag tag--ok">Propio</span>}
-                      {row.accessKind === 'shared' && (
-                        <span className="tag tag--amber" title={row.sharedByEmail || ''}>
-                          Compartido
-                        </span>
-                      )}
-                      {row.accessKind === 'team' && (
-                        <span className="tag" style={{ borderColor: 'var(--violet)', color: 'var(--violet)' }}>
-                          Equipo
-                        </span>
-                      )}
-                      {row.accessKind === 'group' && (
-                        <span className="tag" style={{ borderColor: 'var(--cyan)', color: 'var(--cyan)' }}>
-                          Grupo
-                        </span>
-                      )}
-                      {accessLabel(row) && row.accessKind !== 'own' && (
-                        <span className="muted" style={{ display: 'block', marginTop: 4 }}>
-                          {accessLabel(row)}
-                        </span>
-                      )}
+                    <td className="mono" style={{ fontSize: 11 }} title={row.createdAt || ''}>
+                      {formatCreatedAt(row.createdAt)}
                     </td>
-                    <td className="actions-cell">
+                    <td className="actions-cell" onDoubleClick={(e) => e.stopPropagation()}>
                       <div className="proj-actions">
                         <Link
                           className="btn-action"
@@ -548,6 +545,29 @@ export function ProjectsPage() {
             </tbody>
           </table>
         </div>
+        {!loading && list.length > 0 && (
+          <div className="table-pager mono">
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={pageSafe <= 1}
+              onClick={() => setPage((p) => Math.max(1, p - 1))}
+            >
+              ← Anterior
+            </button>
+            <span className="muted">
+              Página {pageSafe} / {totalPages} · {list.length} proyectos · {PAGE_SIZE} por página
+            </span>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={pageSafe >= totalPages}
+              onClick={() => setPage((p) => Math.min(totalPages, p + 1))}
+            >
+              Siguiente →
+            </button>
+          </div>
+        )}
       </div>
 
       {modal === 'new' && (

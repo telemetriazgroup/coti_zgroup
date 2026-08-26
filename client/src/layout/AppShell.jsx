@@ -3,6 +3,7 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { ImpersonationBanner } from '../components/ImpersonationBanner';
+import { useReportUserActivity } from '../lib/reportUserActivity';
 
 const LS_SIDEBAR = 'zgroup_sidebar_open';
 const LS_THEME = 'zgroup-theme';
@@ -15,6 +16,7 @@ function readSidebarOpenDesktop() {
 export function AppShell() {
   const location = useLocation();
   const { user, logout, hasRole, isAdmin, isSuperuser, isImpersonating } = useAuth();
+  useReportUserActivity(Boolean(user));
   const prevFocusRef = useRef(false);
 
   const isProjectFocus = /^\/projects\/[^/]+\/(presupuesto|planos)$/.test(location.pathname);
@@ -84,13 +86,6 @@ export function AppShell() {
     prevFocusRef.current = false;
   }, [isProjectFocus, isMobile]);
 
-  const openSidebarForModules = useCallback(() => {
-    setSidebarOpen(true);
-    if (typeof window !== 'undefined' && !window.matchMedia('(max-width: 900px)').matches) {
-      localStorage.setItem(LS_SIDEBAR, '1');
-    }
-  }, []);
-
   const toggleSidebar = useCallback(() => {
     setSidebarOpen((prev) => {
       const next = !prev;
@@ -119,20 +114,6 @@ export function AppShell() {
   return (
     <div className={navClass}>
       <ImpersonationBanner />
-      {isProjectFocus && !sidebarOpen && (
-        <button
-          type="button"
-          className="sidebar-reveal-btn mono"
-          onClick={openSidebarForModules}
-          title="Mostrar menú de módulos"
-          aria-label="Mostrar menú de módulos"
-        >
-          <svg width="18" height="18" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
-            <path d="M4 6h16M4 12h16M4 18h16" />
-          </svg>
-          Módulos
-        </button>
-      )}
       {isMobile && sidebarOpen ? (
         <button
           type="button"
@@ -323,11 +304,15 @@ export function AppShell() {
         <header id="top-header">
           <button
             type="button"
-            className="header-nav-toggle"
+            className={
+              'header-nav-toggle' +
+              (isProjectFocus && !sidebarOpen ? ' header-nav-toggle--modules' : '')
+            }
             onClick={toggleSidebar}
             aria-expanded={sidebarOpen}
             aria-controls="sidebar"
-            title={sidebarOpen ? 'Ocultar menú lateral' : 'Mostrar menú lateral'}
+            title={sidebarOpen ? 'Ocultar menú de módulos' : 'Mostrar menú de módulos'}
+            aria-label={sidebarOpen ? 'Ocultar menú de módulos' : 'Mostrar menú de módulos'}
           >
             <svg width="22" height="22" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24" aria-hidden>
               {!sidebarOpen ? (
@@ -338,9 +323,21 @@ export function AppShell() {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15 6l-6 6 6 6" />
               )}
             </svg>
+            {isProjectFocus && !sidebarOpen ? (
+              <span className="header-nav-toggle__lbl mono">Módulos</span>
+            ) : null}
           </button>
           <div className="hdr-breadcrumb">
-            <span className="hdr-section">Sistema</span>
+            <button
+              type="button"
+              className="hdr-section hdr-section--btn"
+              onClick={toggleSidebar}
+              aria-expanded={sidebarOpen}
+              aria-controls="sidebar"
+              title={sidebarOpen ? 'Ocultar menú de módulos' : 'Mostrar menú de módulos'}
+            >
+              Sistema
+            </button>
             <span className="hdr-sep">/</span>
             <span className="hdr-title">Workspace</span>
           </div>

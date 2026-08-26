@@ -68,6 +68,8 @@ CREATE TABLE users (
   pricing_market pricing_market NOT NULL DEFAULT 'NACIONAL',
   can_see_finance_summary BOOLEAN NOT NULL DEFAULT false,
   created_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+  last_login_at TIMESTAMPTZ,
+  last_login_ip VARCHAR(64),
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
@@ -594,6 +596,22 @@ CREATE INDEX idx_audit_project_id ON project_audit_log(project_id);
 CREATE INDEX idx_audit_event_type ON project_audit_log(event_type);
 CREATE INDEX idx_audit_actor_id ON project_audit_log(actor_id);
 CREATE INDEX idx_audit_created_at ON project_audit_log(created_at);
+
+-- ─── USER ACTIVITY (accesos y módulo/proyecto) ─────────────────
+
+CREATE TABLE user_activity_log (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  kind        VARCHAR(40) NOT NULL,
+  project_id  UUID REFERENCES projects(id) ON DELETE SET NULL,
+  summary     VARCHAR(400),
+  path        VARCHAR(200),
+  ip_address  VARCHAR(64),
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_user_activity_user_created ON user_activity_log (user_id, created_at DESC);
+CREATE INDEX idx_user_activity_created ON user_activity_log (created_at DESC);
 
 -- ─── TRIGGERS: updated_at automático ──────────────────────────
 

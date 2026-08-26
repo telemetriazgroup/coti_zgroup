@@ -24,6 +24,7 @@ const superuserRoutes = require('./routes/superuser');
 const adminAssignmentsRoutes = require('./routes/adminAssignments');
 const adminGroupsRoutes = require('./routes/adminGroups');
 const odooSyncRoutes = require('./routes/odooSync');
+const activityRoutes = require('./routes/activity');
 
 const app = express();
 
@@ -146,6 +147,7 @@ web.use('/api/projects', projectItemRoutes);
 web.use('/api/projects', planRoutes);
 web.use('/api/projects', projectRoutes);
 web.use('/api/dashboard', dashboardRoutes);
+web.use('/api/activity', activityRoutes);
 web.use('/api/catalog/requests', catalogRequestRoutes);
 web.use('/api/measures', measureRoutes);
 web.use('/api/catalog', catalogRoutes);

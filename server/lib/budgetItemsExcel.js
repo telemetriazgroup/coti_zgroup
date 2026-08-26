@@ -16,7 +16,12 @@ function mapBudgetImportHeader(h) {
   const s = stripAccents(raw);
   if (!s) return '';
   if (s.includes('descrip')) return 'descripcion';
-  if (s.includes('codig')) return 'codigo';
+  if (s.includes('codig') && !s.includes('kit')) return 'codigo';
+  if (s === 'kit' || s.includes('conjunto') || s === 'kit codigo' || s === 'codigo kit') return 'kit';
+  if (s.includes('zona') || s.includes('instancia') || s === 'instance') return 'zona';
+  if (s === 'rol' || s === 'role' || s.includes('tipo linea') || s === 'tipo de linea') return 'rol';
+  if ((s.includes('grupo') || s === 'group') && !s.includes('descrip')) return 'grupo';
+  if (s === 'orden' || s === 'order' || s === 'sort') return 'orden';
   if (s.match(/^cant$/) || s.includes('cant') || s.includes('qty') || s === 'q' || s.includes('qte'))
     return 'cantidad';
   if (s.includes('p.unit') || s.includes('p unit') || (s.includes('unitario') && s.includes('precio'))) return 'punit';
@@ -88,7 +93,19 @@ function parseBudgetImportBuffer(buffer, filename = '') {
       const p = parseFloat(String(punitRaw).replace(',', '.'));
       if (!Number.isNaN(p) && p >= 0) unitPrice = p;
     }
-    rows.push({ rowIndex: r + 1, codigo, descripcion, qty, unitPrice, punitRaw: punitRaw || '' });
+    rows.push({
+      rowIndex: r + 1,
+      codigo,
+      descripcion,
+      qty,
+      unitPrice,
+      punitRaw: punitRaw || '',
+      kit: String(gv('kit') ?? '').trim(),
+      zona: String(gv('zona') ?? '').trim(),
+      rol: String(gv('rol') ?? '').trim(),
+      grupo: String(gv('grupo') ?? '').trim(),
+      orden: String(gv('orden') ?? '').trim(),
+    });
   }
   return { rows, parseError: null };
 }
@@ -199,6 +216,10 @@ function validateImportRows(importRows, matchMaps) {
         inputDescripcion: row.descripcion,
         qty: row.qty,
         unitPrice: row.unitPrice,
+        kit: row.kit || '',
+        zona: row.zona || '',
+        rol: row.rol || '',
+        grupo: row.grupo || '',
         matchType: 'none',
         message: m.message,
         catalogItem: null,
@@ -210,6 +231,11 @@ function validateImportRows(importRows, matchMaps) {
         inputDescripcion: row.descripcion,
         qty: row.qty,
         unitPrice: row.unitPrice,
+        kit: row.kit || '',
+        zona: row.zona || '',
+        rol: row.rol || '',
+        grupo: row.grupo || '',
+        orden: row.orden || '',
         matchType: m.matchType,
         message: m.message,
         catalogItem: m.catalogItem,
@@ -219,19 +245,81 @@ function validateImportRows(importRows, matchMaps) {
   return results;
 }
 
-/** Solo cantidades e identificación — sin precios (intercambio con área de proyectos). */
+/** Identificación, cantidades, zona/KIT y orden — sin precios. */
+function kitExportMeta(items) {
+  const headerByBundle = new Map();
+  for (const it of items || []) {
+    if (it.isBundleHeader && it.bundleId) headerByBundle.set(it.bundleId, it);
+  }
+  return headerByBundle;
+}
+
+function exportRowRole(it) {
+  if (it.isBundleHeader) return 'KIT';
+  if (it.isBundleComponent) return 'COMPONENTE';
+  return 'LINEA';
+}
+
+function orderItemsForExport(items) {
+  const list = Array.isArray(items) ? items : [];
+  const byBundle = new Map();
+  const standalones = [];
+  list.forEach((row, idx) => {
+    const sort = Number(row.sortOrder ?? idx);
+    if (row.bundleId && (row.isBundleHeader || row.isBundleComponent)) {
+      if (!byBundle.has(row.bundleId)) {
+        byBundle.set(row.bundleId, { header: null, comps: [], minSort: sort, minIdx: idx });
+      }
+      const b = byBundle.get(row.bundleId);
+      b.minSort = Math.min(b.minSort, sort);
+      b.minIdx = Math.min(b.minIdx, idx);
+      if (row.isBundleHeader) b.header = row;
+      else b.comps.push(row);
+      return;
+    }
+    standalones.push({ row, sort, idx });
+  });
+  for (const b of byBundle.values()) {
+    b.comps.sort(
+      (a, c) =>
+        Number(a.sortOrder ?? 0) - Number(c.sortOrder ?? 0) ||
+        String(a.codigo || '').localeCompare(String(c.codigo || ''), 'es', { numeric: true })
+    );
+  }
+  const events = [
+    ...[...byBundle.values()].map((b) => ({
+      sort: b.header != null ? Number(b.header.sortOrder ?? b.minSort) : b.minSort,
+      idx: b.minIdx,
+      rows: [...(b.header ? [b.header] : []), ...b.comps],
+    })),
+    ...standalones.map((s) => ({ sort: s.sort, idx: s.idx, rows: [s.row] })),
+  ];
+  events.sort((a, b) => a.sort - b.sort || a.idx - b.idx);
+  return events.flatMap((e) => e.rows);
+}
+
 function buildProjectItemsExportSheet(items) {
-  const matrix = [['Código', 'Descripción', 'Unidad', 'Tipo', 'Cantidad', 'Origen catálogo']];
-  for (const it of items) {
+  const headers = kitExportMeta(items);
+  const ordered = orderItemsForExport(items);
+  const matrix = [
+    ['Orden', 'Código', 'Descripción', 'Unidad', 'Tipo', 'Cantidad', 'Rol', 'Kit', 'Zona', 'Grupo', 'Origen catálogo'],
+  ];
+  (ordered || []).forEach((it, idx) => {
+    const hdr = it.bundleId ? headers.get(it.bundleId) : null;
     matrix.push([
+      idx + 1,
       it.codigo || '',
       it.descripcion || '',
       it.unidad || '',
       it.tipo || '',
       it.qty != null ? Number(it.qty) : 0,
+      exportRowRole(it),
+      it.isBundleHeader ? it.codigo || '' : hdr?.codigo || '',
+      it.bundleInstanceLabel || '',
+      it.componentGroupLabel || '',
       it.isCustom ? 'pieza propia' : 'catálogo',
     ]);
-  }
+  });
   const wb = XLSX.utils.book_new();
   const ws = XLSX.utils.aoa_to_sheet(matrix);
   XLSX.utils.book_append_sheet(wb, ws, 'Presupuesto');
@@ -244,18 +332,26 @@ function buildProjectItemsExportCsv(items) {
     if (/[",\n\r]/.test(s)) return `"${s.replace(/"/g, '""')}"`;
     return s;
   };
+  const headers = kitExportMeta(items);
+  const ordered = orderItemsForExport(items);
   const lines = [
-    'Código,Descripción,Unidad,Tipo,Cantidad,Origen catálogo',
-    ...items.map((it) =>
-      [
+    'Orden,Código,Descripción,Unidad,Tipo,Cantidad,Rol,Kit,Zona,Grupo,Origen catálogo',
+    ...(ordered || []).map((it, idx) => {
+      const hdr = it.bundleId ? headers.get(it.bundleId) : null;
+      return [
+        idx + 1,
         esc(it.codigo),
         esc(it.descripcion),
         esc(it.unidad),
         esc(it.tipo),
         it.qty != null ? Number(it.qty) : 0,
+        esc(exportRowRole(it)),
+        esc(it.isBundleHeader ? it.codigo || '' : hdr?.codigo || ''),
+        esc(it.bundleInstanceLabel || ''),
+        esc(it.componentGroupLabel || ''),
         esc(it.isCustom ? 'pieza propia' : 'catálogo'),
-      ].join(',')
-    ),
+      ].join(',');
+    }),
   ];
   return Buffer.from(['\uFEFF', ...lines].join('\r\n'), 'utf8');
 }
@@ -268,4 +364,35 @@ module.exports = {
   buildProjectItemsExportSheet,
   buildProjectItemsExportCsv,
   mapBudgetImportHeader,
+  partitionImportItems,
 };
+
+/** Agrupa filas de importación con Kit/Zona/Rol para reconstruir conjuntos. */
+function partitionImportItems(toApply) {
+  const list = Array.isArray(toApply) ? toApply : [];
+  const hasKitMeta = list.some(
+    (l) =>
+      String(l.kit || '').trim() ||
+      String(l.zona || '').trim() ||
+      /^(KIT|COMPONENTE)$/i.test(String(l.rol || '').trim())
+  );
+  if (!hasKitMeta) return { stand: list, kitGroups: [] };
+
+  const groups = new Map();
+  const stand = [];
+  for (const line of list) {
+    const rol = String(line.rol || '').trim().toUpperCase();
+    const kit = String(line.kit || '').trim();
+    const zona = String(line.zona || '').trim();
+    if (rol === 'LINEA' || (!kit && !zona && rol !== 'KIT' && rol !== 'COMPONENTE')) {
+      stand.push(line);
+      continue;
+    }
+    const key = `${kit.toLowerCase()}||${zona.toLowerCase()}`;
+    if (!groups.has(key)) groups.set(key, { kit, zona: zona || 'ZONA 1', header: null, comps: [] });
+    const g = groups.get(key);
+    if (rol === 'KIT') g.header = line;
+    else g.comps.push(line);
+  }
+  return { stand, kitGroups: [...groups.values()] };
+}

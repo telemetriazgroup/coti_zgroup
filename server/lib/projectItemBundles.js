@@ -128,6 +128,50 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
   return { componentIds, nextSortOrder: sortOrder };
 }
 
+/** Deja cada KIT en un bloque contiguo (cabecera + componentes) para que no se intercalen conjuntos. */
+async function resequenceProjectItems(client, projectId) {
+  const { rows } = await client.query(
+    `SELECT id, bundle_id, is_bundle_header, is_bundle_component, sort_order, created_at
+     FROM project_items WHERE project_id = $1
+     ORDER BY sort_order ASC, created_at ASC`,
+    [projectId]
+  );
+  const compsBy = new Map();
+  for (const r of rows) {
+    if (!r.is_bundle_component || !r.bundle_id) continue;
+    if (!compsBy.has(r.bundle_id)) compsBy.set(r.bundle_id, []);
+    compsBy.get(r.bundle_id).push(r);
+  }
+  const emitted = new Set();
+  const updates = [];
+  let n = 0;
+  for (const row of rows) {
+    if (row.is_bundle_component) continue;
+    if (row.is_bundle_header && row.bundle_id) {
+      if (emitted.has(row.bundle_id)) continue;
+      emitted.add(row.bundle_id);
+      updates.push({ id: row.id, sort: n++ });
+      const list = compsBy.get(row.bundle_id) || [];
+      list.sort((a, b) => Number(a.sort_order) - Number(b.sort_order) || String(a.id).localeCompare(String(b.id)));
+      for (const c of list) updates.push({ id: c.id, sort: n++ });
+    } else {
+      updates.push({ id: row.id, sort: n++ });
+    }
+  }
+  for (const [bid, list] of compsBy) {
+    if (emitted.has(bid)) continue;
+    list.sort((a, b) => Number(a.sort_order) - Number(b.sort_order));
+    for (const c of list) updates.push({ id: c.id, sort: n++ });
+  }
+  for (const u of updates) {
+    await client.query(`UPDATE project_items SET sort_order = $1 WHERE id = $2 AND project_id = $3`, [
+      u.sort,
+      u.id,
+      projectId,
+    ]);
+  }
+}
+
 function mapCompRowToLine(r, { fromTemplate }) {
   return {
     lineId: r.id,
@@ -330,6 +374,8 @@ async function createProjectBundle(
   if (compResult.errorCode) return compResult;
   componentIds.push(...compResult.componentIds);
 
+  await resequenceProjectItems(client, projectId);
+
   logAuditEvent({
     projectId,
     eventType: 'BUDGET_BUNDLE_ADD',
@@ -418,6 +464,8 @@ async function updateProjectBundle(
   });
   if (compResult.errorCode) return compResult;
 
+  await resequenceProjectItems(client, projectId);
+
   await client.query(
     `UPDATE project_item_bundles SET
        instance_label = $1, display_name = $2, unit_price = $3, qty = $4, updated_at = NOW()
@@ -477,4 +525,5 @@ module.exports = {
   createProjectBundle,
   updateProjectBundle,
   deleteBundleByItemId,
+  resequenceProjectItems,
 };

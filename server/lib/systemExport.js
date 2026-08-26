@@ -3,6 +3,7 @@
  */
 const { pool } = require('../config/db');
 const { planUserImport, remapUserId } = require('./systemExportUsers');
+const { resequenceProjectItems } = require('./projectItemBundles');
 
 const EXPORT_VERSION = 1;
 
@@ -17,6 +18,7 @@ async function deleteFrom(client, sql, params) {
 
 /** Borra datos operativos y todos los usuarios salvo SUPERUSER. */
 async function wipeOperationalKeepingSuperuser(client) {
+  await deleteFrom(client, `DELETE FROM user_activity_log`);
   await deleteFrom(client, `DELETE FROM project_audit_log`);
   await deleteFrom(client, `DELETE FROM project_shares`);
   await deleteFrom(client, `DELETE FROM project_budget_revisions`);
@@ -64,6 +66,7 @@ async function exportSystemData() {
     catalogItems,
     projects,
     projectItems,
+    projectBundles,
     projectShares,
     auditLog,
     odooPartners,
@@ -78,6 +81,7 @@ async function exportSystemData() {
     pool.query(`SELECT * FROM catalog_items ORDER BY category_id, sort_order, codigo`),
     pool.query(`SELECT * FROM projects ORDER BY created_at`),
     pool.query(`SELECT * FROM project_items ORDER BY project_id, sort_order`),
+    pool.query(`SELECT * FROM project_item_bundles ORDER BY project_id, sort_order, created_at`),
     pool.query(`SELECT * FROM project_shares ORDER BY project_id, user_id`),
     pool.query(
       `SELECT id, project_id, event_type, actor_id, prev_data, new_data, ip_address, created_at
@@ -98,6 +102,7 @@ async function exportSystemData() {
       catalogItems: catalogItems.rows,
       projects: projects.rows,
       projectItems: projectItems.rows,
+      projectBundles: projectBundles.rows,
       projectShares: projectShares.rows,
       projectAuditLog: auditLog.rows,
       odooPartners: odooPartners.rows,
@@ -119,6 +124,7 @@ async function importSystemData(payload, { mode = 'merge', keepUserId = null } =
     catalogItems: 0,
     projects: 0,
     projectItems: 0,
+    projectBundles: 0,
     projectShares: 0,
     odooPartners: 0,
     odooSyncState: 0,
@@ -409,12 +415,80 @@ async function importSystemData(payload, { mode = 'merge', keepUserId = null } =
       stats.projects++;
     }
 
-    for (const row of m.projectItems || []) {
+    const inferredBundles = [];
+    const haveBundle = new Set((m.projectBundles || []).map((b) => b.id).filter(Boolean));
+    for (const it of m.projectItems || []) {
+      const bid = it.bundle_id;
+      if (!bid || haveBundle.has(bid)) continue;
+      haveBundle.add(bid);
+      const header = (m.projectItems || []).find((x) => x.bundle_id === bid && x.is_bundle_header === true);
+      inferredBundles.push({
+        id: bid,
+        project_id: it.project_id,
+        catalog_item_id: header?.catalog_item_id || null,
+        instance_label: 'ZONA 1',
+        display_name: header?.descripcion || 'KIT',
+        unit_price: header?.unit_price || 0,
+        qty: header?.qty || 1,
+        sort_order: header?.sort_order || 0,
+        created_by: header?.created_by || null,
+        created_at: header?.created_at || new Date(),
+        updated_at: header?.updated_at || new Date(),
+      });
+    }
+    const bundlesToInsert = [...(m.projectBundles || []), ...inferredBundles];
+    for (const row of bundlesToInsert) {
+      if (!row.id || !row.project_id) continue;
       await client.query(
-        `INSERT INTO project_items (id, project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, category_id, sort_order, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16)
+        `INSERT INTO project_item_bundles
+           (id, project_id, catalog_item_id, instance_label, display_name, unit_price, qty, sort_order, created_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
          ON CONFLICT (id) DO UPDATE SET
-           qty = EXCLUDED.qty, unit_price = EXCLUDED.unit_price, updated_at = NOW()`,
+           instance_label = EXCLUDED.instance_label,
+           display_name = EXCLUDED.display_name,
+           unit_price = EXCLUDED.unit_price,
+           qty = EXCLUDED.qty,
+           sort_order = EXCLUDED.sort_order,
+           updated_at = NOW()`,
+        [
+          row.id,
+          row.project_id,
+          row.catalog_item_id || null,
+          row.instance_label || 'ZONA 1',
+          row.display_name || 'KIT',
+          row.unit_price != null ? row.unit_price : 0,
+          row.qty != null ? row.qty : 1,
+          row.sort_order != null ? row.sort_order : 0,
+          uid(row.created_by),
+          row.created_at || new Date(),
+          row.updated_at || new Date(),
+        ]
+      );
+      stats.projectBundles++;
+    }
+
+    const { rows: bundleOkRows } = await client.query(`SELECT id FROM project_item_bundles`);
+    const bundleOk = new Set(bundleOkRows.map((r) => r.id));
+
+    for (const row of m.projectItems || []) {
+      const bundleId = row.bundle_id && bundleOk.has(row.bundle_id) ? row.bundle_id : null;
+      await client.query(
+        `INSERT INTO project_items (
+           id, project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price,
+           qty, is_custom, category_id, sort_order, apply_adjustment, created_by, updated_by, created_at, updated_at,
+           bundle_id, is_bundle_header, is_bundle_component,
+           component_group_key, component_group_label, component_group_sort
+         )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23,$24)
+         ON CONFLICT (id) DO UPDATE SET
+           qty = EXCLUDED.qty, unit_price = EXCLUDED.unit_price,
+           bundle_id = EXCLUDED.bundle_id, is_bundle_header = EXCLUDED.is_bundle_header,
+           is_bundle_component = EXCLUDED.is_bundle_component,
+           component_group_key = EXCLUDED.component_group_key,
+           component_group_label = EXCLUDED.component_group_label,
+           component_group_sort = EXCLUDED.component_group_sort,
+           sort_order = EXCLUDED.sort_order,
+           updated_at = NOW()`,
         [
           row.id,
           row.project_id,
@@ -429,12 +503,25 @@ async function importSystemData(payload, { mode = 'merge', keepUserId = null } =
           row.is_custom,
           row.category_id,
           row.sort_order,
+          row.apply_adjustment !== false,
           uid(row.created_by) || null,
+          uid(row.updated_by) || null,
           row.created_at || new Date(),
           row.updated_at || new Date(),
+          bundleId,
+          row.is_bundle_header === true,
+          row.is_bundle_component === true,
+          row.component_group_key || null,
+          row.component_group_label || null,
+          row.component_group_sort != null ? row.component_group_sort : 0,
         ]
       );
       stats.projectItems++;
+    }
+
+    const projectIds = new Set((m.projectItems || []).map((r) => r.project_id).filter(Boolean));
+    for (const pid of projectIds) {
+      await resequenceProjectItems(client, pid);
     }
 
     for (const row of m.projectShares || []) {

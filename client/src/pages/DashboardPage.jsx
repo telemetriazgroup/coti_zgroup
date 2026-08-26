@@ -1,8 +1,10 @@
 import React, { useEffect, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { STATUS_LABEL } from '../lib/quotationStatus';
 import { SuperuserAnalyticsPanel } from '../components/SuperuserAnalyticsPanel';
+import { UserActivityPanel } from '../components/UserActivityPanel';
 
 function formatUsd(n) {
   if (n == null || Number.isNaN(n)) return '—';
@@ -66,10 +68,10 @@ export function DashboardPage() {
       </div>
       {(isAdminUser || isSuper) && (
         <div className="kpi-grid">
-          <div className="kpi-card">
+          <Link to="/projects" className="kpi-card kpi-card--link" title="Ir a la lista de proyectos">
             <div className="kpi-label mono">Proyectos (todos)</div>
             <div className="kpi-value">{summary != null ? summary.projectsActive : '—'}</div>
-          </div>
+          </Link>
           <div className="kpi-card">
             <div className="kpi-label mono">Clientes (CRM total)</div>
             <div className="kpi-value">{summary != null ? summary.clientsTotal : '—'}</div>
@@ -84,12 +86,12 @@ export function DashboardPage() {
       )}
       {scopedDash && (
         <div className="kpi-grid">
-          <div className="kpi-card">
+          <Link to="/projects" className="kpi-card kpi-card--link" title="Ir a la lista de proyectos">
             <div className="kpi-label mono">
               {hasRole('VIEWER') ? 'Proyectos (asignados)' : 'Proyectos (tuyos)'}
             </div>
             <div className="kpi-value">{summary != null ? summary.projectsActive : '—'}</div>
-          </div>
+          </Link>
           <div className="kpi-card">
             <div className="kpi-label mono">Clientes (en esos proyectos)</div>
             <div className="kpi-value">{summary != null ? summary.clientsInMyProjects : '—'}</div>
@@ -117,10 +119,10 @@ export function DashboardPage() {
               <div className="kpi-label mono">Pipeline (lista total)</div>
               <div className="kpi-value">{formatUsd(admin.pipelineTotal)}</div>
             </div>
-            <div className="kpi-card">
+            <Link to="/projects" className="kpi-card kpi-card--link" title="Ir a la lista de proyectos">
               <div className="kpi-label mono">Proyectos activos</div>
               <div className="kpi-value">{admin.projectsTotal}</div>
-            </div>
+            </Link>
             <div className="kpi-card">
               <div className="kpi-label mono">Ratio cierre (aceptados / total)</div>
               <div className="kpi-value">
@@ -200,6 +202,8 @@ export function DashboardPage() {
           </div>
         </>
       )}
+
+      {isSuper && <UserActivityPanel />}
 
       {isSuper && <SuperuserAnalyticsPanel />}
 
