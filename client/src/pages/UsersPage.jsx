@@ -39,7 +39,7 @@ const emptyCreate = {
 };
 
 export function UsersPage() {
-  const { hasRole, user: me, isSuperuser } = useAuth();
+  const { hasRole, user: me, isSuperuser, startImpersonation } = useAuth();
   const canImportExport = hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER');
   const canAssignRoles = hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER');
   const isCommercialOnly = me?.role === 'COMERCIAL';
@@ -377,6 +377,15 @@ export function UsersPage() {
                       <button type="button" className="btn-link mono" onClick={() => openEdit(row)}>
                         Editar
                       </button>
+                      {isSuperuser() && row.active && row.role !== 'SUPERUSER' && row.id !== me?.id && (
+                        <button
+                          type="button"
+                          className="btn-link mono"
+                          onClick={() => startImpersonation(row.id).catch((e) => setErr(e.message))}
+                        >
+                          Ver como
+                        </button>
+                      )}
                       {canResetPassword(row) && (
                         <button type="button" className="btn-link mono" onClick={() => resetPassword(row)}>
                           Reiniciar clave

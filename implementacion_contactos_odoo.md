@@ -446,7 +446,7 @@ El POST de proyecto **no** llama a Odoo. Si la proyección aún no corrió, `fro
 
 - Ver ficha: todos los roles que ya entran a Clientes.
 - Crear cliente **local**: solo **SUPERUSER**.
-- Editar / archivar / eliminar: **bloqueado** (`PUT` 403) hasta etapa 5 (Odoo.sh).
+- Editar / archivar / eliminar: habilitado en etapa 5 (outbox hacia staging).
 - Picker de proyecto: no crea locales (salvo SUPERUSER).
 
 **Hecho en repo**
@@ -479,6 +479,27 @@ Activar solo cuando el negocio necesite **alta de clientes desde Cotizaciones** 
 - Pull posterior no revierte el push (eco).
 
 **Criterio de salida:** round-trip create/edit estable en staging; outbox con reintentos y backoff.
+
+**Hecho en repo (prueba en staging, no production)**
+
+| Pieza | Ubicación |
+|---|---|
+| Tabla `odoo_outbox` + `clients.x_ztrack_uid` | `027_odoo_outbox.sql`, `schema.sql` |
+| Validación RUC PE / vals create-write | `partnerValidate.js` |
+| Worker outbox (`search` UUID → `create`; conflicto gana Odoo) | `pushPartners.js` + `odooSync.worker.js` (outbox corre con cron OFF) |
+| POST/PUT clientes encola, no llama XML-RPC en el request | `server/routes/clients.js` |
+| UI crear/editar + estado outbox | `ClientsPage.jsx`, `ClientOdooFicha.jsx` |
+
+**Cómo probar en staging**
+
+1. En el `.env` de Cotizaciones (Docker), poner `ODOO_URL` / `ODOO_DB` / `ODOO_API_KEY` del **Connect** de staging (`*.dev.odoo.com`), no `zgroup.odoo.com`.
+2. `ODOO_SYNC_ENABLED=0` (el outbox igual procesa cada 5 s). Contra `zgroup.odoo.com` el POST/PUT responde `ODOO_WRITE_BLOCKED` a propósito.
+3. Rebuild: `docker compose build app && docker compose up -d app`.
+4. Crear un cliente de prueba (RUC válido o vacío) → debe aparecer en Contactos de staging con `x_ztrack_uid`.
+5. Editar razón social → se refleja en Odoo. Si alguien editó el mismo contacto en Odoo antes, el outbox marca `conflicto` y gana Odoo.
+6. Reintento de create con el mismo UUID no duplica (el worker hace `search` primero).
+
+No dejar el `.env` apuntando a staging después de la prueba si el día a día del picker debe seguir leyendo production.
 
 ---
 
@@ -568,14 +589,14 @@ Las etapas 0–3 son bloqueantes: sin conexión validada y sin caché, no se eng
 - [ ] Crear usuario de integración en Odoo + API key *(ops, no código)*
 - [x] Cliente RPC con timeouts, reintentos y circuit breaker *(etapa 0: código; falta probe verde)*
 - [x] `fields_get` y whitelist congelada en código (`partnerFields.js`); inventario real al correr el probe
-- [ ] Instalar módulo mínimo (`x_ztrack_uid` + índice en `write_date`) — etapa 1 *(código en `odoo_addons/zgroup_partner_ext`; falta instalarlo en staging Odoo.sh)*
+- [x] Instalar módulo mínimo (`x_ztrack_uid` + índice en `write_date`) — etapa 1 *(código en `odoo_addons/zgroup_partner_ext`; instalado en staging Odoo.sh; falta production)*
 - [x] Tablas `odoo_partners`, `odoo_sync_state`, `odoo_sync_locks` + columnas en `clients` — etapa 2
-- [ ] Tabla `odoo_outbox` — etapa 5
+- [x] Tabla `odoo_outbox` — etapa 5
 - [x] Worker de bajada: watermark + solape 2 min + paginación + upsert por `odoo_id`
 - [x] Lock y debounce del botón manual
-- [ ] Worker de subida (etapa 5): outbox, UUID, eco
+- [x] Worker de subida (etapa 5): outbox, UUID, eco
 - [x] Job diario de reconciliación de borrados
-- [ ] Validaciones espejo en formulario (etapa 5)
-- [ ] Mapeo de `Fault` a mensajes legibles
+- [x] Validaciones espejo en formulario (etapa 5)
+- [x] Mapeo de `Fault` a mensajes legibles
 - [x] Endpoint de salud + alertas
 - [x] **Extra de este producto:** `ClientPicker` no llama a Odoo; `projects.client_id` vinculado a `clients.odoo_id`; typeahead con >10k contactos

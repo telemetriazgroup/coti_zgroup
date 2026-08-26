@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
+import { ImpersonationBanner } from '../components/ImpersonationBanner';
 
 const LS_SIDEBAR = 'zgroup_sidebar_open';
 const LS_THEME = 'zgroup-theme';
@@ -13,7 +14,7 @@ function readSidebarOpenDesktop() {
 
 export function AppShell() {
   const location = useLocation();
-  const { user, logout, hasRole, isAdmin, isSuperuser } = useAuth();
+  const { user, logout, hasRole, isAdmin, isSuperuser, isImpersonating } = useAuth();
   const prevFocusRef = useRef(false);
 
   const isProjectFocus = /^\/projects\/[^/]+\/(presupuesto|planos)$/.test(location.pathname);
@@ -112,10 +113,12 @@ export function AppShell() {
   const navClass =
     'app-layout' +
     (sidebarOpen ? ' app-layout--sidebar-open' : '') +
-    (isProjectFocus ? ' app-layout--project-focus' : '');
+    (isProjectFocus ? ' app-layout--project-focus' : '') +
+    (isImpersonating ? ' app-layout--impersonating' : '');
 
   return (
     <div className={navClass}>
+      <ImpersonationBanner />
       {isProjectFocus && !sidebarOpen && (
         <button
           type="button"
@@ -217,6 +220,17 @@ export function AppShell() {
                   <path d="M12 2l3 7h7l-5.5 4 2 7L12 16l-6.5 4 2-7L2 9h7z" />
                 </svg>
                 Sistema / Backup
+              </NavLink>
+              <NavLink
+                to="/superusuario/virtualizar"
+                className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')}
+                onClick={closeSidebarMobile}
+              >
+                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                  <path d="M20 21v-2a4 4 0 00-4-4H8a4 4 0 00-4 4v2M12 11a4 4 0 100-8 4 4 0 000 8z" />
+                  <path d="M16 3.13a4 4 0 010 7.75" />
+                </svg>
+                Virtualizar usuario
               </NavLink>
               <NavLink
                 to="/superusuario/datos"

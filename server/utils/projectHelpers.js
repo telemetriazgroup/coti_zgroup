@@ -32,6 +32,19 @@ function mapProject(row, viewerId, viewerRole) {
     (viewerRole === 'ADMIN' && isTeam === true) ||
     (viewerRole === 'SEMIADMIN' && isTeam === true);
 
+  const canEditKits =
+    viewerRole === 'SUPERUSER' ||
+    viewerRole === 'ADMIN' ||
+    viewerRole === 'SEMIADMIN' ||
+    isOwner === true;
+
+  const canClone =
+    viewerRole === 'SUPERUSER' ||
+    viewerRole === 'ADMIN' ||
+    viewerRole === 'SEMIADMIN' ||
+    isOwner === true ||
+    isShared === true;
+
   return {
     id: row.id,
     nombre: row.nombre,
@@ -64,6 +77,8 @@ function mapProject(row, viewerId, viewerRole) {
     sharedByName: row.shared_by_name || null,
     shareCount: row.share_count != null ? Number(row.share_count) : undefined,
     canEditMetadata,
+    canEditKits,
+    canClone,
     canViewAudit: viewerRole === 'SUPERUSER',
   };
 }

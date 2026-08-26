@@ -3,6 +3,7 @@ class CircuitOpenError extends Error {
     const ms = Math.max(0, openUntil - Date.now());
     super(`Circuito Odoo abierto; reintentar en ${Math.ceil(ms / 1000)}s`);
     this.name = 'CircuitOpenError';
+    this.code = 'CIRCUIT_OPEN';
     this.openUntil = openUntil;
   }
 }

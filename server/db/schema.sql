@@ -141,12 +141,15 @@ CREATE TABLE refresh_tokens (
   created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   revoked_at  TIMESTAMPTZ,
   ip_address  VARCHAR(45),
-  user_agent  TEXT
+  user_agent  TEXT,
+  impersonate_user_id UUID REFERENCES users(id) ON DELETE SET NULL
 );
 
 CREATE INDEX idx_refresh_tokens_user_id ON refresh_tokens(user_id);
 CREATE INDEX idx_refresh_tokens_token_hash ON refresh_tokens(token_hash);
 CREATE INDEX idx_refresh_tokens_expires_at ON refresh_tokens(expires_at);
+CREATE INDEX idx_refresh_tokens_impersonate ON refresh_tokens (impersonate_user_id)
+  WHERE impersonate_user_id IS NOT NULL;
 
 -- ─── LOGIN LOCKOUTS (por email, no por IP) ─────────────────────
 
@@ -183,7 +186,8 @@ CREATE TABLE clients (
   odoo_contact_id   INTEGER,
   sync_origin       VARCHAR(16) NOT NULL DEFAULT 'local'
                     CHECK (sync_origin IN ('local', 'odoo', 'linked')),
-  odoo_write_date   TIMESTAMPTZ
+  odoo_write_date   TIMESTAMPTZ,
+  x_ztrack_uid      UUID
 );
 
 CREATE INDEX idx_clients_active ON clients(active);
@@ -192,6 +196,7 @@ CREATE INDEX idx_clients_ruc ON clients(ruc);
 CREATE INDEX idx_clients_created_by ON clients(created_by);
 CREATE INDEX idx_clients_odoo_id ON clients(odoo_id);
 CREATE INDEX idx_clients_sync_origin ON clients(sync_origin);
+CREATE UNIQUE INDEX idx_clients_x_ztrack_uid ON clients (x_ztrack_uid) WHERE x_ztrack_uid IS NOT NULL;
 
 CREATE TABLE client_change_log (
   id             UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -269,6 +274,29 @@ CREATE TABLE odoo_sync_locks (
   holder      VARCHAR(80),
   expires_at  TIMESTAMPTZ NOT NULL
 );
+
+-- Outbox de escritura hacia Odoo (etapa 5). El POST HTTP no llama a XML-RPC.
+CREATE TABLE odoo_outbox (
+  id                  UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  op                  VARCHAR(16) NOT NULL CHECK (op IN ('create', 'write')),
+  client_id           UUID REFERENCES clients(id) ON DELETE SET NULL,
+  odoo_id             INTEGER,
+  x_ztrack_uid        UUID NOT NULL,
+  payload             JSONB NOT NULL DEFAULT '{}'::jsonb,
+  expected_write_date TIMESTAMPTZ,
+  attempts            INTEGER NOT NULL DEFAULT 0,
+  next_attempt_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  status              VARCHAR(16) NOT NULL DEFAULT 'pendiente'
+                      CHECK (status IN ('pendiente', 'enviado', 'fallido', 'conflicto')),
+  last_error          TEXT,
+  actor_id            UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_odoo_outbox_status_next ON odoo_outbox (status, next_attempt_at);
+CREATE INDEX idx_odoo_outbox_client ON odoo_outbox (client_id);
+CREATE INDEX idx_odoo_outbox_uid ON odoo_outbox (x_ztrack_uid);
 
 -- ─── PROJECTS ──────────────────────────────────────────────────
 

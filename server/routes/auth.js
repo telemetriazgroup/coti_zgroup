@@ -11,11 +11,14 @@ const {
 } = require('../middleware/auth');
 const { mapAuthUser, AUTH_USER_SELECT } = require('../lib/userProfile');
 const {
-  checkLoginLockout,
-  recordFailedLogin,
-  clearLoginLockout,
-  normalizeLoginEmail,
-} = require('../lib/loginLockout');
+  loadUserRow,
+  loadActiveRefresh,
+  sessionUserPayload,
+  signSessionAccess,
+  assertCanImpersonate,
+  listImpersonationCandidates,
+  setImpersonation,
+} = require('../lib/impersonation');
 
 const router = express.Router();
 
@@ -37,7 +40,7 @@ async function resolveRefresh(req) {
   const tokenHash = crypto.createHash('sha256').update(refreshToken).digest('hex');
 
   const { rows } = await pool.query(
-    `SELECT rt.id, ${AUTH_USER_SELECT.replace(/\n/g, ' ')}
+    `SELECT rt.id, rt.user_id, rt.impersonate_user_id, ${AUTH_USER_SELECT.replace(/\n/g, ' ')}
      FROM refresh_tokens rt
      JOIN users u ON u.id = rt.user_id
      LEFT JOIN employees e ON e.user_id = u.id
@@ -51,18 +54,24 @@ async function resolveRefresh(req) {
     return { ok: false, err: 'SESSION_EXPIRED' };
   }
 
-  const user = rows[0];
-  const accessToken = signAccessToken({
-    id: user.id,
-    email: user.email,
-    role: user.role,
-  });
+  const owner = rows[0];
+  let effective = owner;
+  if (owner.impersonate_user_id) {
+    const target = await loadUserRow(owner.impersonate_user_id);
+    if (target && target.active) {
+      effective = target;
+    } else {
+      await setImpersonation(tokenHash, null);
+    }
+  }
+
+  const accessToken = signSessionAccess(effective, owner);
 
   return {
     ok: true,
     data: {
       accessToken,
-      user: mapAuthUser(user),
+      user: sessionUserPayload(effective, owner),
     },
   };
 }
@@ -250,6 +259,86 @@ router.post('/logout', requireAuth, async (req, res) => {
   return res.json({ success: true, data: { message: 'Sesión cerrada correctamente' } });
 });
 
+async function requireSuperuserRefresh(req, res) {
+  const session = await loadActiveRefresh(req);
+  if (!session || session.owner.role !== 'SUPERUSER') {
+    res.status(403).json({
+      success: false,
+      error: { code: 'FORBIDDEN', message: 'Se requiere sesión de superadmin' },
+    });
+    return null;
+  }
+  return session;
+}
+
+// ─── GET /api/auth/impersonate/candidates ───────────────────────
+router.get('/impersonate/candidates', requireAuth, async (req, res) => {
+  try {
+    const session = await requireSuperuserRefresh(req, res);
+    if (!session) return;
+    const data = await listImpersonationCandidates(session.owner.id);
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[AUTH] impersonate candidates:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/auth/impersonate ─────────────────────────────────
+router.post('/impersonate', requireAuth, async (req, res) => {
+  try {
+    const session = await requireSuperuserRefresh(req, res);
+    if (!session) return;
+    const targetId = req.body?.userId;
+    if (!targetId) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: 'userId requerido' },
+      });
+    }
+    const target = await loadUserRow(targetId);
+    assertCanImpersonate(session.owner, target);
+    await setImpersonation(session.tokenHash, target.id);
+    const accessToken = signSessionAccess(target, session.owner);
+    return res.json({
+      success: true,
+      data: {
+        accessToken,
+        user: sessionUserPayload(target, session.owner),
+      },
+    });
+  } catch (err) {
+    if (err.status) {
+      return res.status(err.status).json({
+        success: false,
+        error: { code: err.code || 'FORBIDDEN', message: err.message },
+      });
+    }
+    console.error('[AUTH] impersonate:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/auth/impersonate/stop ────────────────────────────
+router.post('/impersonate/stop', requireAuth, async (req, res) => {
+  try {
+    const session = await requireSuperuserRefresh(req, res);
+    if (!session) return;
+    await setImpersonation(session.tokenHash, null);
+    const accessToken = signSessionAccess(session.owner, session.owner);
+    return res.json({
+      success: true,
+      data: {
+        accessToken,
+        user: sessionUserPayload(session.owner, session.owner),
+      },
+    });
+  } catch (err) {
+    console.error('[AUTH] impersonate stop:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
 // ─── GET /api/auth/me ───────────────────────────────────────────
 router.get('/me', requireAuth, async (req, res) => {
   try {
@@ -292,6 +381,15 @@ router.put('/me', requireAuth, async (req, res) => {
   const { nombres, apellidos, cargo, telefono, dni } = req.body || {};
 
   try {
+    if (req.impersonator) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'IMPERSONATING',
+          message: 'No se puede editar el perfil mientras virtualiza a otro usuario',
+        },
+      });
+    }
     const { rows: emp } = await pool.query(`SELECT user_id FROM employees WHERE user_id = $1`, [req.user.id]);
 
     if (emp.length) {
@@ -380,6 +478,15 @@ router.put(
     }
 
     const { currentPassword, newPassword } = req.body;
+    if (req.impersonator) {
+      return res.status(403).json({
+        success: false,
+        error: {
+          code: 'IMPERSONATING',
+          message: 'No se puede cambiar la contraseña mientras virtualiza a otro usuario',
+        },
+      });
+    }
     if (currentPassword === newPassword) {
       return res.status(400).json({
         success: false,

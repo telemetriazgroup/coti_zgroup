@@ -84,6 +84,29 @@ export function AuthProvider({ children }) {
     });
   }, []);
 
+  const applySessionUser = useCallback((data) => {
+    if (data?.accessToken) setToken(data.accessToken);
+    if (data?.user) {
+      setUser(data.user);
+      window.dispatchEvent(new CustomEvent('zgroup:user-updated', { detail: data.user }));
+    }
+  }, []);
+
+  const startImpersonation = useCallback(
+    async (userId) => {
+      const data = await api.post('/api/auth/impersonate', { userId });
+      applySessionUser(data);
+      navigate('/dashboard', { replace: true });
+    },
+    [applySessionUser, navigate]
+  );
+
+  const stopImpersonation = useCallback(async () => {
+    const data = await api.post('/api/auth/impersonate/stop', {});
+    applySessionUser(data);
+    navigate('/superusuario/virtualizar', { replace: true });
+  }, [applySessionUser, navigate]);
+
   const value = useMemo(
     () => ({
       user,
@@ -91,6 +114,9 @@ export function AuthProvider({ children }) {
       login,
       logout,
       refreshProfile,
+      startImpersonation,
+      stopImpersonation,
+      isImpersonating: Boolean(user?.impersonator),
       hasRole: (...roles) => user && roles.includes(user.role),
       isSuperuser: () => checkSuperuser(user),
       isAdmin: () => checkAdmin(user),
@@ -100,7 +126,7 @@ export function AuthProvider({ children }) {
       canViewArchivedProjects: () => checkCanViewArchivedProjects(user),
       canViewInactiveCatalog: () => checkCanViewInactiveCatalog(user),
     }),
-    [user, ready, login, logout, refreshProfile]
+    [user, ready, login, logout, refreshProfile, startImpersonation, stopImpersonation]
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;

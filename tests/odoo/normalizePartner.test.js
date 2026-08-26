@@ -31,8 +31,20 @@ describe('odoo normalizePartner', () => {
     assert.strictEqual(n.vat, '20123456789');
     assert.strictEqual(n.customerRank, 0);
     assert.strictEqual(n.supplierRank, 0);
-    assert.strictEqual(n.writeDate, '2026-08-18T14:03:22Z');
+    assert.strictEqual(n.writeDate, '2026-08-18T14:03:22.000Z');
     assert.deepStrictEqual(n.categoryIds, [4]);
+  });
+
+  it('mapea x_ztrack_uid y False → null', () => {
+    const n = normalizePartner({
+      id: 11,
+      name: 'ACME',
+      x_ztrack_uid: 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee',
+      write_date: false,
+    });
+    assert.strictEqual(n.xZtrackUid, 'aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee');
+    const empty = normalizePartner({ id: 12, name: 'X', x_ztrack_uid: false });
+    assert.strictEqual(empty.xZtrackUid, null);
   });
 
   it('many2one [id, name] y contacto hijo', () => {
@@ -55,9 +67,30 @@ describe('odoo normalizePartner', () => {
     assert.deepStrictEqual(n.categoryIds, []);
   });
 
+  it('mapea Ficha RUC SUNAT y vendedor', () => {
+    const n = normalizePartner({
+      id: 5,
+      name: 'DICORLASER E.I.R.L.',
+      taxpayer_state: 'BAJA DE OFICIO',
+      taxpayer_condition: 'NO HABIDO',
+      good_taxpayer: false,
+      agent_retention: false,
+      foreign_trade_activity: 'IMPORTADOR',
+      user_id: [8, 'Ana Pérez'],
+      property_product_pricelist: [1, 'Public Pricelist (PEN)'],
+    });
+    assert.strictEqual(n.taxpayerState, 'BAJA DE OFICIO');
+    assert.strictEqual(n.taxpayerCondition, 'NO HABIDO');
+    assert.strictEqual(n.goodTaxpayer, false);
+    assert.strictEqual(n.foreignTradeActivity, 'IMPORTADOR');
+    assert.deepStrictEqual(n.salesperson, { id: 8, name: 'Ana Pérez' });
+    assert.strictEqual(n.pricelist.name, 'Public Pricelist (PEN)');
+  });
+
   it('datetime naive UTC', () => {
     assert.strictEqual(odooDatetimeToIso(false), null);
-    assert.strictEqual(odooDatetimeToIso('2026-08-18 14:03:22'), '2026-08-18T14:03:22Z');
+    assert.strictEqual(odooDatetimeToIso('2026-08-18 14:03:22'), '2026-08-18T14:03:22.000Z');
+    assert.strictEqual(odooDatetimeToIso('2026-08-18T20:32:44'), '2026-08-18T20:32:44.000Z');
   });
 
   it('resuelve ids de etiquetas Cliente / Proveedor / Contacto', () => {

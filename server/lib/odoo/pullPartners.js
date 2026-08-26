@@ -7,7 +7,7 @@ const { pool } = require('../../config/db');
 const { createOdooClient } = require('./xmlrpcClient');
 const { loadOdooConfig, isOdooConfigured } = require('./config');
 const { normalizePartner } = require('./normalizePartner');
-const { PARTNER_FIELDS, PARTNER_FIELDS_OPTIONAL_PE } = require('./partnerFields');
+const { PARTNER_FIELDS, PARTNER_FIELDS_OPTIONAL_PE, X_ZTRACK_UID_FIELD } = require('./partnerFields');
 const { SYNC_MODEL_PARTNER, SYNC_STATUS, mapSyncStateRow } = require('./syncStatus');
 const { tryAcquireLock, releaseLock } = require('./syncLock');
 const { projectEligibleClients, projectionCounts } = require('./projectClients');
@@ -27,9 +27,51 @@ const SEARCH_CONTEXT = Object.freeze({
   active_test: false,
   bin_size: true,
   lang: 'es_PE',
+  tz: 'UTC',
 });
 
-const SEARCH_FIELDS = [...PARTNER_FIELDS, ...PARTNER_FIELDS_OPTIONAL_PE];
+const SEARCH_FIELDS_BASE = [...PARTNER_FIELDS, ...PARTNER_FIELDS_OPTIONAL_PE];
+let searchFieldsCached = null;
+
+function getSearchFields() {
+  return searchFieldsCached || [...SEARCH_FIELDS_BASE, X_ZTRACK_UID_FIELD];
+}
+
+function isUnknownZtrackField(err) {
+  const s = String((err && (err.faultString || err.message)) || '');
+  return /x_ztrack_uid/i.test(s);
+}
+
+function isUnknownFieldFault(err) {
+  const s = String((err && (err.faultString || err.message)) || '');
+  return /Invalid field|does not exist|unknown field/i.test(s);
+}
+
+function fieldNameFromFault(err) {
+  const s = String((err && (err.faultString || err.message)) || '');
+  const m = s.match(/Invalid field ['"]([^'"]+)['"]/i) || s.match(/field ['"]([^'"]+)['"]/i);
+  return m ? m[1] : null;
+}
+
+async function searchReadPartners(uid, client, domain, extraKw) {
+  const fields = getSearchFields();
+  try {
+    return await client.executeKw(uid, 'res.partner', 'search_read', [domain], { ...extraKw, fields });
+  } catch (err) {
+    if (fields.includes(X_ZTRACK_UID_FIELD) && isUnknownZtrackField(err)) {
+      searchFieldsCached = fields.filter((f) => f !== X_ZTRACK_UID_FIELD);
+      console.warn('[ODOO PULL] x_ztrack_uid ausente en este Odoo; pull sin el campo');
+      return searchReadPartners(uid, client, domain, extraKw);
+    }
+    const missing = fieldNameFromFault(err);
+    if (isUnknownFieldFault(err) && missing && fields.includes(missing) && fields.length > PARTNER_FIELDS.length) {
+      searchFieldsCached = fields.filter((f) => f !== missing);
+      console.warn('[ODOO PULL] campo omitido', missing);
+      return searchReadPartners(uid, client, domain, extraKw);
+    }
+    throw err;
+  }
+}
 
 let sharedClient = null;
 
@@ -69,10 +111,17 @@ async function saveSyncState(patch) {
   );
 }
 
+function asUuid(v) {
+  if (v == null) return null;
+  const s = String(v).trim();
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) ? s : null;
+}
+
 function rowFromNormalized(norm, raw) {
   const writeDate = parseOdooWriteDate(raw.write_date) || (norm.writeDate ? new Date(norm.writeDate) : null);
   return {
     odooId: norm.odooId,
+    xZtrackUid: asUuid(norm.xZtrackUid),
     name: norm.name,
     displayName: norm.displayName,
     vat: norm.vat,
@@ -106,15 +155,16 @@ async function upsertBatch(rows, echoById) {
     const existed = echoById.has(`id:${row.odooId}`);
     await pool.query(
       `INSERT INTO odoo_partners (
-         odoo_id, raw, name, display_name, vat, email, phone, mobile, city,
+         odoo_id, x_ztrack_uid, raw, name, display_name, vat, email, phone, mobile, city,
          is_company, parent_odoo_id, type, active, customer_rank, supplier_rank,
          category_ids, odoo_write_date, sync_status
        ) VALUES (
-         $1, $2::jsonb, $3, $4, $5, $6, $7, $8, $9,
-         $10, $11, $12, $13, $14, $15,
-         $16::int[], $17, $18
+         $1, $2, $3::jsonb, $4, $5, $6, $7, $8, $9, $10,
+         $11, $12, $13, $14, $15, $16,
+         $17::int[], $18, $19
        )
        ON CONFLICT (odoo_id) DO UPDATE SET
+         x_ztrack_uid = COALESCE(EXCLUDED.x_ztrack_uid, odoo_partners.x_ztrack_uid),
          raw = EXCLUDED.raw,
          name = EXCLUDED.name,
          display_name = EXCLUDED.display_name,
@@ -137,6 +187,7 @@ async function upsertBatch(rows, echoById) {
          END`,
       [
         row.odooId,
+        row.xZtrackUid,
         JSON.stringify(row.raw),
         row.name,
         row.displayName,
@@ -214,8 +265,7 @@ async function runIncrementalPull(opts = {}) {
 
     let offset = 0;
     for (;;) {
-      const { result } = await client.executeKw(uid, 'res.partner', 'search_read', [domain], {
-        fields: SEARCH_FIELDS,
+      const { result } = await searchReadPartners(uid, client, domain, {
         limit: BATCH_SIZE,
         offset,
         order: 'write_date asc, id asc',
@@ -372,7 +422,17 @@ async function getSyncHealth() {
     },
     watermarkAgeMs,
     stale: watermarkAgeMs != null && watermarkAgeMs > 45 * 60 * 1000,
+    outbox: await loadOutboxCounts(),
   };
+}
+
+async function loadOutboxCounts() {
+  try {
+    const { outboxCounts } = require('./pushPartners');
+    return await outboxCounts();
+  } catch {
+    return { pending: 0, failed: 0, conflict: 0 };
+  }
 }
 
 function many2oneId(v) {
@@ -402,14 +462,12 @@ async function lookupPartnersByQuery(q) {
 
   const client = getClient();
   const { uid } = await client.authenticate();
-  const kwOpts = {
-    fields: SEARCH_FIELDS,
+  const { result } = await searchReadPartners(uid, client, domain, {
     limit: 40,
     offset: 0,
     order: 'is_company desc, name asc',
-    context: { active_test: false, bin_size: true, lang: 'es_PE' },
-  };
-  const { result } = await client.executeKw(uid, 'res.partner', 'search_read', [domain], kwOpts);
+    context: SEARCH_CONTEXT,
+  });
   const lote = Array.isArray(result) ? result : [];
   const byId = new Map();
   for (const raw of lote) {
@@ -423,12 +481,11 @@ async function lookupPartnersByQuery(q) {
     if (pid && !byId.has(pid)) missingParents.push(pid);
   }
   if (missingParents.length) {
-    const { result: parents } = await client.executeKw(
+    const { result: parents } = await searchReadPartners(
       uid,
-      'res.partner',
-      'search_read',
-      [[['id', 'in', [...new Set(missingParents)]]]],
-      { ...kwOpts, limit: 40, order: 'id asc' }
+      client,
+      [['id', 'in', [...new Set(missingParents)]]],
+      { limit: 40, order: 'id asc', context: SEARCH_CONTEXT }
     );
     for (const raw of Array.isArray(parents) ? parents : []) {
       const id = Number(raw.id);

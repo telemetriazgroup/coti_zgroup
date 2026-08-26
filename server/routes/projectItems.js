@@ -5,7 +5,7 @@ const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
-const { canReadProject, canWriteProject } = require('../utils/projectAccess');
+const { canReadProject, canWriteProject, canEditProjectKits } = require('../utils/projectAccess');
 const { isSuperuser } = require('../utils/userRoles');
 const { loadShareContext } = require('../utils/projectShare');
 const {
@@ -1072,8 +1072,11 @@ router.post(
     try {
       const project = await loadProject(req, res, req.params.id);
       if (!project) return;
-      if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
-        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      if (!canEditProjectKits(req.user, project, await loadShareContext(req.user, project))) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Solo el dueño o un administrador pueden agregar kits' },
+        });
       }
       if (project.deleted_at) {
         return res
@@ -1196,8 +1199,11 @@ router.put(
     try {
       const project = await loadProject(req, res, req.params.id);
       if (!project) return;
-      if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
-        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      if (!canEditProjectKits(req.user, project, await loadShareContext(req.user, project))) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Solo el dueño o un administrador pueden modificar kits' },
+        });
       }
       if (project.deleted_at) {
         return res
@@ -1326,6 +1332,16 @@ router.put(
         });
       }
 
+      if (
+        cur[0].is_bundle_header &&
+        !canEditProjectKits(req.user, project, await loadShareContext(req.user, project))
+      ) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Solo el dueño o un administrador pueden modificar kits' },
+        });
+      }
+
       const prevSnap = mapItem(cur[0]);
       const nextQty = qty != null ? Number(qty) : Number(cur[0].qty);
       const nextPrice = unitPrice != null ? Number(unitPrice) : Number(cur[0].unit_price);
@@ -1421,6 +1437,12 @@ router.delete('/:id/items/:itemId', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL
     const prevSnap = mapItem(cur[0]);
 
     if (cur[0].bundle_id) {
+      if (!canEditProjectKits(req.user, project, await loadShareContext(req.user, project))) {
+        return res.status(403).json({
+          success: false,
+          error: { code: 'FORBIDDEN', message: 'Solo el dueño o un administrador pueden quitar kits' },
+        });
+      }
       await pool.query(`DELETE FROM project_item_bundles WHERE id = $1 AND project_id = $2`, [
         cur[0].bundle_id,
         req.params.id,

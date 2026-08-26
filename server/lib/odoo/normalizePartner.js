@@ -10,17 +10,12 @@ function isOdooFalse(v) {
   return v === false;
 }
 
+const { parseOdooWriteDate } = require('./pullHelpers');
+
 function odooDatetimeToIso(raw) {
   if (raw == null || isOdooFalse(raw)) return null;
-  const s = String(raw).trim();
-  if (!s) return null;
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
-    return `${s.replace(' ', 'T')}Z`;
-  }
-  if (/^\d{4}-\d{2}-\d{2}T/.test(s)) {
-    return s.endsWith('Z') ? s : `${s}Z`;
-  }
-  return s;
+  const d = parseOdooWriteDate(raw);
+  return d ? d.toISOString() : null;
 }
 
 function normalizeMany2one(v) {
@@ -85,6 +80,27 @@ function normalizePartner(raw) {
     supplierRank: isOdooFalse(src.supplier_rank) ? 0 : Number(src.supplier_rank) || 0,
     createDate: odooDatetimeToIso(src.create_date),
     writeDate: odooDatetimeToIso(src.write_date),
+    xZtrackUid: normalizeScalar(src.x_ztrack_uid),
+    taxpayerState: normalizeScalar(src.taxpayer_state),
+    taxpayerCondition: normalizeScalar(src.taxpayer_condition),
+    agentRetention: src.agent_retention === true,
+    affectionNewRus: src.affection_new_rus === true,
+    agentPerception: src.agent_perception === true,
+    hydrocarbonPerceptionAgent: src.hydrocarbon_perception_agent === true,
+    goodTaxpayer: src.good_taxpayer === true,
+    foreignTradeActivity: normalizeScalar(src.foreign_trade_activity),
+    mtcNumber: normalizeScalar(src.l10n_pe_edi_mtc_number),
+    authorizationEntity: normalizeScalar(src.l10n_pe_edi_authorization_issuing_entity),
+    authorizationNumber: normalizeScalar(src.l10n_pe_edi_authorization_number),
+    isRetentionAgent: src.l10n_pe_is_retention_agent === true,
+    latitude: isOdooFalse(src.partner_latitude) ? null : src.partner_latitude,
+    longitude: isOdooFalse(src.partner_longitude) ? null : src.partner_longitude,
+    salesperson: normalizeMany2one(src.user_id),
+    pricelist: normalizeMany2one(src.property_product_pricelist),
+    fiscalPosition: normalizeMany2one(src.property_account_position_id),
+    paymentTerm: normalizeMany2one(src.property_payment_term_id),
+    industry: normalizeMany2one(src.industry_id),
+    invoiceWarn: normalizeScalar(src.invoice_warn),
   };
 }
 

@@ -590,11 +590,24 @@ async function fetchClientRow(id) {
         op.category_ids,
         op.parent_odoo_id AS partner_parent_id,
         parent.name AS parent_name,
+        ox.op AS outbox_op,
+        ox.status AS outbox_status,
+        ox.last_error AS outbox_last_error,
+        ox.attempts AS outbox_attempts,
+        ox.next_attempt_at AS outbox_next_attempt,
+        ox.created_at AS outbox_at,
         (SELECT COUNT(*)::int FROM projects p
          WHERE p.client_id = c.id AND p.deleted_at IS NULL) AS project_count
      FROM clients c
      LEFT JOIN odoo_partners op ON op.odoo_id = c.odoo_id
      LEFT JOIN odoo_partners parent ON parent.odoo_id = COALESCE(c.odoo_parent_id, op.parent_odoo_id)
+     LEFT JOIN LATERAL (
+       SELECT o.op, o.status, o.last_error, o.attempts, o.next_attempt_at, o.created_at
+         FROM odoo_outbox o
+        WHERE o.client_id = c.id
+        ORDER BY o.created_at DESC
+        LIMIT 1
+     ) ox ON true
      WHERE c.id = $1`,
     [id]
   );

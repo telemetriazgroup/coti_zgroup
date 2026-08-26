@@ -38,10 +38,29 @@ const PARTNER_FIELDS = Object.freeze([
   'write_date',
 ]);
 
-/** Localización LATAM / Perú: presentes o no según módulos instalados. */
+/** Localización LATAM / Perú / Ficha RUC SUNAT: se omiten si el search_read falla. */
 const PARTNER_FIELDS_OPTIONAL_PE = Object.freeze([
   'l10n_latam_identification_type_id',
   'l10n_pe_district',
+  'agent_retention',
+  'affection_new_rus',
+  'agent_perception',
+  'hydrocarbon_perception_agent',
+  'good_taxpayer',
+  'foreign_trade_activity',
+  'taxpayer_condition',
+  'taxpayer_state',
+  'l10n_pe_edi_mtc_number',
+  'l10n_pe_edi_authorization_issuing_entity',
+  'l10n_pe_edi_authorization_number',
+  'l10n_pe_is_retention_agent',
+  'partner_latitude',
+  'partner_longitude',
+  'property_product_pricelist',
+  'property_account_position_id',
+  'property_payment_term_id',
+  'invoice_warn',
+  'industry_id',
 ]);
 
 const FIELDS_GET_ATTRIBUTES = Object.freeze(['string', 'type', 'required', 'relation', 'store']);

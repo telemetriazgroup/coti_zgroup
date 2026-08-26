@@ -102,6 +102,8 @@ export function ProjectBudgetPage() {
 
   const [project, setProject] = useState(null);
   const [projectStatus, setProjectStatus] = useState(null);
+  const canEditKits = Boolean(project?.canEditKits) && !viewerMode;
+  const canDuplicateProject = Boolean(project?.canClone) && !viewerMode;
   const [items, setItems] = useState([]);
   const [totals, setTotals] = useState({
     activos: 0,
@@ -521,7 +523,6 @@ export function ProjectBudgetPage() {
   }
 
   async function addFromCatalog(catalogItem) {
-    if (!canWrite) return;
     setErr(null);
     const qty = parseFloat(String(addQty).replace(',', '.')) || 1;
     const o = addPriceOverride.trim();
@@ -537,6 +538,10 @@ export function ProjectBudgetPage() {
 
     try {
       if (isKitProduct) {
+        if (!canEditKits) {
+          setErr('En un proyecto compartido solo el dueño o un administrador pueden agregar o editar kits. Duplique el proyecto para hacer pruebas.');
+          return;
+        }
         const [template, labelData] = await Promise.all([
           api.get(`/api/catalog/items/${catalogItem.id}/kit-template?qty=${qty}`),
           api.get(`/api/projects/${projectId}/bundles/next-label?catalogItemId=${catalogItem.id}`),
@@ -548,6 +553,7 @@ export function ProjectBudgetPage() {
         setKitModal({ template, suggestedLabel: labelData.label });
         return;
       }
+      if (!canWrite) return;
       if (hasDeps) {
         const bundle = await api.get(`/api/catalog/items/${catalogItem.id}/dependency-bundle?qty=${qty}`);
         if (!bundle?.lines?.length) {
@@ -566,7 +572,7 @@ export function ProjectBudgetPage() {
   }
 
   async function confirmKitAdd(payload) {
-    if (!canWrite || !kitModal) return;
+    if (!canEditKits || !kitModal) return;
     setKitAddBusy(true);
     setErr(null);
     try {
@@ -600,7 +606,7 @@ export function ProjectBudgetPage() {
   }
 
   async function openEditKitBundle(row) {
-    if (!canWrite || !row.bundleId) return;
+    if (!canEditKits || !row.bundleId) return;
     setErr(null);
     try {
       const data = await api.get(`/api/projects/${projectId}/bundles/${row.bundleId}`);
@@ -1033,7 +1039,7 @@ export function ProjectBudgetPage() {
 
   async function submitDuplicateProject(e) {
     e.preventDefault();
-    if (!canWrite || !projectId) return;
+    if (!canDuplicateProject || !projectId) return;
     if (!dupAllItems && dupItemIds.size === 0) {
       setErr('Seleccione al menos una partida o elija “Todas las partidas”.');
       return;
@@ -1146,30 +1152,34 @@ export function ProjectBudgetPage() {
             </select>
           </label>
         )}
-        {canWrite && (
+        {(canWrite || canDuplicateProject) && (
           <div className="budget-project-bar__actions">
-            {project?.canEditMetadata && (
+            {canWrite && project?.canEditMetadata && (
               <button type="button" className="btn btn-ghost" onClick={openEditProjectModal}>
                 Editar proyecto
               </button>
             )}
-            <button
-              type="button"
-              className="btn btn-ghost"
-              onClick={() => {
-                setNewProjectForm({
-                  nombre: '',
-                  odooRef: '',
-                  clientId: project?.clientId || '',
-                });
-                setModal('newProject');
-              }}
-            >
-              Nuevo proyecto
-            </button>
-            <button type="button" className="btn btn-ghost" onClick={openDuplicateModal}>
-              Duplicar / variante
-            </button>
+            {canWrite && (
+              <button
+                type="button"
+                className="btn btn-ghost"
+                onClick={() => {
+                  setNewProjectForm({
+                    nombre: '',
+                    odooRef: '',
+                    clientId: project?.clientId || '',
+                  });
+                  setModal('newProject');
+                }}
+              >
+                Nuevo proyecto
+              </button>
+            )}
+            {canDuplicateProject && (
+              <button type="button" className="btn btn-ghost" onClick={openDuplicateModal}>
+                Duplicar / variante
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1378,7 +1388,8 @@ export function ProjectBudgetPage() {
                     key={it.id}
                     type="button"
                     className="budget-cat-item"
-                    disabled={!canWrite}
+                    disabled={it.isKit ? !canEditKits : !canWrite}
+                    title={it.isKit && !canEditKits ? 'Kits: solo dueño o administrador. Duplique el proyecto para probar.' : undefined}
                     onClick={() => addFromCatalog(it)}
                   >
                     <div className="budget-cat-tags">
@@ -1504,7 +1515,7 @@ export function ProjectBudgetPage() {
                     const metaTitle = `Categoría: ${catLabel} · Tipo: ${tip} · Agregó: ${formatItemTraceUser(row.createdByName, row.createdByEmail)} · Editó: ${formatItemTraceUser(row.updatedByName, row.updatedByEmail)}`;
                     const isComponent = row.isBundleComponent;
                     const isHeader = row.isBundleHeader;
-                    const rowQtyEditable = canEditBudgetLines && !isComponent;
+                    const rowQtyEditable = canEditBudgetLines && !isComponent && !(isHeader && !canEditKits);
                     const rowPriceEditable = canEditUnitPrices && !isComponent && !isHeader;
                     const kitGroup = row.bundleId ? bundleGroupById.get(row.bundleId) : null;
                     const rowGroupClass = kitGroup
@@ -1529,7 +1540,7 @@ export function ProjectBudgetPage() {
                               KIT
                             </span>
                           )}
-                          {isHeader && canEditBudgetLines ? (
+                          {isHeader && canEditKits ? (
                             <button
                               type="button"
                               className="budget-kit-name-btn"
@@ -1705,7 +1716,7 @@ export function ProjectBudgetPage() {
                             <input
                               type="checkbox"
                               checked={row.applyAdjustment !== false}
-                              disabled={!canEditBudgetLines}
+                              disabled={!canEditBudgetLines || (isHeader && !canEditKits)}
                               onChange={(e) => toggleApplyAdjustment(row.id, e.target.checked)}
                               aria-label={`Ajuste partida ${row.codigo || nPart}`}
                             />
@@ -1715,7 +1726,7 @@ export function ProjectBudgetPage() {
                         )}
                         {canEditBudgetLines && (
                           <td className="actions-cell budget-actions-cell">
-                            {isHeader && (
+                            {isHeader && canEditKits && (
                               <button
                                 type="button"
                                 className="budget-row-edit-kit"
@@ -1741,7 +1752,7 @@ export function ProjectBudgetPage() {
                                 </svg>
                               </button>
                             )}
-                            {!isComponent && (
+                            {!isComponent && !(isHeader && !canEditKits) && (
                             <button
                               type="button"
                               className="budget-row-remove"
@@ -2132,7 +2143,7 @@ export function ProjectBudgetPage() {
         </Modal>
       )}
 
-      {modal === 'duplicateProject' && canWrite && (
+      {modal === 'duplicateProject' && canDuplicateProject && (
         <Modal
           title="Duplicar proyecto (variante)"
           lg
@@ -2149,8 +2160,8 @@ export function ProjectBudgetPage() {
           }
         >
           <p className="muted mono" style={{ fontSize: 12, marginBottom: 12 }}>
-            Se crea un proyecto en <strong>BORRADOR</strong> con los mismos parámetros financieros. Elija el cliente
-            destino (puede ser otro) y qué partidas copiar.
+            Se crea un proyecto en <strong>BORRADOR</strong> a su nombre, con otro título, para pruebas. Se copian
+            kits completos (conjuntos y componentes) y los parámetros financieros. El original no se modifica.
           </p>
           <form id="budget-dup-project-form" className="stack-form" onSubmit={submitDuplicateProject}>
             <label>

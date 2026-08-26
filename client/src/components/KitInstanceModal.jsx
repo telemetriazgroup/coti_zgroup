@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState, Fragment } from 'react';
 import { CatalogDependencyAddModal } from './CatalogDependencyAddModal';
 import { Modal } from './Modal';
 import { SearchableSelect } from './SearchableSelect';
@@ -103,21 +103,21 @@ export function KitInstanceModal({
 
   if (!open || !template) return null;
 
-  function lineKey(l) {
-    if (l.lineId) return l.lineId;
-    return `${l.catalogItemId}::${l.componentGroupKey || 'template'}::${l.componentGroupSort ?? 0}`;
+  function lineKey(l, idx) {
+    if (l.lineId) return `id:${l.lineId}`;
+    return `${l.catalogItemId}::${l.componentGroupKey || 'template'}::${l.componentGroupSort ?? 0}::${idx}`;
   }
 
   function toggleLine(key) {
     setPickErr(null);
     setLines((prev) =>
-      prev.map((l) => (lineKey(l) === key ? { ...l, included: !l.included } : l))
+      prev.map((l, i) => (lineKey(l, i) === key ? { ...l, included: !l.included } : l))
     );
   }
 
   function setLineQty(key, qty) {
     setPickErr(null);
-    setLines((prev) => prev.map((l) => (lineKey(l) === key ? { ...l, qty } : l)));
+    setLines((prev) => prev.map((l, i) => (lineKey(l, i) === key ? { ...l, qty } : l)));
   }
 
   function setAllIncluded(included) {
@@ -250,7 +250,7 @@ export function KitInstanceModal({
   }
 
   function removeLine(key) {
-    setLines((prev) => prev.filter((l) => lineKey(l) !== key));
+    setLines((prev) => prev.filter((l, i) => lineKey(l, i) !== key));
   }
 
   function submit(e) {
@@ -422,65 +422,70 @@ export function KitInstanceModal({
                 {!hidePrices && <td className="num mono">—</td>}
                 <td />
               </tr>
-              {lines.map((l) => {
+              {lines.map((l, idx) => {
                 const sub = (Number(l.qty) || 0) * (Number(l.unitPrice) || 0);
                 const groupSort = Number(l.componentGroupSort) || 0;
                 const subClass =
                   groupSort > 0 ? ` kit-modal-sub-${((groupSort - 1) % 4) + 1}` : '';
-                const key = lineKey(l);
+                const key = lineKey(l, idx);
+                const prev = idx > 0 ? lines[idx - 1] : null;
+                const groupSig = `${l.componentGroupKey || 'template'}::${groupSort}`;
+                const prevSig = prev
+                  ? `${prev.componentGroupKey || 'template'}::${Number(prev.componentGroupSort) || 0}`
+                  : null;
+                const showGroupHdr = groupSort > 0 && groupSig !== prevSig;
                 return (
-                  <tr
-                    key={key}
-                    className={(l.included === false ? 'kit-line--off' : '') + subClass}
-                  >
-                    <td>
-                      <input
-                        type="checkbox"
-                        checked={l.included !== false}
-                        disabled={busy}
-                        onChange={() => toggleLine(key)}
-                        title="Incluir dependencia"
-                      />
-                    </td>
-                    <td className="mono">{l.codigo}</td>
-                    <td>
-                      {l.componentGroupLabel && groupSort > 0 && (
-                        <span className="tag tag--muted" style={{ marginRight: 6, fontSize: 9 }}>
-                          {l.componentGroupLabel}
-                        </span>
-                      )}
-                      {l.descripcion}
-                    </td>
-                    <td className="num">
-                      <input
-                        type="number"
-                        min="0.001"
-                        step="any"
-                        className="form-input table-input mono"
-                        style={{ width: 72 }}
-                        value={l.qty}
-                        disabled={busy || l.included === false}
-                        onChange={(e) => setLineQty(key, e.target.value)}
-                      />
-                    </td>
-                    {!hidePrices && <td className="num mono">{formatUsd(l.unitPrice)}</td>}
-                    {!hidePrices && (
-                      <td className="num mono">{l.included !== false ? formatUsd(sub) : '—'}</td>
+                  <Fragment key={key}>
+                    {showGroupHdr && (
+                      <tr className={`kit-modal-group-hdr${subClass}`}>
+                        <td colSpan={hidePrices ? 5 : 7}>
+                          {l.componentGroupLabel || `Sub-grupo ${groupSort}`}
+                        </td>
+                      </tr>
                     )}
-                    <td>
-                      {(editMode || !l.fromTemplate) && (
-                        <button
-                          type="button"
-                          className="btn btn-ghost btn-icon"
+                    <tr className={(l.included === false ? 'kit-line--off' : '') + subClass}>
+                      <td>
+                        <input
+                          type="checkbox"
+                          checked={l.included !== false}
                           disabled={busy}
-                          title="Quitar del conjunto"
-                          onClick={() => removeLine(key)}
-                        >
-                          ×
-                        </button>
+                          onChange={() => toggleLine(key)}
+                          title="Incluir dependencia"
+                        />
+                      </td>
+                      <td className="mono">{l.codigo}</td>
+                      <td>{l.descripcion}</td>
+                      <td className="num">
+                        <input
+                          type="number"
+                          min="0.001"
+                          step="any"
+                          className="form-input table-input mono"
+                          style={{ width: 72 }}
+                          value={l.qty}
+                          disabled={busy || l.included === false}
+                          onChange={(e) => setLineQty(key, e.target.value)}
+                        />
+                      </td>
+                      {!hidePrices && <td className="num mono">{formatUsd(l.unitPrice)}</td>}
+                      {!hidePrices && (
+                        <td className="num mono">{l.included !== false ? formatUsd(sub) : '—'}</td>
                       )}
-                    </td>
-                  </tr>
+                      <td>
+                        {(editMode || !l.fromTemplate) && (
+                          <button
+                            type="button"
+                            className="btn btn-ghost btn-icon"
+                            disabled={busy}
+                            title="Quitar del conjunto"
+                            onClick={() => removeLine(key)}
+                          >
+                            ×
+                          </button>
+                        )}
+                      </td>
+                    </tr>
+                  </Fragment>
                 );
               })}
             </tbody>

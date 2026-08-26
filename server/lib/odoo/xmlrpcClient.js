@@ -7,6 +7,7 @@ const https = require('https');
 const { encodeMethodCall, decodeMethodResponse, XmlrpcFault } = require('./xmlrpcCodec');
 const { loadOdooConfig, isOdooConfigured, xmlrpcEndpoint } = require('./config');
 const { CircuitBreaker } = require('./circuitBreaker');
+const { shouldRetryFault } = require('./partnerValidate');
 
 class SerialQueue {
   constructor() {
@@ -78,21 +79,22 @@ function createOdooClient(overrides = {}) {
     cooldownMs: cfg.cooldownMs,
   });
 
-  async function call(kind, method, params) {
-    breaker.assertClosed();
+  async function call(kind, method, params, opts = {}) {
+    if (!opts.skipCircuit) breaker.assertClosed();
     return queue.run(async () => {
       const started = Date.now();
       try {
         const xml = encodeMethodCall(method, params);
         const body = await postXml(xmlrpcEndpoint(cfg, kind), xml, {
-          timeoutMs: cfg.timeoutMs,
+          timeoutMs: opts.timeoutMs || cfg.timeoutMs,
           tlsInsecure: cfg.tlsInsecure,
         });
         const result = decodeMethodResponse(body);
-        breaker.recordSuccess();
+        if (!opts.skipCircuit) breaker.recordSuccess();
         return { result, elapsedMs: Date.now() - started };
       } catch (err) {
-        breaker.recordFailure(err);
+        const faultKind = err instanceof XmlrpcFault ? err.odooErrorKind : err.code;
+        if (!opts.skipCircuit && shouldRetryFault(faultKind)) breaker.recordFailure(err);
         throw err;
       }
     });
@@ -121,12 +123,12 @@ function createOdooClient(overrides = {}) {
     return { uid: Number(result), elapsedMs };
   }
 
-  async function executeKw(uid, model, method, args = [], kwargs = {}) {
+  async function executeKw(uid, model, method, args = [], kwargs = {}, opts = {}) {
     const params = [cfg.db, uid, cfg.apiKey, model, method, args];
     if (kwargs && Object.keys(kwargs).length > 0) {
       params.push(kwargs);
     }
-    const { result, elapsedMs } = await call('object', 'execute_kw', params);
+    const { result, elapsedMs } = await call('object', 'execute_kw', params, opts);
     return { result, elapsedMs };
   }
 

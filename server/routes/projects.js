@@ -331,47 +331,85 @@ router.post(
 
       const { rows: ins } = await client.query(
         `INSERT INTO projects
-          (nombre, odoo_ref, client_id, status, created_by, assigned_viewer, currency, tc, finance_params)
-         VALUES ($1, $2, $3, 'BORRADOR', $4, NULL, $5, $6, $7::jsonb)
+          (nombre, odoo_ref, client_id, status, created_by, assigned_viewer, currency, tc, finance_params, quotation_market)
+         VALUES ($1, $2, $3, 'BORRADOR', $4, NULL, $5, $6, $7::jsonb, $8)
          RETURNING *`,
-        [nombre, src.odoo_ref, targetClientId, req.user.id, src.currency, src.tc, JSON.stringify(fp)]
+        [
+          nombre,
+          src.odoo_ref,
+          targetClientId,
+          req.user.id,
+          src.currency,
+          src.tc,
+          JSON.stringify(fp),
+          src.quotation_market || 'NACIONAL',
+        ]
       );
       const newId = ins[0].id;
+
+      const { rows: allItems } = await client.query(
+        `SELECT * FROM project_items WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC`,
+        [req.params.id]
+      );
 
       let items;
       if (filterByIds && itemIdsRaw.length === 0) {
         items = [];
       } else if (filterByIds) {
-        const { rows } = await client.query(
-          `SELECT id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id
-           FROM project_items
-           WHERE project_id = $1 AND id = ANY($2::uuid[])
-           ORDER BY sort_order, created_at`,
-          [req.params.id, itemIdsRaw]
-        );
-        if (rows.length !== itemIdsRaw.length) {
+        const selected = new Set(itemIdsRaw);
+        const found = allItems.filter((it) => selected.has(it.id));
+        if (found.length !== itemIdsRaw.length) {
           await client.query('ROLLBACK');
           return res.status(400).json({
             success: false,
             error: { code: 'INVALID_ITEMS', message: 'Algunas partidas no pertenecen a este proyecto' },
           });
         }
-        items = rows;
-      } else {
-        const { rows } = await client.query(
-          `SELECT catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id
-           FROM project_items WHERE project_id = $1 ORDER BY sort_order, created_at`,
-          [req.params.id]
+        const bundleIds = new Set(found.map((it) => it.bundle_id).filter(Boolean));
+        items = allItems.filter(
+          (it) => selected.has(it.id) || (it.bundle_id && bundleIds.has(it.bundle_id))
         );
-        items = rows;
+      } else {
+        items = allItems;
+      }
+
+      const neededBundleIds = new Set(items.map((it) => it.bundle_id).filter(Boolean));
+      const { rows: srcBundles } = await client.query(
+        `SELECT * FROM project_item_bundles WHERE project_id = $1 ORDER BY sort_order ASC, created_at ASC`,
+        [req.params.id]
+      );
+      const bundleIdMap = new Map();
+      for (const b of srcBundles) {
+        if (!neededBundleIds.has(b.id)) continue;
+        const { rows: nb } = await client.query(
+          `INSERT INTO project_item_bundles
+             (project_id, catalog_item_id, instance_label, display_name, unit_price, qty, sort_order, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+           RETURNING id`,
+          [
+            newId,
+            b.catalog_item_id,
+            b.instance_label,
+            b.display_name,
+            b.unit_price,
+            b.qty,
+            b.sort_order,
+            req.user.id,
+          ]
+        );
+        bundleIdMap.set(b.id, nb[0].id);
       }
 
       for (let i = 0; i < items.length; i++) {
         const it = items[i];
+        const newBundleId = it.bundle_id ? bundleIdMap.get(it.bundle_id) || null : null;
         await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)`,
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price,
+             qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by,
+             bundle_id, is_bundle_header, is_bundle_component,
+             component_group_key, component_group_label, component_group_sort)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $14, $15, $16, $17, $18, $19, $20)`,
           [
             newId,
             it.catalog_item_id,
@@ -385,6 +423,14 @@ router.post(
             it.is_custom,
             i,
             it.category_id,
+            it.apply_adjustment !== false,
+            req.user.id,
+            newBundleId,
+            it.is_bundle_header === true,
+            it.is_bundle_component === true,
+            it.component_group_key || null,
+            it.component_group_label || null,
+            it.component_group_sort != null ? it.component_group_sort : 0,
           ]
         );
       }

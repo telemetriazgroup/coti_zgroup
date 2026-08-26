@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { resolveAuditActorId } = require('../lib/requestContext');
 
 /**
  * Registra un evento de auditoría en project_audit_log.
@@ -14,11 +15,16 @@ const { pool } = require('../config/db');
  */
 async function logAuditEvent({ projectId, eventType, actorId, prevData, newData, ip }) {
   try {
+    const resolvedActor = resolveAuditActorId(actorId);
+    const extra =
+      resolvedActor && actorId && resolvedActor !== actorId
+        ? { ...(newData && typeof newData === 'object' ? newData : {}), impersonatedUserId: actorId }
+        : newData || null;
     await pool.query(
       `INSERT INTO project_audit_log
          (project_id, event_type, actor_id, prev_data, new_data, ip_address)
        VALUES ($1, $2, $3, $4, $5, $6)`,
-      [projectId, eventType, actorId, prevData || null, newData || null, ip || null]
+      [projectId, eventType, resolvedActor, prevData || null, extra, ip || null]
     );
   } catch (err) {
     // Auditoría no debe interrumpir el flujo principal

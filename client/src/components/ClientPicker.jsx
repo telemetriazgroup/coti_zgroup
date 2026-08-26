@@ -210,15 +210,15 @@ export function ClientPicker({
 
   async function submitCreate(e) {
     e.preventDefault();
-    if (!createForm.razonSocial.trim()) {
-      setCreateErr('Razón social requerida');
+    if (!createForm.razonSocial.trim() && !createForm.ruc.trim()) {
+      setCreateErr('Indique RUC (11 dígitos) o razón social');
       return;
     }
     setCreateBusy(true);
     setCreateErr(null);
     try {
       const created = await api.post('/api/clients', {
-        razonSocial: createForm.razonSocial.trim(),
+        razonSocial: createForm.razonSocial.trim() || undefined,
         ruc: createForm.ruc.trim() || undefined,
         contactoNombre: createForm.contactoNombre.trim() || undefined,
         contactoEmail: createForm.contactoEmail.trim() || undefined,
@@ -366,7 +366,7 @@ export function ClientPicker({
                   className="searchable-select__create mono"
                   onClick={() => openCreateModal(q)}
                 >
-                  + Crear cliente local{q.trim() ? ` «${q.trim()}»` : ''}
+                  + Crear cliente{q.trim() ? ` «${q.trim()}»` : ''}
                 </button>
               </li>
             )}
@@ -376,7 +376,7 @@ export function ClientPicker({
 
       {createOpen && canCreate && (
         <Modal
-          title="Nuevo cliente local"
+          title="Nuevo cliente"
           onClose={() => !createBusy && setCreateOpen(false)}
           footer={
             <>
@@ -390,8 +390,7 @@ export function ClientPicker({
           }
         >
           <p className="muted mono" style={{ fontSize: 11, marginBottom: 10 }}>
-            Quedará marcado «No está en Odoo» hasta la etapa de alta hacia Odoo. Preferible crearlo en Odoo y pulsar
-            Actualizar contactos.
+            Con RUC de 11 dígitos, al guardar se consulta SUNAT y se completan razón social y dirección.
           </p>
           {createErr && (
             <div className="banner banner--err mono" style={{ marginBottom: 12 }}>
@@ -400,20 +399,21 @@ export function ClientPicker({
           )}
           <form id="client-picker-create-form" className="stack-form" onSubmit={submitCreate}>
             <label>
-              <span className="fg-lbl">Razón social *</span>
-              <input
-                className="form-input"
-                required
-                value={createForm.razonSocial}
-                onChange={(e) => setCreateForm((f) => ({ ...f, razonSocial: e.target.value }))}
-              />
-            </label>
-            <label>
               <span className="fg-lbl">RUC</span>
               <input
                 className="form-input mono"
                 value={createForm.ruc}
                 onChange={(e) => setCreateForm((f) => ({ ...f, ruc: e.target.value }))}
+                placeholder="11 dígitos — consulta SUNAT al guardar"
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Razón social</span>
+              <input
+                className="form-input"
+                value={createForm.razonSocial}
+                onChange={(e) => setCreateForm((f) => ({ ...f, razonSocial: e.target.value }))}
+                placeholder="Opcional si hay RUC válido"
               />
             </label>
             <label>

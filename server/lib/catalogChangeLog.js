@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { resolveAuditActorId } = require('./requestContext');
 
 const FIELD_LABELS = {
   nombre: 'Nombre',
@@ -60,7 +61,7 @@ async function logCatalogChanges(
         ch.oldValue ?? null,
         ch.newValue ?? null,
         changeSource,
-        actorId,
+        resolveAuditActorId(actorId),
         requestId,
       ]
     );

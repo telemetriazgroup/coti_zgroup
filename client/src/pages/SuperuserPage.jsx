@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, postFormData } from '../lib/api';
 
 export function SuperuserPage() {
@@ -173,7 +174,8 @@ export function SuperuserPage() {
       <div className="page-header">
         <h1 className="page-title">Superusuario — Sistema</h1>
         <p className="page-sub muted">
-          Exportación/importación masiva de todos los módulos y auditoría global del sistema.
+          Exportación/importación masiva de todos los módulos y auditoría global del sistema.{' '}
+          <Link to="/superusuario/virtualizar">Virtualizar un usuario</Link> para ver su interfaz y dar soporte.
         </p>
       </div>
 
@@ -223,6 +225,14 @@ export function SuperuserPage() {
                 {odooHealth.state?.lastOkAt
                   ? new Date(odooHealth.state.lastOkAt).toLocaleString('es-PE')
                   : 'nunca'}
+              </div>
+            </div>
+            <div className="kpi-card">
+              <div className="kpi-label mono">Outbox</div>
+              <div className="kpi-value" style={{ fontSize: 16 }}>
+                {odooHealth.outbox
+                  ? `${odooHealth.outbox.pending || 0} pend. / ${odooHealth.outbox.failed || 0} fail / ${odooHealth.outbox.conflict || 0} conf.`
+                  : '—'}
               </div>
             </div>
           </div>

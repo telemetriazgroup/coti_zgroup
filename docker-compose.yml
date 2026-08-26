@@ -61,14 +61,17 @@ services:
       S3_ACCESS_KEY: ${MINIO_ROOT_USER:-minioadmin}
       S3_SECRET_KEY: ${MINIO_ROOT_PASSWORD:-minioadmin}
       REDIS_URL: redis://redis:6379
-      # Odoo 17 (etapa 0: probe). Sync desactivado hasta etapa 3.
+      # Odoo 17. Compose interpola ODOO_* desde .env del repo; si el shell exporta
+      # ODOO_URL (p.ej. lab localhost:8070) pisa el .env y el contenedor deja de
+      # hablar con staging. Recrear con: env -u ODOO_URL -u ODOO_DB -u ODOO_USER -u ODOO_API_KEY docker compose up -d --force-recreate --no-deps app
       ODOO_URL: ${ODOO_URL:-}
       ODOO_DB: ${ODOO_DB:-}
       ODOO_USER: ${ODOO_USER:-}
       ODOO_API_KEY: ${ODOO_API_KEY:-}
-      ODOO_TIMEOUT_MS: ${ODOO_TIMEOUT_MS:-20000}
+      ODOO_TIMEOUT_MS: ${ODOO_TIMEOUT_MS:-60000}
       ODOO_SYNC_ENABLED: ${ODOO_SYNC_ENABLED:-0}
       ODOO_TLS_INSECURE: ${ODOO_TLS_INSECURE:-0}
+      ODOO_WRITE_ENABLED: ${ODOO_WRITE_ENABLED:-0}
     depends_on:
       postgres:
         condition: service_healthy

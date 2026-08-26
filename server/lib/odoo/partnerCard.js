@@ -39,10 +39,18 @@ function tagPills(categoryIds, catIds) {
   return pills;
 }
 
+function m2oName(v) {
+  if (!v) return null;
+  if (typeof v === 'object' && v.name) return v.name;
+  return null;
+}
+
 function mapPartnerFicha(row, catIds) {
   const raw = row.raw && typeof row.raw === 'object' ? row.raw : {};
   const norm = normalizePartner(raw) || {};
   const categoryIds = Array.isArray(row.category_ids) ? row.category_ids.map(Number) : [];
+  const flag = (k, fromNorm) =>
+    fromNorm === true || raw[k] === true;
   return {
     odooId: Number(row.odoo_id),
     isCompany: row.is_company === true,
@@ -64,11 +72,34 @@ function mapPartnerFicha(row, catIds) {
     lang: langLabel(norm.lang),
     langCode: norm.lang || null,
     comment: norm.comment || null,
+    ref: norm.ref || null,
     type: row.type || norm.type || null,
     typeLabel: TYPE_LABEL[row.type] || null,
     functionName: norm.functionName || null,
     customerRank: Number(row.customer_rank) || 0,
     supplierRank: Number(row.supplier_rank) || 0,
+    salesperson: m2oName(norm.salesperson),
+    pricelist: m2oName(norm.pricelist),
+    fiscalPosition: m2oName(norm.fiscalPosition),
+    paymentTerm: m2oName(norm.paymentTerm),
+    industry: m2oName(norm.industry),
+    mtcNumber: norm.mtcNumber || null,
+    authorizationEntity: norm.authorizationEntity || null,
+    authorizationNumber: norm.authorizationNumber || null,
+    invoiceWarn: norm.invoiceWarn || null,
+    latitude: norm.latitude != null ? Number(norm.latitude) : null,
+    longitude: norm.longitude != null ? Number(norm.longitude) : null,
+    rucFicha: {
+      agentRetention: flag('agent_retention', norm.agentRetention),
+      affectionNewRus: flag('affection_new_rus', norm.affectionNewRus),
+      agentPerception: flag('agent_perception', norm.agentPerception),
+      hydrocarbonPerceptionAgent: flag('hydrocarbon_perception_agent', norm.hydrocarbonPerceptionAgent),
+      goodTaxpayer: flag('good_taxpayer', norm.goodTaxpayer),
+      isRetentionAgent: flag('l10n_pe_is_retention_agent', norm.isRetentionAgent),
+      foreignTradeActivity: norm.foreignTradeActivity || null,
+      taxpayerCondition: norm.taxpayerCondition || null,
+      taxpayerState: norm.taxpayerState || null,
+    },
     tags: partnerDisplayTags(
       {
         isCompany: row.is_company === true,
@@ -104,14 +135,25 @@ function localFichaFromClient(row) {
     isCompany: true,
     name: row.razon_social,
     vat: row.ruc || null,
-    identificationType: row.ruc ? 'RUC' : null,
+    identificationType: row.ruc ? 'RUC (PE)' : null,
     street: row.direccion || null,
     street2: null,
     district: null,
     city: row.ciudad || null,
     state: null,
     zip: null,
-    country: null,
+    country: 'Perú',
+    rucFicha: {
+      agentRetention: false,
+      affectionNewRus: false,
+      agentPerception: false,
+      hydrocarbonPerceptionAgent: false,
+      goodTaxpayer: false,
+      isRetentionAgent: false,
+      foreignTradeActivity: null,
+      taxpayerCondition: null,
+      taxpayerState: null,
+    },
     phone: row.contacto_telefono || null,
     mobile: null,
     email: row.contacto_email || null,

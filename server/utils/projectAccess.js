@@ -38,7 +38,22 @@ function canAssignProjectViewer(user, row) {
 }
 
 function canCloneProject(user, row, ctx = {}) {
-  return canWriteProject(user, row, ctx);
+  if (canWriteProject(user, row, ctx)) return true;
+  if (isAdminLikeRole(user.role) && canReadProject(user, row, ctx)) return true;
+  return false;
+}
+
+/**
+ * Kits: el dueño puede editarlos; un usuario solo compartido no.
+ * ADMIN / SEMIADMIN / SUPERUSER sí, en cualquier proyecto que puedan ver.
+ */
+function canEditProjectKits(user, row, ctx = {}) {
+  if (isSuperuser(user)) return true;
+  if (isAdminLikeRole(user.role) && canReadProject(user, row, ctx)) return true;
+  if (row.created_by === user.id && (user.role === 'COMERCIAL' || isAdminLikeRole(user.role))) {
+    return true;
+  }
+  return false;
 }
 
 /** Editar nombre, cliente u Odoo: propio admin, superusuario o proyecto de comercial del equipo (no otros ADMIN). */
@@ -60,6 +75,7 @@ module.exports = {
   canManageProject,
   canAssignProjectViewer,
   canCloneProject,
+  canEditProjectKits,
   canEditProjectMetadata,
   canViewProjectAudit,
 };

@@ -3,6 +3,7 @@ import { api, getBlob, postFormData } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
 import { ClientOdooFicha } from '../components/ClientOdooFicha';
+import { canWriteClients } from '../lib/userRoles';
 
 const ISSUE_LABELS = {
   FALTA_RAZON_SOCIAL: 'Falta razón social',
@@ -23,11 +24,16 @@ const emptyForm = {
   contactoTelefono: '',
   ciudad: '',
   direccion: '',
+  street2: '',
+  zip: '',
+  website: '',
+  mobile: '',
   notas: '',
 };
 
 export function ClientsPage() {
-  const { isSuperuser } = useAuth();
+  const { isSuperuser, user } = useAuth();
+  const canWrite = canWriteClients(user);
   const canCreateLocal = isSuperuser();
 
   const [list, setList] = useState([]);
@@ -73,6 +79,20 @@ export function ClientsPage() {
     const t = setTimeout(() => fetchList(q), 300);
     return () => clearTimeout(t);
   }, [q, fetchList]);
+
+  useEffect(() => {
+    if (!selectedId || !detail?.outbox || detail.outbox.status !== 'pendiente') return undefined;
+    const t = setInterval(async () => {
+      try {
+        const data = await api.get(`/api/clients/${selectedId}`);
+        setDetail(data);
+        fetchList(q);
+      } catch {
+        /* ignore */
+      }
+    }, 3000);
+    return () => clearInterval(t);
+  }, [selectedId, detail?.outbox?.status, fetchList, q]);
 
   async function openFicha(row) {
     setSelectedId(row.id);
@@ -147,18 +167,23 @@ export function ClientsPage() {
     e.preventDefault();
     setErr(null);
     try {
-      await api.post('/api/clients', {
-        razonSocial: form.razonSocial,
+      const created = await api.post('/api/clients', {
+        razonSocial: form.razonSocial || undefined,
         ruc: form.ruc || undefined,
         contactoNombre: form.contactoNombre || undefined,
         contactoEmail: form.contactoEmail || undefined,
         contactoTelefono: form.contactoTelefono || undefined,
         ciudad: form.ciudad || undefined,
         direccion: form.direccion || undefined,
+        street2: form.street2 || undefined,
+        zip: form.zip || undefined,
+        website: form.website || undefined,
+        mobile: form.mobile || undefined,
         notas: form.notas || undefined,
       });
       setModal(null);
       fetchList(q);
+      if (created?.id) openFicha(created);
     } catch (e2) {
       setErr(e2.message);
     }
@@ -170,7 +195,7 @@ export function ClientsPage() {
         <div>
           <h1 className="page-title">Clientes</h1>
           <p className="page-sub muted">
-            Ficha tipo Odoo · solo lectura de la caché. Alta/edición hacia Odoo cuando esté Odoo.sh.
+            Ficha tipo Odoo. Alta y edición se envían a staging (outbox); el HTTP no espera XML-RPC.
           </p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
@@ -194,10 +219,12 @@ export function ClientsPage() {
                 style={{ display: 'none' }}
                 onChange={onImportFile}
               />
-              <button type="button" className="btn btn-primary" onClick={openNew}>
-                Nuevo cliente local
-              </button>
             </>
+          )}
+          {canWrite && (
+            <button type="button" className="btn btn-primary" onClick={openNew}>
+              Nuevo cliente
+            </button>
           )}
         </div>
       </div>
@@ -267,12 +294,16 @@ export function ClientsPage() {
                       <td className="mono">{row.ruc || '—'}</td>
                       <td>{row.ciudad || '—'}</td>
                       <td>
-                        {row.syncOrigin === 'odoo' ? (
+                        {row.outbox?.status === 'pendiente' ? (
+                          <span className="tag tag--warn">Enviando</span>
+                        ) : row.outbox?.status === 'fallido' || row.outbox?.status === 'conflicto' ? (
+                          <span className="tag tag--warn">Error Odoo</span>
+                        ) : row.syncOrigin === 'odoo' ? (
                           <span className="tag tag--cyan">Odoo</span>
                         ) : row.syncOrigin === 'linked' ? (
                           <span className="tag tag--ok">Vinculado</span>
                         ) : (
-                          <span className="tag tag--warn">No está en Odoo</span>
+                          <span className="tag tag--warn">Pendiente en Odoo</span>
                         )}
                       </td>
                       <td className="num mono">{row.projectCount ?? 0}</td>
@@ -296,6 +327,11 @@ export function ClientsPage() {
             <ClientOdooFicha
               client={detail}
               ficha={detail.ficha}
+              canEdit={canWrite}
+              onSaved={(data) => {
+                setDetail(data);
+                fetchList(q);
+              }}
               onClose={() => {
                 setDetail(null);
                 setSelectedId(null);
@@ -303,8 +339,8 @@ export function ClientsPage() {
             />
           ) : (
             <p className="muted" style={{ padding: 8 }}>
-              Seleccione un cliente para ver la ficha (dirección, RUC, etiquetas y contactos hijos). No se puede
-              editar ni eliminar hasta la integración con Odoo.sh.
+              Seleccione un cliente para ver la ficha. Con permiso de escritura puede crear y editar; el envío a Odoo
+              corre en segundo plano (staging).
             </p>
           )}
         </div>
@@ -390,9 +426,9 @@ export function ClientsPage() {
         </Modal>
       )}
 
-      {modal === 'new' && canCreateLocal && (
+      {modal === 'new' && canWrite && (
         <Modal
-          title="Nuevo cliente local"
+          title="Nuevo cliente"
           onClose={() => setModal(null)}
           footer={
             <>
@@ -400,30 +436,32 @@ export function ClientsPage() {
                 Cancelar
               </button>
               <button type="submit" form="client-form" className="btn btn-primary">
-                Crear
+                Crear y enviar a Odoo
               </button>
             </>
           }
         >
           <p className="muted mono" style={{ fontSize: 11, marginBottom: 10 }}>
-            Quedará marcado «No está en Odoo». Preferible crearlo en Odoo y actualizar contactos.
+            Con un RUC de 11 dígitos, al guardar se consulta SUNAT (vía Odoo) y se completan razón social y
+            dirección. Correo y teléfono no vienen de SUNAT.
           </p>
           <form id="client-form" className="stack-form" onSubmit={submitClient}>
-            <label>
-              <span className="fg-lbl">Razón social *</span>
-              <input
-                className="form-input"
-                required
-                value={form.razonSocial}
-                onChange={(e) => setForm((f) => ({ ...f, razonSocial: e.target.value }))}
-              />
-            </label>
             <label>
               <span className="fg-lbl">RUC</span>
               <input
                 className="form-input mono"
                 value={form.ruc}
                 onChange={(e) => setForm((f) => ({ ...f, ruc: e.target.value }))}
+                placeholder="11 dígitos — consulta SUNAT al guardar"
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Razón social</span>
+              <input
+                className="form-input"
+                value={form.razonSocial}
+                onChange={(e) => setForm((f) => ({ ...f, razonSocial: e.target.value }))}
+                placeholder="Opcional si hay RUC válido"
               />
             </label>
             <label>
@@ -452,6 +490,40 @@ export function ClientsPage() {
               />
             </label>
             <label>
+              <span className="fg-lbl">Móvil</span>
+              <input
+                className="form-input mono"
+                value={form.mobile || ''}
+                onChange={(e) => setForm((f) => ({ ...f, mobile: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Sitio web</span>
+              <input
+                className="form-input mono"
+                value={form.website || ''}
+                onChange={(e) => setForm((f) => ({ ...f, website: e.target.value }))}
+                placeholder="https://…"
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Dirección (calle)</span>
+              <textarea
+                className="form-input form-textarea"
+                rows={2}
+                value={form.direccion}
+                onChange={(e) => setForm((f) => ({ ...f, direccion: e.target.value }))}
+              />
+            </label>
+            <label>
+              <span className="fg-lbl">Calle 2</span>
+              <input
+                className="form-input"
+                value={form.street2 || ''}
+                onChange={(e) => setForm((f) => ({ ...f, street2: e.target.value }))}
+              />
+            </label>
+            <label>
               <span className="fg-lbl">Ciudad</span>
               <input
                 className="form-input"
@@ -460,12 +532,11 @@ export function ClientsPage() {
               />
             </label>
             <label>
-              <span className="fg-lbl">Dirección</span>
-              <textarea
-                className="form-input form-textarea"
-                rows={2}
-                value={form.direccion}
-                onChange={(e) => setForm((f) => ({ ...f, direccion: e.target.value }))}
+              <span className="fg-lbl">Código postal</span>
+              <input
+                className="form-input mono"
+                value={form.zip || ''}
+                onChange={(e) => setForm((f) => ({ ...f, zip: e.target.value }))}
               />
             </label>
             <label>

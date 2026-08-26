@@ -1,5 +1,5 @@
 const assert = require('node:assert');
-const { canReadProject, canWriteProject, canViewProjectAudit } = require('../../server/utils/projectAccess');
+const { canReadProject, canWriteProject, canViewProjectAudit, canEditProjectKits } = require('../../server/utils/projectAccess');
 const { canViewArchivedProjects } = require('../../server/utils/userRoles');
 
 describe('visibilidad de proyectos por rol', () => {
@@ -16,10 +16,10 @@ describe('visibilidad de proyectos por rol', () => {
     assert.strictEqual(canWriteProject(admin, { ...project, created_by: admin.id }, {}), true);
   });
 
-  it('COMERCIAL solo los propios (o compartidos)', () => {
-    assert.strictEqual(canReadProject(owner, project, {}), true);
-    assert.strictEqual(canReadProject(other, project, {}), false);
-    assert.strictEqual(canReadProject(other, project, { isSharedWithMe: true }), true);
+  it('COMERCIAL compartido no edita kits; ADMIN sí en proyectos ajenos', () => {
+    assert.strictEqual(canEditProjectKits(other, project, { isSharedWithMe: true }), false);
+    assert.strictEqual(canEditProjectKits(owner, project, {}), true);
+    assert.strictEqual(canEditProjectKits(admin, project, {}), true);
   });
 
   it('VIEWER solo el asignado', () => {

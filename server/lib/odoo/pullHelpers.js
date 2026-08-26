@@ -12,15 +12,73 @@ function toOdooNaiveUtc(date) {
   return d.toISOString().slice(0, 19).replace('T', ' ');
 }
 
+const LIMA_OFFSET_MS = 5 * 60 * 60 * 1000;
+
+/**
+ * Odoo 17 datetime es naive UTC. Nunca interpretar "2026-08-18 20:32:44" como hora local (GMT-5).
+ */
 function parseOdooWriteDate(raw) {
   if (raw == null || raw === false) return null;
+  if (raw instanceof Date) {
+    return Number.isNaN(raw.getTime()) ? null : raw;
+  }
+  if (typeof raw === 'number' && Number.isFinite(raw)) {
+    const ms = raw < 1e12 ? raw * 1000 : raw;
+    const d = new Date(ms);
+    return Number.isNaN(d.getTime()) ? null : d;
+  }
   const s = String(raw).trim();
   if (!s) return null;
-  if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(s)) {
-    return new Date(`${s.replace(' ', 'T')}Z`);
+
+  if (/[zZ]$/.test(s) || /[+-]\d{2}:?\d{2}$/.test(s)) {
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? null : d;
   }
+
+  let m = s.match(/^(\d{4}-\d{2}-\d{2})[ T](\d{2}:\d{2}:\d{2})(\.\d+)?/);
+  if (m) return new Date(`${m[1]}T${m[2]}${m[3] || ''}Z`);
+
+  m = s.match(/^(\d{4})(\d{2})(\d{2})T(\d{2}):(\d{2}):(\d{2})/);
+  if (m) return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
+
+  m = s.match(/^(\d{4})(\d{2})(\d{2})T(\d{2})(\d{2})(\d{2})$/);
+  if (m) return new Date(`${m[1]}-${m[2]}-${m[3]}T${m[4]}:${m[5]}:${m[6]}Z`);
+
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d;
+}
+
+function isTimezoneSkewDelta(deltaMs, offsetMs = LIMA_OFFSET_MS) {
+  return Math.abs(Math.abs(Number(deltaMs)) - offsetMs) <= 120_000;
+}
+
+/** true si el write_date remoto es realmente más nuevo (no TZ ni jitter). */
+function isRemoteWriteNewer(remoteWd, knownWd, { skewMs = 2000 } = {}) {
+  if (!remoteWd || !knownWd) return false;
+  const remote = parseOdooWriteDate(remoteWd);
+  const known = parseOdooWriteDate(knownWd);
+  if (!remote || !known) return false;
+  const delta = remote.getTime() - known.getTime();
+  if (delta <= skewMs) return false;
+  if (isTimezoneSkewDelta(delta)) return false;
+  return true;
+}
+
+function formatOdooWriteDateForUser(raw) {
+  const d = parseOdooWriteDate(raw);
+  if (!d) return String(raw || '');
+  const utc = d.toISOString().replace('T', ' ').replace(/\.\d{3}Z$/, ' UTC');
+  const lima = new Intl.DateTimeFormat('es-PE', {
+    timeZone: 'America/Lima',
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+    hour12: false,
+  }).format(d);
+  return `${utc} (${lima} hora Perú)`;
 }
 
 function overlapWatermark(watermark) {
@@ -30,10 +88,9 @@ function overlapWatermark(watermark) {
 }
 
 function shouldSkipEcho(incomingWriteDate, lastPushedWriteDate) {
-  if (!incomingWriteDate || !lastPushedWriteDate) return false;
-  const a = incomingWriteDate instanceof Date ? incomingWriteDate : new Date(incomingWriteDate);
-  const b = lastPushedWriteDate instanceof Date ? lastPushedWriteDate : new Date(lastPushedWriteDate);
-  if (Number.isNaN(a.getTime()) || Number.isNaN(b.getTime())) return false;
+  const a = parseOdooWriteDate(incomingWriteDate);
+  const b = parseOdooWriteDate(lastPushedWriteDate);
+  if (!a || !b) return false;
   return a.getTime() <= b.getTime();
 }
 
@@ -80,8 +137,12 @@ module.exports = {
   EPOCH,
   LOOKUP_MIN_LEN,
   LOOKUP_MAX_LEN,
+  LIMA_OFFSET_MS,
   toOdooNaiveUtc,
   parseOdooWriteDate,
+  isTimezoneSkewDelta,
+  isRemoteWriteNewer,
+  formatOdooWriteDateForUser,
   overlapWatermark,
   shouldSkipEcho,
   maxDate,

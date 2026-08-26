@@ -35,3 +35,7 @@ export function canViewInactiveCatalog(user) {
 export function canWriteProjects(user) {
   return hasAdminPanelAccess(user) || user?.role === 'COMERCIAL';
 }
+
+export function canWriteClients(user) {
+  return canWriteProjects(user);
+}

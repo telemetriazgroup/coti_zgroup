@@ -355,3 +355,10 @@ Al salir del presupuesto/planos, el sidebar vuelve según la preferencia guardad
 | Historial catálogo | `client/src/components/CatalogHistoryModal.jsx`, `server/lib/catalogChangeLog.js` |
 | Share en presupuesto | `client/src/pages/ProjectBudgetPage.jsx`, `QuotationStatusFlow.jsx` |
 | Modo enfoque sidebar | `client/src/layout/AppShell.jsx` |
+
+Asinacion VIEWVER me sale , a pearde que el ususario es admin , valida 
+
+
+me esta generando   conflictos , de momento eliminar la asinacion viewver  para evitara que enere conflictos y no me permita inresar a los proyectos
+
+

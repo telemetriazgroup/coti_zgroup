@@ -1,8 +1,10 @@
 const jwt = require('jsonwebtoken');
+const { runWithRequestContext } = require('../lib/requestContext');
 
 /**
  * Middleware: verifica el JWT access token en el header Authorization.
  * Adjunta req.user = { id, email, role } si es válido.
+ * Si hay virtualización, req.user es el usuario efectivo y req.impersonator el superadmin.
  */
 function requireAuth(req, res, next) {
   const authHeader = req.headers.authorization;
@@ -21,7 +23,19 @@ function requireAuth(req, res, next) {
       email: payload.email,
       role:  payload.role,
     };
-    next();
+    if (payload.imp) {
+      req.impersonator = {
+        id: payload.imp,
+        email: payload.impEmail || null,
+        role: 'SUPERUSER',
+      };
+      req.user.impersonator = req.impersonator;
+    }
+    const ctx = {
+      effectiveUserId: req.user.id,
+      impersonatorId: req.impersonator?.id || null,
+    };
+    runWithRequestContext(ctx, () => next());
   } catch (err) {
     const code = err.name === 'TokenExpiredError' ? 'TOKEN_EXPIRED' : 'TOKEN_INVALID';
     return res.status(401).json({
@@ -61,9 +75,14 @@ function requireRole(...roles) {
 /**
  * Genera un JWT access token de corta duración.
  */
-function signAccessToken(user) {
+function signAccessToken(user, extra = {}) {
+  const payload = { sub: user.id, email: user.email, role: user.role };
+  if (extra.impersonatorId) {
+    payload.imp = extra.impersonatorId;
+    if (extra.impersonatorEmail) payload.impEmail = extra.impersonatorEmail;
+  }
   return jwt.sign(
-    { sub: user.id, email: user.email, role: user.role },
+    payload,
     process.env.JWT_ACCESS_SECRET,
     { expiresIn: process.env.JWT_ACCESS_EXPIRES || '15m' }
   );

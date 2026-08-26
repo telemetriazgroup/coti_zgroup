@@ -47,4 +47,29 @@ describe('odoo circuitBreaker + config', () => {
       false
     );
   });
+
+  it('bloquea escritura a production y permite staging/local', () => {
+    const { isOdooWriteAllowed } = require('../../server/lib/odoo/config');
+    const prod = loadOdooConfig({
+      ODOO_URL: 'https://zgroup.odoo.com',
+      ODOO_DB: 'zgroup',
+      ODOO_USER: 'u',
+      ODOO_API_KEY: 'k',
+    });
+    const blocked = isOdooWriteAllowed(prod, {});
+    assert.strictEqual(blocked.ok, false);
+    assert.strictEqual(blocked.code, 'ODOO_WRITE_BLOCKED');
+    const forced = isOdooWriteAllowed(prod, { ODOO_WRITE_ENABLED: '1' });
+    assert.strictEqual(forced.ok, true);
+    const stg = isOdooWriteAllowed(
+      loadOdooConfig({
+        ODOO_URL: 'https://zgroup-test-upgrade-36601712.dev.odoo.com',
+        ODOO_DB: 'zgroup-test-upgrade-36601712',
+        ODOO_USER: 'u',
+        ODOO_API_KEY: 'k',
+      }),
+      {}
+    );
+    assert.strictEqual(stg.ok, true);
+  });
 });

@@ -1,0 +1,51 @@
+# Odoo 17 Community — laboratorio local (NO es Odoo.sh ni production).
+#
+#   cd odoo_prueba
+#   docker compose up -d db
+#   docker compose run --rm odoo odoo -d zgroup_dev -i base,zgroup_partner_ext --without-demo=all --stop-after-init
+#   docker compose up -d odoo
+#
+# UI: http://localhost:8070  ·  master password: zgroup_local_master
+# Login inicial: admin / admin  ·  base: zgroup_dev
+#
+# Guía: ../odoo_prueba.md
+
+name: zgroup_odoo_prueba
+
+services:
+  db:
+    image: postgres:15
+    container_name: zgroup_odoo_prueba_db
+    environment:
+      POSTGRES_USER: odoo
+      POSTGRES_PASSWORD: odoo
+      POSTGRES_DB: postgres
+    volumes:
+      - odoo-prueba-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U odoo']
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
+  odoo:
+    image: odoo:17.0
+    container_name: zgroup_odoo_prueba
+    depends_on:
+      db:
+        condition: service_healthy
+    ports:
+      - '8070:8069'
+    environment:
+      HOST: db
+      USER: odoo
+      PASSWORD: odoo
+    volumes:
+      - odoo-prueba-data:/var/lib/odoo
+      - ../odoo_addons:/mnt/extra-addons:ro
+      - ./odoo.conf:/etc/odoo/odoo.conf:ro
+    command: --without-demo=all --max-cron-threads=0
+
+volumes:
+  odoo-prueba-db:
+  odoo-prueba-data:
