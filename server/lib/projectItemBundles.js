@@ -11,6 +11,14 @@ const {
 const { resolveUnitPrice, getProjectQuotationMarket } = require('./pricingMarket');
 
 const INSTANCE_LABEL_MAX = 50;
+const GROUP_KEY_MAX = 64;
+const GROUP_LABEL_MAX = 300;
+
+function clipVarchar(value, max) {
+  if (value == null || value === '') return null;
+  const s = String(value);
+  return s.length <= max ? s : s.slice(0, max);
+}
 
 function parseInstanceLabel(raw, fallback) {
   if (raw === undefined || raw === null) {
@@ -99,9 +107,9 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
       [
         projectId,
         comp.id,
-        comp.codigo,
-        comp.descripcion,
-        comp.unidad,
+        clipVarchar(comp.codigo, 50),
+        clipVarchar(comp.descripcion, 300) || comp.descripcion,
+        clipVarchar(comp.unidad, 30) || 'UND',
         comp.tipo,
         cPrice,
         resolved,
@@ -110,8 +118,8 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
         comp.category_id,
         userId,
         bundleId,
-        line.componentGroupKey || 'template',
-        line.componentGroupLabel || null,
+        clipVarchar(line.componentGroupKey || 'template', GROUP_KEY_MAX) || 'template',
+        clipVarchar(line.componentGroupLabel, GROUP_LABEL_MAX),
         Number(line.componentGroupSort) || 0,
       ]
     );
