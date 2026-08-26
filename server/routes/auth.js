@@ -11,6 +11,12 @@ const {
 } = require('../middleware/auth');
 const { mapAuthUser, AUTH_USER_SELECT } = require('../lib/userProfile');
 const {
+  checkLoginLockout,
+  recordFailedLogin,
+  clearLoginLockout,
+  normalizeLoginEmail,
+} = require('../lib/loginLockout');
+const {
   loadUserRow,
   loadActiveRefresh,
   sessionUserPayload,
