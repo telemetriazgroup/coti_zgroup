@@ -569,9 +569,24 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
 });
 
 const updateValidation = [
-  body('nombre').optional().isString(),
-  body('odooRef').optional().isString(),
-  body('clientId').optional({ nullable: true }).isUUID(),
+  body('nombre')
+    .optional()
+    .isString()
+    .trim()
+    .notEmpty()
+    .withMessage('Nombre requerido')
+    .isLength({ max: 200 })
+    .withMessage('Nombre máximo 200 caracteres'),
+  body('odooRef')
+    .optional({ values: 'falsy' })
+    .isString()
+    .trim()
+    .isLength({ max: 50 })
+    .withMessage('Referencia Odoo máximo 50 caracteres'),
+  body('clientId')
+    .optional({ values: 'falsy' })
+    .isUUID()
+    .withMessage('Cliente inválido'),
   body('status').optional().isIn([
     'BORRADOR',
     'EN_SEGUIMIENTO',
@@ -582,7 +597,7 @@ const updateValidation = [
   ]),
   body('currency').optional().isString(),
   body('tc').optional().isNumeric(),
-  body('financeParams').optional().isObject(),
+  body('financeParams').optional({ nullable: true }).isObject(),
   body('quotationMarket').optional().isIn(['NACIONAL', 'INTERNACIONAL']),
 ];
 

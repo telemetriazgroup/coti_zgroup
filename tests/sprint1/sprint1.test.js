@@ -129,4 +129,24 @@ describe('Sprint 1 — proyectos', () => {
       .expect(200);
     expect(res.body.data.length).toBeGreaterThan(0);
   });
+
+  it('PUT /api/projects/:id permite cambiar nombre con odooRef y clientId nulos', async () => {
+    const created = await request(app)
+      .post('/api/projects')
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({ nombre: 'Proyecto edit-null-refs' })
+      .expect(201);
+    const id = created.body.data.id;
+    const res = await request(app)
+      .put(`/api/projects/${id}`)
+      .set('Authorization', `Bearer ${adminToken}`)
+      .send({
+        nombre: 'Proyecto edit-null-refs (renombrado)',
+        odooRef: null,
+        clientId: null,
+      })
+      .expect(200);
+    expect(res.body.success).toBe(true);
+    expect(res.body.data.nombre).toBe('Proyecto edit-null-refs (renombrado)');
+  });
 });
