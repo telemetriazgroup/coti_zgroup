@@ -2,6 +2,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { useAuth } from '../context/AuthContext';
 import { api, getBlob, postFormData } from '../lib/api';
 import { Modal } from '../components/Modal';
+import { MarketIcon } from '../components/MarketIcon';
 
 const ISSUE_LABELS = {
   FALTA_EMAIL: 'Falta email',
@@ -36,6 +37,7 @@ const emptyCreate = {
   canSeeFinanceCp: false,
   canSeeFinanceLp: false,
   canSeeFinanceEst: false,
+  pricingMarket: 'NACIONAL',
 };
 
 export function UsersPage() {
@@ -100,6 +102,9 @@ export function UsersPage() {
       if (createForm.telefono) body.telefono = createForm.telefono;
       if (createForm.dni) body.dni = createForm.dni;
     }
+    if (canAssignRoles && createForm.role !== 'VIEWER') {
+      body.pricingMarket = createForm.pricingMarket || 'NACIONAL';
+    }
     if (canAssignRoles && createForm.role === 'COMERCIAL') {
       body.canSeeFinanceM1 = !!createForm.canSeeFinanceM1;
       body.canSeeFinanceCp = !!createForm.canSeeFinanceCp;
@@ -162,7 +167,7 @@ export function UsersPage() {
       if (editForm.password && editForm.password.length >= 8) {
         body.password = editForm.password;
       }
-      if (isSuperuser() && editForm.pricingMarket) {
+      if (canAssignRoles && editForm.role !== 'VIEWER' && editForm.pricingMarket) {
         body.pricingMarket = editForm.pricingMarket;
       }
       if (canAssignRoles && editForm.role === 'COMERCIAL') {
@@ -324,6 +329,7 @@ export function UsersPage() {
                 <th>Email</th>
                 <th>Rol</th>
                 <th>Nombre</th>
+                {canAssignRoles && <th>Mercado</th>}
                 {canAssignRoles && <th>Presupuesto</th>}
                 <th>Estado</th>
                 <th className="actions-col">Acciones</th>
@@ -332,7 +338,7 @@ export function UsersPage() {
             <tbody>
               {loading ? (
                 <tr>
-                  <td colSpan={canAssignRoles ? 6 : 5} className="muted mono">
+                  <td colSpan={canAssignRoles ? 7 : 5} className="muted mono">
                     Cargando…
                   </td>
                 </tr>
@@ -350,6 +356,20 @@ export function UsersPage() {
                         ? `${row.nombres} ${row.apellidos || ''}`.trim()
                         : '—'}
                     </td>
+                    {canAssignRoles && (
+                      <td>
+                        {row.role === 'VIEWER' ? (
+                          <span className="muted">—</span>
+                        ) : (
+                          <span className="market-cell">
+                            <MarketIcon market={row.pricing_market} />
+                            <span className="mono" style={{ fontSize: 11 }}>
+                              {row.pricing_market === 'INTERNACIONAL' ? 'Internacional' : 'Nacional'}
+                            </span>
+                          </span>
+                        )}
+                      </td>
+                    )}
                     {canAssignRoles && (
                       <td className="mono" style={{ fontSize: 11 }}>
                         {row.role === 'COMERCIAL' ? (
@@ -592,6 +612,22 @@ export function UsersPage() {
                 Los usuarios VIEWER no tienen ficha de empleado; solo acceso de lectura a proyectos asignados.
               </p>
             )}
+            {canAssignRoles && createForm.role !== 'VIEWER' && (
+              <label>
+                <span className="fg-lbl">Precio de mercado de sus cotizaciones</span>
+                <select
+                  className="form-input"
+                  value={createForm.pricingMarket || 'NACIONAL'}
+                  onChange={(e) => setCreateForm((f) => ({ ...f, pricingMarket: e.target.value }))}
+                >
+                  <option value="NACIONAL">Nacional — precios Perú (predeterminado)</option>
+                  <option value="INTERNACIONAL">Internacional — precio dual del catálogo</option>
+                </select>
+                <span className="muted mono" style={{ fontSize: 11 }}>
+                  Los proyectos nuevos de este usuario nacerán con este mercado. Un admin puede cambiarlo después.
+                </span>
+              </label>
+            )}
             {canAssignRoles && createForm.role === 'COMERCIAL' && (
               <fieldset className="stack-form" style={{ gap: 8, border: '1px solid var(--border-dim)', padding: 12, borderRadius: 8 }}>
                 <legend className="fg-lbl" style={{ padding: '0 6px' }}>
@@ -719,17 +755,20 @@ export function UsersPage() {
                 ))}
               </fieldset>
             )}
-            {isSuperuser() && editForm.role === 'COMERCIAL' && (
+            {canAssignRoles && editForm.role !== 'VIEWER' && (
               <label>
-                <span className="fg-lbl">Mercado del comercial</span>
+                <span className="fg-lbl">Precio de mercado de sus cotizaciones</span>
                 <select
                   className="form-input"
                   value={editForm.pricingMarket || 'NACIONAL'}
                   onChange={(e) => setEditForm((f) => ({ ...f, pricingMarket: e.target.value }))}
                 >
-                  <option value="NACIONAL">Nacional (proyectos nuevos)</option>
-                  <option value="INTERNACIONAL">Internacional (proyectos nuevos)</option>
+                  <option value="NACIONAL">Nacional — precios Perú (predeterminado)</option>
+                  <option value="INTERNACIONAL">Internacional — precio dual del catálogo</option>
                 </select>
+                <span className="muted mono" style={{ fontSize: 11 }}>
+                  Aplica a proyectos nuevos. El mercado de una cotización ya creada se cambia en el presupuesto.
+                </span>
               </label>
             )}
             {canAssignRoles && editForm.role !== 'VIEWER' && (

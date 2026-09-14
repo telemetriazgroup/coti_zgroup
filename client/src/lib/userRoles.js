@@ -39,3 +39,8 @@ export function canWriteProjects(user) {
 export function canWriteClients(user) {
   return canWriteProjects(user);
 }
+
+/** Precio de mercado del usuario (cotizaciones nuevas) y mercado de un proyecto. */
+export function canChangeQuotationMarket(user) {
+  return hasAdminPanelAccess(user);
+}

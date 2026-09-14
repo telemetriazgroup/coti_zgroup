@@ -3,7 +3,7 @@ const multer = require('multer');
 const bcrypt = require('bcrypt');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
-const { isAdminLikeRole } = require('../utils/userRoles');
+const { isAdminLikeRole, canChangeQuotationMarket } = require('../utils/userRoles');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { canCreateRole, allowedCreateRoles } = require('../lib/userCreation');
 const {
@@ -423,6 +423,7 @@ const createValidation = [
     .if((_, { req }) => ['ADMIN', 'COMERCIAL'].includes(req.body.role))
     .notEmpty()
     .withMessage('Apellidos requeridos'),
+  body('pricingMarket').optional({ values: 'falsy' }).isIn(['NACIONAL', 'INTERNACIONAL']),
 ];
 
 router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), createValidation, async (req, res) => {
@@ -449,8 +450,12 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
     canSeeFinanceCp,
     canSeeFinanceLp,
     canSeeFinanceEst,
+    pricingMarket,
   } = req.body;
   const isElevated = ['ADMIN', 'SUPERUSER'].includes(req.user.role);
+  const creatorMarket = canChangeQuotationMarket(req.user)
+    ? normalizeMarket(pricingMarket)
+    : 'NACIONAL';
 
   if (!canCreateRole(req.user.role, role)) {
     return res.status(403).json({
@@ -494,15 +499,16 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
 
       const { rows: userRows } = await client.query(
         `INSERT INTO users (
-           email, password_hash, role, created_by,
+           email, password_hash, role, created_by, pricing_market,
            can_see_finance_summary, can_see_finance_m1, can_see_finance_cp,
            can_see_finance_lp, can_see_finance_est
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING id`,
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
         [
           email.toLowerCase().trim(),
           passwordHash,
           role,
           req.user.id,
+          creatorMarket,
           financeAccess.summary,
           financeAccess.m1,
           financeAccess.cp,
@@ -594,10 +600,10 @@ router.put('/:id', async (req, res) => {
       let idx = 1;
 
       if (pricingMarket !== undefined) {
-        if (req.user.role !== 'SUPERUSER') {
+        if (!canChangeQuotationMarket(req.user)) {
           return res.status(403).json({
             success: false,
-            error: { code: 'FORBIDDEN', message: 'Solo el superusuario puede cambiar el mercado del usuario' },
+            error: { code: 'FORBIDDEN', message: 'Solo un administrador puede cambiar el mercado del usuario' },
           });
         }
         if (!MARKETS.includes(pricingMarket)) {

@@ -296,3 +296,47 @@ Sprint 7 es siempre el último.
 ---
 
 *Plan actualizable — revisar al inicio de cada sprint con el equipo.*
+
+se quiere implentar una logica para la creacion de item , tenemos un concepto de producto intermedio para una categoria que funciona como kit , solo que estos productos normalmente no se muestran a los usuarios de tipo ejecutivo o comercial . y el concepto de producto intermedio es tener la trazabilidad de activos y consumibles que incorporan cada creacion .
+
+dado a que podemos tener un siguiente caso 
+
+
+
+
+"PRODUCTO_UNO" que es un ACTIVO PUEDE ESTAR COMPUESTO POR :
+
+ACTIVO1      ->   2 Unidades
+ACTIVO2      ->   3 Unidades
+COMSUMIBLE1  ->   1 Unidad
+ACTIVO3      ->   1 unidad 
+
+Ahora "PRODUCTO_DOS" puedo estar compuesto por :
+
+PRODUCTO_UNO ->   2 Unidades
+ACTIVO4      ->   2 Unidades
+ACTIVO5      ->   1 Unidades
+COMSUMIBLE2  ->   1 Unidad
+ACTIVO1      ->   1 unidad 
+
+ahora "PRODUCTO_TRES" puedo estar compuesto por :
+
+PRODUCTO_UNO ->   1 Unidades
+PRODUCTO_DOS ->   1 Unidades
+ACTIVO6      ->   1 Unidades
+COMSUMIBLE1  ->   1 Unidad
+ACTIVO3      ->   1 unidad 
+
+Al final la idea es que stos se comporten como kit y al momento de generar la lista de materiale spara produccion le muestre la cadena de productos que interviene  en la trasformacion de cada uno de los productos intermedios y tambien se muestra un total en conjunto de activos y consumibles necesarios para producir lo que se necesita . fijese que no pondremos  PRODUCTO_UNO , PRODUCTO_DOS y  PRODUCTO_TRES en la lista de materiales porque se entiende que mediante un proceso de fabricacion naceran y estaran disponible spara seguir la cadena o presentarse como producto final . La ide aes que sirva como guia para la parte d eproduccion y se genere una interfaz tipo lego donde  crepo un producto intermdio y voy agergando item y lo fromo una interfaz tipo lego donde se vean los item y en lo que s etransfroman algo asi como cuadros dentro d ecuadros que nos indican visualmente que esos item estan consumidor para ese producto y asi hasta crear productos finales .
+
+Los USUARIOS ADMIN en el dashboard ven el resumen veen todo la cantidad d eproyectos total y la cantidad de proyectos creados por ellos ,en la vista global , en  el panel de generncia ve los datos de us proyectos creados que etsan activos es decir puede haber en general 90 proyectos pero si solo creo 5 aqui parecen los 5 . aparece un resumen de sus ultimas acciones realizadas y en que proyectos y su actividad en grafica de la semana  de cuantos item y que valor añadido .
+En el modulo proyecto tiene toda las opciones menos el de auditoria . Puede ver el "historial del presupuesto" cuando lo selecciona y definir si es nacional o internacional , puede crera nuevos usuarios y darle seguimiento .puede crear item y categorias .
+
+
+
+Actualmnente de tiene el rol comercial , y la idea es tener 2 roles un rol Ejecutivo y un Rol comercial .   
+
+
+Tener en cuenta que se quiere hacer en nueva categoria una opcion de producto intermedio  un producto que se comporte como kit pero se transforme en un producto con sus integrantes .
+
+Se requiere  distinguir que item se muestran o no a los usuarios comerciales  , en la lista de proyectos puede ver los planos 

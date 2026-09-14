@@ -22,6 +22,7 @@ import { formatItemTraceUser } from '../lib/projectAuditLabels';
 import { fetchCategoryNextCodigo } from '../lib/catalogCodigoApi';
 import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
 import { buildConsolidatedKitBudgetRows } from '@shared/kitBudgetRows.js';
+import { MarketIcon } from '../components/MarketIcon';
 
 const LS_FINANCE_SIDEBAR = 'zgroup_budget_finance_open';
 
@@ -44,7 +45,8 @@ function unitPricesDiffer(official, current) {
 export function ProjectBudgetPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
-  const { hasRole, user, canManageCatalog, canShareProjects, isSuperuser } = useAuth();
+  const { hasRole, user, canManageCatalog, canShareProjects, isSuperuser, canChangeQuotationMarket } = useAuth();
+  const canChangeMarket = canChangeQuotationMarket();
   const viewerMode = user?.role === 'VIEWER';
   const hideItemPrices = user?.role === 'COMERCIAL';
   const canWrite = hasRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER');
@@ -301,7 +303,7 @@ export function ProjectBudgetPage() {
   }, [loadAll]);
 
   async function changeQuotationMarket(nextMarket) {
-    if (!isSuperuser() || !projectId) return;
+    if (!canChangeMarket || !projectId) return;
     setErr(null);
     try {
       const data = await api.put(`/api/projects/${projectId}`, { quotationMarket: nextMarket });
@@ -1105,7 +1107,7 @@ export function ProjectBudgetPage() {
             emptyLabel="Sin proyectos coincidentes"
           />
         </div>
-        {isSuperuser() && project && (
+        {project && canChangeMarket && (
           <label className="budget-project-bar__market mono">
             <span className="muted">Mercado</span>
             <select
@@ -1119,6 +1121,14 @@ export function ProjectBudgetPage() {
               <option value="INTERNACIONAL">Internacional</option>
             </select>
           </label>
+        )}
+        {project && !canChangeMarket && (
+          <span className="budget-project-bar__market-ro" title={project.quotationMarket === 'INTERNACIONAL' ? 'Mercado internacional' : 'Mercado nacional'}>
+            <MarketIcon market={project.quotationMarket} />
+            <span className="mono muted" style={{ fontSize: 11 }}>
+              {project.quotationMarket === 'INTERNACIONAL' ? 'Internacional' : 'Nacional'}
+            </span>
+          </span>
         )}
         {(canWrite || canDuplicateProject) && (
           <div className="budget-project-bar__actions">

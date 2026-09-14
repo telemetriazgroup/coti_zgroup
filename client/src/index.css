@@ -1320,6 +1320,38 @@ a.kpi-card--link:hover {
   align-items: center;
   gap: 8px;
 }
+.proj-name-cell {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.market-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  line-height: 0;
+}
+.market-icon__flag {
+  display: block;
+  border-radius: 2px;
+  border: 1px solid var(--border-dim);
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.08);
+}
+.market-icon--world {
+  color: var(--cyan);
+}
+.market-cell {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.budget-project-bar__market-ro {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
 .proj-plan-eye {
   display: inline-flex;
   align-items: center;

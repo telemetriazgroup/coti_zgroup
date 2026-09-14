@@ -11,6 +11,7 @@ import {
   useProjectListFilters,
   extractProjectCreators,
 } from '../components/ProjectFiltersBar';
+import { MarketIcon } from '../components/MarketIcon';
 
 const PAGE_SIZE = 10;
 
@@ -454,12 +455,17 @@ export function ProjectsPage() {
                     title="Doble clic para abrir el presupuesto"
                   >
                     <td>
-                      {row.nombre}
-                      {row.deletedAt && (
-                        <span className="tag tag--muted mono" style={{ marginLeft: 8 }}>
-                          archivado
+                      <div className="proj-name-cell">
+                        <MarketIcon market={row.quotationMarket} />
+                        <span>
+                          {row.nombre}
+                          {row.deletedAt && (
+                            <span className="tag tag--muted mono" style={{ marginLeft: 8 }}>
+                              archivado
+                            </span>
+                          )}
                         </span>
-                      )}
+                      </div>
                     </td>
                     <td>
                       <div className="proj-status-cell">

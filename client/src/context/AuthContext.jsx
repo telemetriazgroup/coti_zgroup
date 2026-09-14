@@ -9,6 +9,7 @@ import {
   canShareProjects as checkCanShareProjects,
   canViewArchivedProjects as checkCanViewArchivedProjects,
   canViewInactiveCatalog as checkCanViewInactiveCatalog,
+  canChangeQuotationMarket as checkCanChangeQuotationMarket,
 } from '../lib/userRoles';
 
 const AuthContext = createContext(null);
@@ -125,6 +126,7 @@ export function AuthProvider({ children }) {
       canShareProjects: () => checkCanShareProjects(user),
       canViewArchivedProjects: () => checkCanViewArchivedProjects(user),
       canViewInactiveCatalog: () => checkCanViewInactiveCatalog(user),
+      canChangeQuotationMarket: () => checkCanChangeQuotationMarket(user),
     }),
     [user, ready, login, logout, refreshProfile, startImpersonation, stopImpersonation]
   );

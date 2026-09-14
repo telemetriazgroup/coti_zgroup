@@ -2,7 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { canViewArchivedProjects, isSuperuser } = require('../utils/userRoles');
+const { canViewArchivedProjects, isSuperuser, canChangeQuotationMarket } = require('../utils/userRoles');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
 const {
@@ -708,12 +708,12 @@ router.put('/:id', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), 
       }
     }
     if (quotationMarket !== undefined) {
-      if (!isSuperuser(req.user)) {
+      if (!canChangeQuotationMarket(req.user)) {
         return res.status(403).json({
           success: false,
           error: {
             code: 'FORBIDDEN',
-            message: 'Solo el superusuario puede cambiar el mercado de la cotización',
+            message: 'Solo un administrador puede cambiar el mercado de la cotización',
           },
         });
       }
@@ -732,7 +732,7 @@ router.put('/:id', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), 
     vals.push(req.params.id);
     await pool.query(`UPDATE projects SET ${fields.join(', ')} WHERE id = $${i}`, vals);
 
-    if (quotationMarket !== undefined && isSuperuser(req.user)) {
+    if (quotationMarket !== undefined && canChangeQuotationMarket(req.user)) {
       const nextMarket = normalizeMarket(quotationMarket);
       if (nextMarket !== normalizeMarket(pr[0].quotation_market)) {
         await recalcProjectPricesForMarket(req.params.id, nextMarket);
