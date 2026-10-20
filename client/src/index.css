@@ -3055,6 +3055,12 @@ select.form-input {
   font-size: 11px;
   color: var(--green);
 }
+.fin-toggles--commercial {
+  border-bottom: 1px solid var(--border-dim);
+}
+.fin-toggles--commercial .fin-check--commercial {
+  margin-left: 0;
+}
 [data-theme='light'] .fin-check--commercial {
   color: #0d7a4a;
 }

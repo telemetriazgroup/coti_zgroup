@@ -7,8 +7,12 @@ import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
 import { FinanceModules } from '../components/finance/FinanceModules';
 import { ProjectWorkNav } from '../components/ProjectWorkNav';
-import { mergeFinanceParams } from '@shared/finance-engine.js';
-import { resolveCommercialModules } from '../lib/commercialFinanceAccess';
+import { computeFinance, mergeFinanceParams } from '@shared/finance-engine.js';
+import {
+  hasExplicitFinanceModuleFlags,
+  resolveCommercialAllowedModules,
+  resolveCommercialModules,
+} from '../lib/commercialFinanceAccess';
 import { STATUS_LABEL } from '../lib/quotationStatus';
 import { QuotationStatusFlow } from '../components/QuotationStatusFlow';
 import { ProjectShareModal } from '../components/ProjectShareModal';
@@ -55,7 +59,7 @@ export function ProjectBudgetPage() {
   /** Editar celdas, quitar línea y limpiar presupuesto: comercial en propios/compartidos; catálogo solo admin. */
   const canEditBudgetLines = canWrite && !viewerMode;
   const canEditUnitPrices = canEditBudgetLines && !hideItemPrices;
-  const showAdjustmentCol = !hideItemPrices;
+  const showAdjustmentCol = canEditBudgetLines;
   const budgetTableColSpan = useMemo(() => {
     let n = 6;
     if (!hideItemPrices) n += 2;
@@ -113,16 +117,41 @@ export function ProjectBudgetPage() {
   const flushTimers = useRef({});
   const [financeParams, setFinanceParams] = useState(() => mergeFinanceParams({}));
   const financeTcPersistRef = useRef('');
+  const commercialAllowed = useMemo(
+    () => (hideItemPrices ? resolveCommercialAllowedModules(user) : null),
+    [hideItemPrices, user]
+  );
   const commercialModules = useMemo(
     () => (hideItemPrices ? resolveCommercialModules(user, financeParams) : null),
     [hideItemPrices, user, financeParams]
   );
-  const showFinanceCommercial =
-    commercialModules && Object.values(commercialModules).some(Boolean);
-  const showFinancePanel = !viewerMode && (!hideItemPrices || showFinanceCommercial);
+  const commercialM1Locked =
+    hideItemPrices && hasExplicitFinanceModuleFlags(user) && commercialAllowed?.m1 === true;
+  const hasAnyCommercialFinance =
+    commercialAllowed && Object.values(commercialAllowed).some(Boolean);
+  const showFinancePanel = !viewerMode && (!hideItemPrices || hasAnyCommercialFinance);
+  const commercialVentaTotal = useMemo(() => {
+    if (!hideItemPrices || !commercialModules?.m1) return null;
+    const out = computeFinance({
+      baseLista: totals.lista,
+      baseActivos: totals.activos,
+      baseConsumibles: totals.consumibles,
+      baseListaAdj: totals.listaAdj,
+      baseListaExempt: totals.listaExempt,
+      baseActivosAdj: totals.activosAdj,
+      baseActivosExempt: totals.activosExempt,
+      baseConsumiblesAdj: totals.consumiblesAdj,
+      baseConsumiblesExempt: totals.consumiblesExempt,
+      params: financeParams,
+    });
+    return out?.m1?.ventaTotal;
+  }, [hideItemPrices, commercialModules, totals, financeParams]);
   const [financeSidebarOpen, setFinanceSidebarOpen] = useState(() => {
     if (typeof window === 'undefined') return false;
-    return localStorage.getItem(LS_FINANCE_SIDEBAR) === '1';
+    const stored = localStorage.getItem(LS_FINANCE_SIDEBAR);
+    if (stored === '1') return true;
+    if (stored === '0') return false;
+    return user?.role === 'COMERCIAL';
   });
   const [pdfBusy, setPdfBusy] = useState(false);
   const [pdfMsg, setPdfMsg] = useState(null);
@@ -324,7 +353,8 @@ export function ProjectBudgetPage() {
   }, []);
 
   useEffect(() => {
-    if (!projectId || !canWrite || !project || hideItemPrices) return;
+    if (!projectId || !canWrite || !project) return;
+    if (hideItemPrices && !hasAnyCommercialFinance) return;
     const fpJson = JSON.stringify(financeParams);
     const tcVal = project.tc != null ? Number(project.tc) : 3.75;
     const sig = `${fpJson}|${tcVal}`;
@@ -347,7 +377,7 @@ export function ProjectBudgetPage() {
       }
     }, 500);
     return () => clearTimeout(t);
-  }, [financeParams, project, projectId, canWrite, hideItemPrices]);
+  }, [financeParams, project, projectId, canWrite, hideItemPrices, hasAnyCommercialFinance]);
 
   const syncDraftFromItems = useCallback((list) => {
     const dm = { ...draftsRef.current };
@@ -1861,7 +1891,11 @@ export function ProjectBudgetPage() {
                   )}
                 </>
               )}
-              <span className="budget-footer-total">TOTAL LISTA: {formatUsd(totals.lista)}</span>
+              {hideItemPrices && commercialModules?.m1 ? (
+                <span className="budget-footer-total">TOTAL VENTA: {formatUsd(commercialVentaTotal)}</span>
+              ) : (
+                <span className="budget-footer-total">TOTAL LISTA: {formatUsd(totals.lista)}</span>
+              )}
             </div>
           </footer>
         </div>
@@ -1884,6 +1918,8 @@ export function ProjectBudgetPage() {
         onFinanceParamsChange={setFinanceParams}
         viewerMode={viewerMode}
         commercialModules={commercialModules}
+        commercialAllowed={commercialAllowed}
+        commercialM1Locked={commercialM1Locked}
         tc={project?.tc != null ? Number(project.tc) : 3.75}
         onTcChange={canWrite && !hideItemPrices ? handleTcChange : undefined}
         finPanelClassName="zgroup-scroll"
@@ -1900,8 +1936,9 @@ export function ProjectBudgetPage() {
           <p className="muted mono" style={{ fontSize: 12, lineHeight: 1.5 }}>
             {hideItemPrices ? (
               <>
-                PDF para el cliente: partidas sin precios unitarios y resumen financiero solo de los módulos con
-                «Vista comercial» activa (montos y plazos, sin fórmulas ni datos internos).
+                PDF para el cliente: partidas sin precios unitarios. Si tiene venta directa autorizada, el total
+                de la propuesta se incluye. Corto/largo plazo y estacionalidad se agregan al activarlos aquí
+                (solo montos y plazos, sin fórmulas ni costos internos).
               </>
             ) : (
               <>

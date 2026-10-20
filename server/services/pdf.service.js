@@ -451,13 +451,13 @@ function buildClienteModalidadesSection(fin, mergedParams, commercialModules = n
   const showLp = filtered ? commercialModules.lp : rp.enableLp !== false && m3.enabled !== false;
   const showEst = filtered ? commercialModules.est : rp.enableEst !== false && m4.enabled !== false;
 
-  if (!filtered && showM1) {
+  if (showM1) {
     rows.push(`<tr>
       <td><strong>Venta directa</strong> — adquisición</td>
       <td class="num">—</td>
       <td class="num">—</td>
       <td class="num"><strong>${fmtUsd(m1.ventaTotal)}</strong></td>
-      <td class="opt-note">Inversión única referencial (M1). No aplica cuota mensual.</td>
+      <td class="opt-note">${filtered ? 'Inversión única. No aplica cuota mensual.' : 'Inversión única referencial (M1). No aplica cuota mensual.'}</td>
     </tr>`);
   }
 

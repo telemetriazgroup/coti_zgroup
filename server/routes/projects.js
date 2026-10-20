@@ -21,6 +21,10 @@ const {
   normalizeMarket,
   recalcProjectPricesForMarket,
 } = require('../lib/pricingMarket');
+const {
+  loadUserFlags,
+  pickCommercialShowPatch,
+} = require('../lib/commercialVisibility');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -701,7 +705,16 @@ router.put('/:id', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), 
     }
     if (financeParams !== undefined) {
       if (req.user.role === 'COMERCIAL') {
-        /* Comercial no altera módulos financieros ni «Vista comercial» del proyecto */
+        const flags = await loadUserFlags(req.user.id);
+        const patch = pickCommercialShowPatch(financeParams, flags || req.user);
+        if (Object.keys(patch).length > 0) {
+          const current =
+            pr[0].finance_params && typeof pr[0].finance_params === 'object'
+              ? pr[0].finance_params
+              : {};
+          fields.push(`finance_params = $${i++}`);
+          vals.push(JSON.stringify({ ...current, ...patch }));
+        }
       } else {
         fields.push(`finance_params = $${i++}`);
         vals.push(JSON.stringify(financeParams));

@@ -1,6 +1,5 @@
-const { pool } = require('../config/db');
-
 async function loadUserFlags(userId) {
+  const { pool } = require('../config/db');
   const { rows } = await pool.query(
     `SELECT id, role, can_see_finance_summary,
             can_see_finance_m1, can_see_finance_cp, can_see_finance_lp, can_see_finance_est
@@ -57,42 +56,84 @@ function mapCommercialFinanceAccess(userRow) {
   };
 }
 
+function commercialModuleFlags(userRow) {
+  if (!userRow) {
+    return { m1: false, cp: false, lp: false, est: false };
+  }
+  const legacy = userRow.can_see_finance_summary === true;
+  return {
+    m1: legacy || userRow.can_see_finance_m1 === true,
+    cp: legacy || userRow.can_see_finance_cp === true,
+    lp: legacy || userRow.can_see_finance_lp === true,
+    est: legacy || userRow.can_see_finance_est === true,
+  };
+}
+
+function hasExplicitFinanceModuleFlags(userRow) {
+  if (!userRow || userRow.role !== 'COMERCIAL') return false;
+  return (
+    userRow.can_see_finance_summary === true ||
+    userRow.can_see_finance_m1 === true ||
+    userRow.can_see_finance_cp === true ||
+    userRow.can_see_finance_lp === true ||
+    userRow.can_see_finance_est === true
+  );
+}
+
 function commercialModuleAllowed(userRow, module) {
   if (!userRow || userRow.role !== 'COMERCIAL') return true;
-  if (userRow.can_see_finance_summary === true) return true;
-  const flags = {
-    m1: userRow.can_see_finance_m1 === true,
-    cp: userRow.can_see_finance_cp === true,
-    lp: userRow.can_see_finance_lp === true,
-    est: userRow.can_see_finance_est === true,
-  };
-  const anyExplicit = flags.m1 || flags.cp || flags.lp || flags.est;
-  if (!anyExplicit) return true;
+  const flags = commercialModuleFlags(userRow);
+  if (!hasExplicitFinanceModuleFlags(userRow)) return true;
   return flags[module] === true;
 }
 
-/** Módulos visibles en PDF/panel comercial = permiso usuario ∩ vista comercial del proyecto. */
+function resolveCommercialAllowedModules(userRow) {
+  if (!userRow || userRow.role !== 'COMERCIAL') return null;
+  return {
+    m1: commercialModuleAllowed(userRow, 'm1'),
+    cp: commercialModuleAllowed(userRow, 'cp'),
+    lp: commercialModuleAllowed(userRow, 'lp'),
+    est: commercialModuleAllowed(userRow, 'est'),
+  };
+}
+
+/**
+ * Módulos en PDF/panel comercial.
+ * M1 (venta directa): si el admin autorizó el módulo al usuario, va en la propuesta
+ * (es la cotización base). CP/LP/Est requieren además «Vista comercial» del proyecto.
+ */
 function resolveCommercialModules(userRow, financeParams) {
   if (!userRow || userRow.role !== 'COMERCIAL') return null;
   const fp =
     financeParams && typeof financeParams === 'object'
       ? financeParams
       : {};
+  const allowed = resolveCommercialAllowedModules(userRow);
+  const explicit = hasExplicitFinanceModuleFlags(userRow);
   return {
-    m1: commercialModuleAllowed(userRow, 'm1') && fp.commercialShowM1 === true,
-    cp:
-      commercialModuleAllowed(userRow, 'cp') &&
-      fp.commercialShowCp === true &&
-      fp.enableCp !== false,
-    lp:
-      commercialModuleAllowed(userRow, 'lp') &&
-      fp.commercialShowLp === true &&
-      fp.enableLp !== false,
-    est:
-      commercialModuleAllowed(userRow, 'est') &&
-      fp.commercialShowEst === true &&
-      fp.enableEst !== false,
+    m1: allowed.m1 && (explicit ? true : fp.commercialShowM1 === true),
+    cp: allowed.cp && fp.commercialShowCp === true && fp.enableCp !== false,
+    lp: allowed.lp && fp.commercialShowLp === true && fp.enableLp !== false,
+    est: allowed.est && fp.commercialShowEst === true && fp.enableEst !== false,
   };
+}
+
+/** Comercial solo puede persistir flags de inclusión en propuesta de módulos autorizados. */
+function pickCommercialShowPatch(financeParams, userRow) {
+  if (!financeParams || typeof financeParams !== 'object') return {};
+  const keys = [
+    ['commercialShowM1', 'm1'],
+    ['commercialShowCp', 'cp'],
+    ['commercialShowLp', 'lp'],
+    ['commercialShowEst', 'est'],
+  ];
+  const patch = {};
+  for (const [paramKey, mod] of keys) {
+    if (financeParams[paramKey] === undefined) continue;
+    if (!commercialModuleAllowed(userRow, mod)) continue;
+    patch[paramKey] = financeParams[paramKey] === true;
+  }
+  return patch;
 }
 
 function sanitizeBudgetItem(item) {
@@ -108,11 +149,19 @@ function sanitizeBudgetItem(item) {
 function sanitizeBudgetItemsResponse(userRow, data) {
   if (canSeeItemPrices(userRow)) return data;
   const items = (data.items || []).map(sanitizeBudgetItem);
-  const totals = data.totals
-    ? {
-        lista: data.totals.lista != null ? Number(data.totals.lista) : 0,
-      }
-    : { lista: 0 };
+  const t = data.totals || {};
+  const num = (v) => (v != null ? Number(v) : 0);
+  const totals = {
+    lista: num(t.lista),
+    activos: num(t.activos),
+    consumibles: num(t.consumibles),
+    listaAdj: num(t.listaAdj),
+    listaExempt: num(t.listaExempt),
+    activosAdj: num(t.activosAdj),
+    activosExempt: num(t.activosExempt),
+    consumiblesAdj: num(t.consumiblesAdj),
+    consumiblesExempt: num(t.consumiblesExempt),
+  };
   return { ...data, items, totals, priceVisibility: 'total_only' };
 }
 
@@ -173,7 +222,10 @@ module.exports = {
   canSeeFinanceSummary,
   mapCommercialFinanceAccess,
   commercialModuleAllowed,
+  hasExplicitFinanceModuleFlags,
+  resolveCommercialAllowedModules,
   resolveCommercialModules,
+  pickCommercialShowPatch,
   sanitizeBudgetItem,
   sanitizeBudgetItemsResponse,
   sanitizeCatalogItem,

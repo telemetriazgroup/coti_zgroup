@@ -211,6 +211,8 @@ export function FinanceModules({
   onFinanceParamsChange,
   viewerMode,
   commercialModules = null,
+  commercialAllowed = null,
+  commercialM1Locked = false,
   tc: tcProp,
   onTcChange,
   finPanelClassName = '',
@@ -266,10 +268,12 @@ export function FinanceModules({
   const hideSensitive = !!viewerMode;
   const handleTc = typeof onTcChange === 'function' ? onTcChange : () => {};
   const setDisplayCurrency = (c) => patch({ displayCurrency: c });
+  const isCommercialEditor = commercialAllowed != null;
   const showCommercialView =
-    commercialModules && Object.values(commercialModules).some(Boolean);
+    isCommercialEditor ||
+    (commercialModules && Object.values(commercialModules).some(Boolean));
 
-  function CommercialToggle({ moduleKey, label, enabled }) {
+  function CommercialToggle({ moduleKey, label, enabled, locked, title }) {
     if (hideSensitive || !enabled) return null;
     const paramKey =
       moduleKey === 'm1'
@@ -279,12 +283,20 @@ export function FinanceModules({
           : moduleKey === 'lp'
             ? 'commercialShowLp'
             : 'commercialShowEst';
+    const checked = locked ? true : p[paramKey] === true;
     return (
-      <label className="fin-check fin-check--commercial" title="El comercial verá solo montos finales, sin fórmulas">
+      <label
+        className="fin-check fin-check--commercial"
+        title={title || 'Incluir montos finales en la propuesta al cliente, sin fórmulas'}
+      >
         <input
           type="checkbox"
-          checked={p[paramKey] === true}
-          onChange={(e) => patch({ [paramKey]: e.target.checked })}
+          checked={checked}
+          disabled={!!locked}
+          onChange={(e) => {
+            if (locked) return;
+            patch({ [paramKey]: e.target.checked });
+          }}
         />
         {label}
       </label>
@@ -292,24 +304,76 @@ export function FinanceModules({
   }
 
   if (showCommercialView) {
+    const shown = commercialModules || {};
+    const allowed = commercialAllowed || shown;
     return (
       <div className={`fin-panel fin-panel--summary-only${finPanelClassName ? ` ${finPanelClassName}` : ''}`}>
         <div className="fin-panel__sticky-top">
           <div className="fin-panel__head">
-            <h2 className="fin-panel__title">Resumen financiero</h2>
+            <h2 className="fin-panel__title">Propuesta al cliente</h2>
             <p className="fin-panel__intro muted">
-              Montos autorizados por su administrador. Sin margen, descuento ni detalle de cálculo.
+              Active las modalidades autorizadas para incluir montos en el PDF. Sin margen, descuento ni
+              detalle de cálculo.
             </p>
           </div>
+          {isCommercialEditor && (
+            <div className="fin-toggles mono fin-toggles--commercial">
+              {allowed.m1 && (
+                <div className="fin-toggle-row">
+                  <CommercialToggle
+                    moduleKey="m1"
+                    label="Incluir venta directa (total)"
+                    enabled
+                    locked={commercialM1Locked}
+                    title={
+                      commercialM1Locked
+                        ? 'Venta directa autorizada: el total se incluye en la propuesta al cliente'
+                        : 'Incluir el total de venta directa en el PDF del cliente'
+                    }
+                  />
+                </div>
+              )}
+              {allowed.cp && (
+                <div className="fin-toggle-row">
+                  <CommercialToggle
+                    moduleKey="cp"
+                    label="Incluir corto plazo"
+                    enabled={p.enableCp !== false}
+                    title="Incluir renta y plazo de corto plazo en el PDF del cliente"
+                  />
+                </div>
+              )}
+              {allowed.lp && (
+                <div className="fin-toggle-row">
+                  <CommercialToggle
+                    moduleKey="lp"
+                    label="Incluir largo plazo"
+                    enabled={p.enableLp !== false}
+                    title="Incluir cuotas y plazos de largo plazo en el PDF del cliente"
+                  />
+                </div>
+              )}
+              {allowed.est && (
+                <div className="fin-toggle-row">
+                  <CommercialToggle
+                    moduleKey="est"
+                    label="Incluir estacionalidad"
+                    enabled={p.enableEst !== false}
+                    title="Incluir ingreso anual y calendario de estacionalidad en el PDF del cliente"
+                  />
+                </div>
+              )}
+            </div>
+          )}
         </div>
         <div className="fin-result fin-result--cyan mono fin-summary-kpis">
-          {commercialModules.m1 && (
+          {shown.m1 && (
             <div className="fin-summary-kpi">
               <span>Total venta</span>
               <strong>{fmt(m1.ventaTotal)}</strong>
             </div>
           )}
-          {commercialModules.cp && (
+          {shown.cp && (
             <>
               <div className="fin-summary-kpi">
                 <span>Corto plazo — renta/mes</span>
@@ -321,7 +385,7 @@ export function FinanceModules({
               </div>
             </>
           )}
-          {commercialModules.lp && m3?.phase1Detail && (
+          {shown.lp && m3?.phase1Detail && (
             <>
               <div className="fin-summary-kpi">
                 <span>Largo plazo F1 — renta/mes</span>
@@ -333,7 +397,7 @@ export function FinanceModules({
               </div>
             </>
           )}
-          {commercialModules.lp && m3?.phase2Detail && Number(m3.lpNF2) > 0 && (
+          {shown.lp && m3?.phase2Detail && Number(m3.lpNF2) > 0 && (
             <>
               <div className="fin-summary-kpi">
                 <span>Largo plazo F2 — renta/mes</span>
@@ -345,7 +409,7 @@ export function FinanceModules({
               </div>
             </>
           )}
-          {commercialModules.est && (
+          {shown.est && (
             <>
               <div className="fin-summary-kpi">
                 <span>Estacionalidad — ingreso anual</span>

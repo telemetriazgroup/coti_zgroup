@@ -634,7 +634,7 @@ export function UsersPage() {
                   Resumen financiero para comercial (solo montos finales)
                 </legend>
                 <p className="muted mono" style={{ fontSize: 11, margin: '0 0 6px' }}>
-                  Autoriza qué módulos puede ver en presupuesto. En cada cotización debe activar también «Vista comercial» del módulo.
+                  Autoriza qué módulos puede usar en presupuesto. Venta directa se incluye en la propuesta al cliente. Corto/largo plazo y estacionalidad se activan en cada cotización.
                 </p>
                 {[
                   ['canSeeFinanceM1', 'Venta directa (total venta)'],
@@ -736,7 +736,7 @@ export function UsersPage() {
                   Resumen financiero para comercial (solo montos finales)
                 </legend>
                 <p className="muted mono" style={{ fontSize: 11, margin: '0 0 6px' }}>
-                  Autoriza qué módulos puede ver en presupuesto. En cada cotización debe activar también «Vista comercial» del módulo.
+                  Autoriza qué módulos puede usar en presupuesto. Venta directa se incluye en la propuesta al cliente. Corto/largo plazo y estacionalidad se activan en cada cotización.
                 </p>
                 {[
                   ['canSeeFinanceM1', 'Venta directa (total venta)'],
