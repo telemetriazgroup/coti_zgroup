@@ -154,6 +154,48 @@ function ModSection({ modId, badgeNum, tone, title, titleExtra, headerRight, ope
   );
 }
 
+function M1AdjEditor({ p, m1, patch, disabled }) {
+  return (
+    <div className="fin-m1-editor">
+      <div className="fin-row fin-row--modes" role="group" aria-label="Tipo de ajuste M1">
+        <button
+          type="button"
+          className={`fin-pill fin-pill--mode${m1.adjType === 'margin' ? ' fin-pill--on' : ''}`}
+          disabled={disabled}
+          onClick={() => patch({ adjType: 'margin' })}
+        >
+          Margen seguridad
+        </button>
+        <button
+          type="button"
+          className={`fin-pill fin-pill--mode${m1.adjType === 'discount' ? ' fin-pill--on' : ''}`}
+          disabled={disabled}
+          onClick={() => patch({ adjType: 'discount' })}
+        >
+          Descuento
+        </button>
+      </div>
+      <div className="fin-grid fin-grid--m1">
+        <FinParam
+          label={m1.adjType === 'margin' ? 'Margen (+) %' : 'Descuento (−) %'}
+          hint={HINT.adjPct}
+        >
+          <input
+            type="number"
+            step="0.5"
+            min="0"
+            max="100"
+            className="form-input mono fin-input-lg fin-m1-pct-input"
+            disabled={disabled}
+            value={p.adjPct ?? 0}
+            onChange={(e) => patch({ adjPct: parseFloat(e.target.value) || 0 })}
+          />
+        </FinParam>
+      </div>
+    </div>
+  );
+}
+
 function FinCurrencyBar({ displayCurrency, onDisplayCurrency, tc, onTcChange, disabled }) {
   const pen = displayCurrency === 'PEN';
   return (
@@ -312,8 +354,9 @@ export function FinanceModules({
           <div className="fin-panel__head">
             <h2 className="fin-panel__title">Propuesta al cliente</h2>
             <p className="fin-panel__intro muted">
-              Active las modalidades autorizadas para incluir montos en el PDF. Sin margen, descuento ni
-              detalle de cálculo.
+              Con venta directa puede aplicar margen de seguridad o descuento sobre las partidas con
+              ajuste. Active el resto de modalidades para incluirlas en el PDF (solo montos, sin
+              fórmulas internas).
             </p>
           </div>
           {isCommercialEditor && (
@@ -365,13 +408,34 @@ export function FinanceModules({
               )}
             </div>
           )}
+          {isCommercialEditor && allowed.m1 && (
+            <>
+              <M1AdjEditor p={p} m1={m1} patch={patch} disabled={hideSensitive} />
+              {m1.discount100Warning && (
+                <div className="banner banner--warn mono" style={{ margin: '0 12px 8px' }}>
+                  Descuento 100%: venta $0 — revisar parámetros.
+                </div>
+              )}
+            </>
+          )}
         </div>
         <div className="fin-result fin-result--cyan mono fin-summary-kpis">
           {shown.m1 && (
-            <div className="fin-summary-kpi">
-              <span>Total venta</span>
-              <strong>{fmt(m1.ventaTotal)}</strong>
-            </div>
+            <>
+              {(Number(m1.ventaAdj) || 0) !== 0 && (
+                <div className="fin-summary-kpi">
+                  <span>{m1.adjType === 'margin' ? 'Margen de seguridad' : 'Descuento'}</span>
+                  <strong style={{ color: m1.adjType === 'margin' ? 'var(--amber)' : 'var(--red)' }}>
+                    {m1.adjType === 'margin' ? '+' : '−'}
+                    {fmt(m1.ventaAdj)} ({Number(m1.adjPct || 0).toFixed(1)}%)
+                  </strong>
+                </div>
+              )}
+              <div className="fin-summary-kpi">
+                <span>Total venta</span>
+                <strong>{fmt(m1.ventaTotal)}</strong>
+              </div>
+            </>
           )}
           {shown.cp && (
             <>
@@ -509,39 +573,7 @@ export function FinanceModules({
         open={open.m1}
         onToggle={toggle}
       >
-        {!hideSensitive && (
-          <div className="fin-row fin-row--modes" role="group" aria-label="Tipo de ajuste M1">
-            <button
-              type="button"
-              className={`fin-pill fin-pill--mode${m1.adjType === 'margin' ? ' fin-pill--on' : ''}`}
-              onClick={() => patch({ adjType: 'margin' })}
-            >
-              Margen seguridad
-            </button>
-            <button
-              type="button"
-              className={`fin-pill fin-pill--mode${m1.adjType === 'discount' ? ' fin-pill--on' : ''}`}
-              onClick={() => patch({ adjType: 'discount' })}
-            >
-              Descuento
-            </button>
-          </div>
-        )}
-        <div className="fin-grid fin-grid--m1">
-          <FinParam
-            label={m1.adjType === 'margin' ? 'Margen (+) %' : 'Descuento (−) %'}
-            hint={HINT.adjPct}
-          >
-            <input
-              type="number"
-              step="0.5"
-              className="form-input mono fin-input-lg fin-m1-pct-input"
-              disabled={hideSensitive}
-              value={p.adjPct ?? 0}
-              onChange={(e) => patch({ adjPct: parseFloat(e.target.value) || 0 })}
-            />
-          </FinParam>
-        </div>
+        <M1AdjEditor p={p} m1={m1} patch={patch} disabled={hideSensitive} />
         <div className="fin-result fin-result--cyan mono">
           <div className="fin-result__row">
             <span className="muted">Base lista (con ajuste ✓)</span>

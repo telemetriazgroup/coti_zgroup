@@ -118,7 +118,10 @@ function resolveCommercialModules(userRow, financeParams) {
   };
 }
 
-/** Comercial solo puede persistir flags de inclusión en propuesta de módulos autorizados. */
+/**
+ * Comercial persiste inclusión de módulos autorizados y, si tiene M1,
+ * el tipo/porcentaje de margen o descuento.
+ */
 function pickCommercialShowPatch(financeParams, userRow) {
   if (!financeParams || typeof financeParams !== 'object') return {};
   const keys = [
@@ -132,6 +135,17 @@ function pickCommercialShowPatch(financeParams, userRow) {
     if (financeParams[paramKey] === undefined) continue;
     if (!commercialModuleAllowed(userRow, mod)) continue;
     patch[paramKey] = financeParams[paramKey] === true;
+  }
+  if (commercialModuleAllowed(userRow, 'm1')) {
+    if (financeParams.adjType === 'margin' || financeParams.adjType === 'discount') {
+      patch.adjType = financeParams.adjType;
+    }
+    if (financeParams.adjPct !== undefined && financeParams.adjPct !== null) {
+      const n = Number(financeParams.adjPct);
+      if (Number.isFinite(n)) {
+        patch.adjPct = Math.min(100, Math.max(0, n));
+      }
+    }
   }
   return patch;
 }

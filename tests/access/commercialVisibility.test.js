@@ -38,12 +38,31 @@ describe('visibilidad financiera del comercial', () => {
     assert.strictEqual(on.cp, true);
   });
 
-  it('el comercial solo persiste flags de módulos autorizados', () => {
+  it('con M1 persiste margen/descuento y no parámetros internos de otros módulos', () => {
     const patch = pickCommercialShowPatch(
-      { commercialShowM1: true, commercialShowCp: true, adjPct: 40 },
+      {
+        commercialShowM1: true,
+        commercialShowCp: true,
+        adjPct: 12.5,
+        adjType: 'discount',
+        lpMargen: 99,
+      },
       comercialM1
     );
-    assert.deepStrictEqual(patch, { commercialShowM1: true });
+    assert.deepStrictEqual(patch, {
+      commercialShowM1: true,
+      adjPct: 12.5,
+      adjType: 'discount',
+    });
+  });
+
+  it('sin permiso M1 no persiste margen ni descuento', () => {
+    const user = { role: 'COMERCIAL', can_see_finance_cp: true };
+    const patch = pickCommercialShowPatch(
+      { adjPct: 40, adjType: 'margin', commercialShowCp: true },
+      user
+    );
+    assert.deepStrictEqual(patch, { commercialShowCp: true });
   });
 
   it('sin flags explícitos puede activar cualquier módulo en la cotización', () => {

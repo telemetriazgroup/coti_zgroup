@@ -4207,6 +4207,10 @@ select.form-input {
   min-width: 132px;
   padding: 6px 8px;
 }
+.fin-panel--summary-only .fin-m1-editor {
+  padding: 12px 12px 4px;
+  border-bottom: 1px solid var(--border-dim);
+}
 .fin-panel--summary-only .fin-summary-kpis {
   display: flex;
   flex-direction: column;
