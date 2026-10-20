@@ -616,38 +616,16 @@ router.put('/:id', async (req, res) => {
         params.push(normalizeMarket(pricingMarket));
       }
 
-      if (hasFinanceUpdate) {
-        if (!isElevated) {
-          return res.status(403).json({
-            success: false,
-            error: { code: 'FORBIDDEN', message: 'Acceso denegado' },
-          });
-        }
-        const { rows: targetRows } = await pool.query(`SELECT role FROM users WHERE id = $1`, [req.params.id]);
-        if (!targetRows[0] || targetRows[0].role !== 'COMERCIAL') {
-          return res.status(400).json({
-            success: false,
-            error: { code: 'VALIDATION_ERROR', message: 'Solo aplica a usuarios comerciales' },
-          });
-        }
-        const access = commercialFinanceFromBody({
-          canSeeFinanceSummary,
-          canSeeFinanceM1,
-          canSeeFinanceCp,
-          canSeeFinanceLp,
-          canSeeFinanceEst,
+      const { rows: targetRows } = await pool.query(`SELECT role FROM users WHERE id = $1`, [req.params.id]);
+      if (!targetRows[0]) {
+        return res.status(404).json({
+          success: false,
+          error: { code: 'NOT_FOUND', message: 'Usuario no encontrado' },
         });
-        updates.push(`can_see_finance_summary = $${idx++}`);
-        params.push(access.summary);
-        updates.push(`can_see_finance_m1 = $${idx++}`);
-        params.push(access.m1);
-        updates.push(`can_see_finance_cp = $${idx++}`);
-        params.push(access.cp);
-        updates.push(`can_see_finance_lp = $${idx++}`);
-        params.push(access.lp);
-        updates.push(`can_see_finance_est = $${idx++}`);
-        params.push(access.est);
       }
+      const currentRole = targetRows[0].role;
+      const nextRole =
+        role && isElevated && !isSelf ? role : currentRole;
 
       if (password) {
         if (isSelf) {
@@ -671,6 +649,38 @@ router.put('/:id', async (req, res) => {
         }
         updates.push(`role = $${idx++}`);
         params.push(role);
+      }
+      if (hasFinanceUpdate) {
+        if (!isElevated) {
+          return res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Acceso denegado' },
+          });
+        }
+        if (nextRole === 'COMERCIAL') {
+          const access = commercialFinanceFromBody({
+            canSeeFinanceSummary,
+            canSeeFinanceM1,
+            canSeeFinanceCp,
+            canSeeFinanceLp,
+            canSeeFinanceEst,
+          });
+          updates.push(`can_see_finance_summary = $${idx++}`);
+          params.push(access.summary);
+          updates.push(`can_see_finance_m1 = $${idx++}`);
+          params.push(access.m1);
+          updates.push(`can_see_finance_cp = $${idx++}`);
+          params.push(access.cp);
+          updates.push(`can_see_finance_lp = $${idx++}`);
+          params.push(access.lp);
+          updates.push(`can_see_finance_est = $${idx++}`);
+          params.push(access.est);
+        } else if (currentRole === nextRole) {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'Solo aplica a usuarios comerciales' },
+          });
+        }
       }
       if (active !== undefined && (isElevated || (req.user.role === 'COMERCIAL' && canManage && !isSelf))) {
         updates.push(`active = $${idx++}`);
