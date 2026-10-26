@@ -1,4 +1,5 @@
 const { pool } = require('../config/db');
+const { applyKitDiscount } = require('./catalogKit');
 
 const MARKETS = ['NACIONAL', 'INTERNACIONAL'];
 
@@ -67,24 +68,28 @@ async function recalcProjectPricesForMarket(projectId, market, client = pool) {
     }
   }
 
-  const { rows: bundles } = await q(`SELECT id FROM project_item_bundles WHERE project_id = $1`, [projectId]);
+  const { rows: bundles } = await q(
+    `SELECT id, discount_pct FROM project_item_bundles WHERE project_id = $1`,
+    [projectId]
+  );
   for (const b of bundles) {
     const { rows: comps } = await q(
       `SELECT unit_price, qty FROM project_items
        WHERE bundle_id = $1 AND is_bundle_component = true`,
       [b.id]
     );
-    const total =
+    const gross =
       Math.round(comps.reduce((s, c) => s + Number(c.unit_price) * Number(c.qty), 0) * 100) / 100;
+    const { net } = applyKitDiscount(gross, b.discount_pct);
     await q(`UPDATE project_item_bundles SET unit_price = $1, updated_at = NOW() WHERE id = $2`, [
-      total,
+      net,
       b.id,
     ]);
     await q(
       `UPDATE project_items
-       SET unit_price = $1, official_unit_price = $1, updated_at = NOW()
-       WHERE bundle_id = $2 AND is_bundle_header = true`,
-      [total, b.id]
+       SET unit_price = $1, official_unit_price = $2, updated_at = NOW()
+       WHERE bundle_id = $3 AND is_bundle_header = true`,
+      [net, gross, b.id]
     );
   }
 }

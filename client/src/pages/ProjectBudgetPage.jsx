@@ -575,6 +575,7 @@ export function ProjectBudgetPage() {
           displayName: payload.displayName,
           qty: payload.qty,
           lines: payload.lines,
+          discountPct: payload.discountPct,
         });
       } else {
         data = await api.post(`/api/projects/${projectId}/bundles`, {
@@ -583,6 +584,7 @@ export function ProjectBudgetPage() {
           displayName: payload.displayName,
           qty: payload.qty,
           lines: payload.lines,
+          discountPct: payload.discountPct,
         });
       }
       setItems(data.items);
@@ -1587,7 +1589,10 @@ export function ProjectBudgetPage() {
                     const isComponent = row.isBundleComponent;
                     const isHeader = row.isBundleHeader;
                     const rowQtyEditable = canEditBudgetLines && !isComponent && !(isHeader && !canEditKits);
-                    const rowPriceEditable = canEditUnitPrices && !isComponent && !isHeader;
+                    const rowPriceEditable =
+                      canEditUnitPrices &&
+                      ((isComponent && canEditKits && (row.kitMergedCount || 1) <= 1) ||
+                        (!isComponent && !isHeader));
                     const kitGroup = row.bundleId ? bundleGroupById.get(row.bundleId) : null;
                     const rowGroupClass = kitGroup
                       ? ` budget-row--kit-g${kitGroup}${isHeader ? ' budget-row--kit-header' : isComponent ? ' budget-row--kit-component' : ''}`
@@ -1614,6 +1619,15 @@ export function ProjectBudgetPage() {
                           {isHeader && row.bundleInstanceLabel ? (
                             <span className="tag budget-kit-zona-tag" title="Zona / instancia" style={{ marginRight: 6, fontSize: 9 }}>
                               {row.bundleInstanceLabel}
+                            </span>
+                          ) : null}
+                          {isHeader && Number(row.bundleDiscountPct) > 0 ? (
+                            <span
+                              className="tag budget-kit-discount-tag"
+                              title="Descuento porcentual del conjunto"
+                              style={{ marginRight: 6, fontSize: 9 }}
+                            >
+                              −{Number(row.bundleDiscountPct).toFixed(1)}%
                             </span>
                           ) : null}
                           {isHeader && canEditKits ? (
@@ -1744,7 +1758,15 @@ export function ProjectBudgetPage() {
                                   ) : (
                                     <span
                                       className="budget-punit-shown mono"
-                                      title={isHeader ? 'Precio del conjunto (clic en el nombre o icono de edición)' : undefined}
+                                      title={
+                                        isHeader
+                                          ? Number(row.bundleDiscountPct) > 0
+                                            ? `Total del conjunto con descuento ${Number(row.bundleDiscountPct).toFixed(1)}%`
+                                            : 'Precio del conjunto (edite componentes o el descuento en «Editar conjunto»)'
+                                          : isComponent
+                                            ? 'Precio del componente en esta cotización'
+                                            : undefined
+                                      }
                                     >
                                       {formatUsd(row.unitPrice)}
                                     </span>

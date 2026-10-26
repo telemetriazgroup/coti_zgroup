@@ -4052,6 +4052,11 @@ select.form-input {
   color: var(--cyan);
   border: 1px solid rgba(0, 229, 255, 0.28);
 }
+.budget-kit-discount-tag {
+  background: rgba(255, 215, 0, 0.12);
+  color: var(--amber);
+  border: 1px solid rgba(255, 215, 0, 0.35);
+}
 .budget-panel--table .data-table tbody tr[class*='budget-row--kit-g']:hover td {
   filter: brightness(1.08);
 }

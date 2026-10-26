@@ -7,6 +7,8 @@ const {
   buildDisplayName,
   computeLinesTotal,
   fetchItemWithCategory,
+  normalizeKitDiscountPct,
+  applyKitDiscount,
 } = require('./catalogKit');
 const { resolveUnitPrice, getProjectQuotationMarket } = require('./pricingMarket');
 
@@ -69,7 +71,7 @@ async function resolveKitLinesForMarket(client, lines, market, { preserveOverrid
     const cat = catRows[0];
     if (!cat) continue;
     let price = resolveUnitPrice(cat, market);
-    if (preserveOverrides && line.unitPrice != null && Number.isFinite(Number(line.unitPrice))) {
+    if (line.unitPrice != null && Number.isFinite(Number(line.unitPrice))) {
       price = Number(line.unitPrice);
     }
     out.push({ ...line, unitPrice: price });
@@ -196,6 +198,35 @@ function isTemplateGroupRow(r) {
   return key === 'template' && sort === 0;
 }
 
+async function recalcBundleHeaderTotals(client, bundleId, { discountPct } = {}) {
+  const q = client.query.bind(client);
+  const { rows: comps } = await q(
+    `SELECT unit_price, qty FROM project_items
+     WHERE bundle_id = $1 AND is_bundle_component = true`,
+    [bundleId]
+  );
+  const gross = computeLinesTotal(
+    comps.map((c) => ({ qty: c.qty, unitPrice: c.unit_price, included: true }))
+  );
+  const { rows: bRows } = await q(`SELECT discount_pct FROM project_item_bundles WHERE id = $1`, [
+    bundleId,
+  ]);
+  const pct =
+    discountPct !== undefined ? normalizeKitDiscountPct(discountPct) : Number(bRows[0]?.discount_pct || 0);
+  const { net, discountPct: d } = applyKitDiscount(gross, pct);
+  await q(
+    `UPDATE project_item_bundles SET unit_price = $1, discount_pct = $2, updated_at = NOW() WHERE id = $3`,
+    [net, d, bundleId]
+  );
+  await q(
+    `UPDATE project_items
+     SET unit_price = $1, official_unit_price = $2, updated_at = NOW()
+     WHERE bundle_id = $3 AND is_bundle_header = true`,
+    [net, gross, bundleId]
+  );
+  return { gross, net, discountPct: d };
+}
+
 /**
  * Carga datos del conjunto para edición en presupuesto.
  */
@@ -283,6 +314,7 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
     displayName: bundle.display_name,
     mainQty: bundle.qty != null ? Number(bundle.qty) : 1,
     unitPrice: bundle.unit_price != null ? Number(bundle.unit_price) : 0,
+    discountPct: bundle.discount_pct != null ? Number(bundle.discount_pct) : 0,
     lines,
   };
 }
@@ -292,7 +324,7 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
  */
 async function createProjectBundle(
   client,
-  { projectId, userId, catalogItemId, instanceLabel, displayName, qty, lines, ip }
+  { projectId, userId, catalogItemId, instanceLabel, displayName, qty, lines, discountPct, ip }
 ) {
   const kit = await fetchItemWithCategory(catalogItemId, client);
   if (!kit?.is_kit_category) {
@@ -300,7 +332,7 @@ async function createProjectBundle(
   }
 
   const market = await getProjectQuotationMarket(projectId, client);
-  const included = await resolveKitLinesForMarket(client, lines, market, { preserveOverrides: false });
+  const included = await resolveKitLinesForMarket(client, lines, market, { preserveOverrides: true });
 
   const parsedLabel = parseInstanceLabel(instanceLabel, 'ZONA 1');
   if (typeof parsedLabel === 'object' && parsedLabel.errorCode) return parsedLabel;
@@ -308,7 +340,8 @@ async function createProjectBundle(
   const kitBase = String(kit.descripcion || '').trim();
   const name = buildDisplayName(kitBase, label);
   const bundleQty = Math.max(0.001, Number(qty) || 1);
-  const unitPrice = computeLinesTotal(included);
+  const discount = normalizeKitDiscountPct(discountPct);
+  const { net: unitPrice } = applyKitDiscount(computeLinesTotal(included), discount);
 
   const { rows: bundleSort } = await client.query(
     `SELECT COALESCE(MAX(sort_order), -1) + 1 AS n FROM project_item_bundles WHERE project_id = $1`,
@@ -317,9 +350,9 @@ async function createProjectBundle(
 
   const { rows: bundleIns } = await client.query(
     `INSERT INTO project_item_bundles
-      (project_id, catalog_item_id, instance_label, display_name, unit_price, qty, sort_order, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8) RETURNING *`,
-    [projectId, catalogItemId, label, name, unitPrice, bundleQty, bundleSort[0].n, userId]
+      (project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
+    [projectId, catalogItemId, label, name, unitPrice, discount, bundleQty, bundleSort[0].n, userId]
   );
   const bundle = bundleIns[0];
 
@@ -375,6 +408,7 @@ async function createProjectBundle(
   componentIds.push(...compResult.componentIds);
 
   await resequenceProjectItems(client, projectId);
+  const totals = await recalcBundleHeaderTotals(client, bundle.id, { discountPct: discount });
 
   logAuditEvent({
     projectId,
@@ -385,7 +419,8 @@ async function createProjectBundle(
       bundleId: bundle.id,
       displayName: name,
       instanceLabel: label,
-      unitPrice,
+      unitPrice: totals.net,
+      discountPct: totals.discountPct,
       componentCount: componentIds.length,
     },
     ip,
@@ -396,7 +431,8 @@ async function createProjectBundle(
     headerItemId: headerIns[0].id,
     componentItemIds: componentIds,
     displayName: name,
-    unitPrice,
+    unitPrice: totals.net,
+    discountPct: totals.discountPct,
   };
 }
 
@@ -405,7 +441,7 @@ async function createProjectBundle(
  */
 async function updateProjectBundle(
   client,
-  { projectId, userId, bundleId, instanceLabel, displayName, qty, lines, ip, preservePriceOverrides = true }
+  { projectId, userId, bundleId, instanceLabel, displayName, qty, lines, discountPct, ip, preservePriceOverrides = true }
 ) {
   const { rows: bundleRows } = await client.query(
     `SELECT b.*, i.descripcion AS kit_descripcion, i.codigo AS kit_codigo, i.unidad, i.tipo
@@ -420,7 +456,24 @@ async function updateProjectBundle(
   }
 
   const market = await getProjectQuotationMarket(projectId, client);
-  const included = await resolveKitLinesForMarket(client, lines, market, {
+  const { rows: existingComps } = await client.query(
+    `SELECT catalog_item_id, unit_price FROM project_items
+     WHERE bundle_id = $1 AND is_bundle_component = true AND project_id = $2`,
+    [bundleId, projectId]
+  );
+  const existingPriceByCat = new Map();
+  for (const r of existingComps) {
+    if (r.catalog_item_id && !existingPriceByCat.has(r.catalog_item_id)) {
+      existingPriceByCat.set(r.catalog_item_id, Number(r.unit_price));
+    }
+  }
+  const linesWithPrices = (lines || []).map((line) => {
+    if (line.unitPrice != null && Number.isFinite(Number(line.unitPrice))) return line;
+    const prev = existingPriceByCat.get(line.catalogItemId);
+    if (prev != null && Number.isFinite(prev)) return { ...line, unitPrice: prev };
+    return line;
+  });
+  const included = await resolveKitLinesForMarket(client, linesWithPrices, market, {
     preserveOverrides: preservePriceOverrides,
   });
 
@@ -430,7 +483,8 @@ async function updateProjectBundle(
   const kitBase = String(bundle.kit_descripcion || '').trim();
   const name = buildDisplayName(kitBase, label);
   const bundleQty = Math.max(0.001, Number(qty) || Number(bundle.qty) || 1);
-  const unitPrice = computeLinesTotal(included);
+  const discount =
+    discountPct !== undefined ? normalizeKitDiscountPct(discountPct) : Number(bundle.discount_pct || 0);
 
   const { rows: headerRows } = await client.query(
     `SELECT id, sort_order FROM project_items
@@ -468,17 +522,19 @@ async function updateProjectBundle(
 
   await client.query(
     `UPDATE project_item_bundles SET
-       instance_label = $1, display_name = $2, unit_price = $3, qty = $4, updated_at = NOW()
-     WHERE id = $5`,
-    [label, name, unitPrice, bundleQty, bundleId]
+       instance_label = $1, display_name = $2, qty = $3, updated_at = NOW()
+     WHERE id = $4`,
+    [label, name, bundleQty, bundleId]
   );
 
   await client.query(
     `UPDATE project_items SET
-       descripcion = $1, unit_price = $2, qty = $3, updated_at = NOW(), updated_by = $4
-     WHERE id = $5`,
-    [name, unitPrice, bundleQty, userId, header.id]
+       descripcion = $1, qty = $2, updated_at = NOW(), updated_by = $3
+     WHERE id = $4`,
+    [name, bundleQty, userId, header.id]
   );
+
+  const totals = await recalcBundleHeaderTotals(client, bundleId, { discountPct: discount });
 
   logAuditEvent({
     projectId,
@@ -489,7 +545,8 @@ async function updateProjectBundle(
       bundleId,
       displayName: name,
       instanceLabel: label,
-      unitPrice,
+      unitPrice: totals.net,
+      discountPct: totals.discountPct,
       componentCount: compResult.componentIds.length,
     },
     ip,
@@ -500,7 +557,8 @@ async function updateProjectBundle(
     headerItemId: header.id,
     componentItemIds: compResult.componentIds,
     displayName: name,
-    unitPrice,
+    unitPrice: totals.net,
+    discountPct: totals.discountPct,
   };
 }
 
@@ -526,4 +584,5 @@ module.exports = {
   updateProjectBundle,
   deleteBundleByItemId,
   resequenceProjectItems,
+  recalcBundleHeaderTotals,
 };

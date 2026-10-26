@@ -13,11 +13,13 @@ function mergeKitComponents(comps) {
         qty: Number(c.qty) || 0,
         subtotal: Number(c.subtotal) || 0,
         kitConsolidated: true,
+        kitMergedCount: 1,
       });
     } else {
       const ex = merged.get(k);
       ex.qty = Math.round((Number(ex.qty) + Number(c.qty || 0)) * 1000) / 1000;
       ex.subtotal = Math.round((Number(ex.subtotal) + Number(c.subtotal || 0)) * 100) / 100;
+      ex.kitMergedCount = (ex.kitMergedCount || 1) + 1;
     }
   }
   return [...merged.values()].sort((a, b) =>

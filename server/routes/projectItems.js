@@ -23,6 +23,7 @@ const {
   fetchBundleEditPayload,
   createProjectBundle,
   updateProjectBundle,
+  recalcBundleHeaderTotals,
 } = require('../lib/projectItemBundles');
 const { resolveUnitPrice, getProjectQuotationMarket } = require('../lib/pricingMarket');
 const {
@@ -62,7 +63,8 @@ const ITEMS_SELECT = `
     TRIM(CONCAT(ce.nombres, ' ', ce.apellidos)) AS created_by_name,
     uu.email AS updated_by_email,
     TRIM(CONCAT(ue.nombres, ' ', ue.apellidos)) AS updated_by_name,
-    b.display_name AS bundle_display_name, b.instance_label AS bundle_instance_label
+    b.display_name AS bundle_display_name, b.instance_label AS bundle_instance_label,
+    b.discount_pct AS bundle_discount_pct
   FROM project_items pi
   LEFT JOIN catalog_categories cc ON cc.id = pi.category_id
   LEFT JOIN users u ON u.id = pi.created_by
@@ -102,6 +104,7 @@ function mapItem(row) {
     isBundleComponent: row.is_bundle_component === true,
     bundleDisplayName: row.bundle_display_name ?? null,
     bundleInstanceLabel: row.bundle_instance_label ?? null,
+    bundleDiscountPct: row.bundle_discount_pct != null ? Number(row.bundle_discount_pct) : 0,
     componentGroupKey: row.component_group_key ?? null,
     componentGroupLabel: row.component_group_label ?? null,
     componentGroupSort: row.component_group_sort != null ? Number(row.component_group_sort) : 0,
@@ -1123,6 +1126,7 @@ router.post(
     body('lines.*.qty').isFloat({ min: 0.001 }),
     body('lines.*.unitPrice').optional().isFloat({ min: 0 }),
     body('lines.*.included').optional().isBoolean(),
+    body('discountPct').optional().isFloat({ min: 0, max: 100 }),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -1167,6 +1171,7 @@ router.post(
         displayName: req.body.displayName,
         qty: req.body.qty,
         lines: req.body.lines,
+        discountPct: req.body.discountPct,
         ip,
       });
       if (result.errorCode) {
@@ -1250,6 +1255,7 @@ router.put(
     body('lines.*.qty').isFloat({ min: 0.001 }),
     body('lines.*.unitPrice').optional().isFloat({ min: 0 }),
     body('lines.*.included').optional().isBoolean(),
+    body('discountPct').optional().isFloat({ min: 0, max: 100 }),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -1288,8 +1294,9 @@ router.put(
         displayName: req.body.displayName,
         qty: req.body.qty,
         lines: req.body.lines,
+        discountPct: req.body.discountPct,
         ip,
-        preservePriceOverrides: req.user.role !== 'COMERCIAL',
+        preservePriceOverrides: true,
       });
       if (result.errorCode) {
         await client.query('ROLLBACK');
@@ -1388,13 +1395,32 @@ router.put(
       }
 
       if (cur[0].is_bundle_component) {
-        return res.status(400).json({
-          success: false,
-          error: {
-            code: 'BUNDLE_COMPONENT_READONLY',
-            message: 'Los componentes de un conjunto KIT no se editan individualmente',
-          },
-        });
+        const qtyChanging =
+          qty != null && Math.abs(Number(qty) - Number(cur[0].qty)) > 0.0005;
+        if (applyAdjustment !== undefined || qtyChanging) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'BUNDLE_COMPONENT_READONLY',
+              message: 'Cantidad y ajuste de un componente KIT se editan en «Editar conjunto»',
+            },
+          });
+        }
+        if (unitPrice == null) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'BUNDLE_COMPONENT_READONLY',
+              message: 'Los componentes de un conjunto KIT no se editan individualmente',
+            },
+          });
+        }
+        if (!canEditProjectKits(req.user, project, await loadShareContext(req.user, project))) {
+          return res.status(403).json({
+            success: false,
+            error: { code: 'FORBIDDEN', message: 'Solo el dueño o un administrador pueden modificar kits' },
+          });
+        }
       }
 
       if (
@@ -1433,11 +1459,15 @@ router.put(
         [nextQty, nextPrice, nextApply, req.user.id, req.params.itemId, req.params.id]
       );
 
-      if (cur[0].is_bundle_header && cur[0].bundle_id) {
+      if (cur[0].is_bundle_component && cur[0].bundle_id) {
+        await recalcBundleHeaderTotals(pool, cur[0].bundle_id);
+      }
+
+      if (cur[0].is_bundle_header && cur[0].bundle_id && unitPrice == null) {
         await pool.query(
-          `UPDATE project_item_bundles SET qty = $1, unit_price = $2, updated_at = NOW()
-           WHERE id = $3 AND project_id = $4`,
-          [nextQty, nextPrice, cur[0].bundle_id, req.params.id]
+          `UPDATE project_item_bundles SET qty = $1, updated_at = NOW()
+           WHERE id = $2 AND project_id = $3`,
+          [nextQty, cur[0].bundle_id, req.params.id]
         );
       }
 

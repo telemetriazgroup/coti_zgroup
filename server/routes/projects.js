@@ -387,8 +387,8 @@ router.post(
         if (!neededBundleIds.has(b.id)) continue;
         const { rows: nb } = await client.query(
           `INSERT INTO project_item_bundles
-             (project_id, catalog_item_id, instance_label, display_name, unit_price, qty, sort_order, created_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+             (project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
            RETURNING id`,
           [
             newId,
@@ -396,6 +396,7 @@ router.post(
             b.instance_label,
             b.display_name,
             b.unit_price,
+            b.discount_pct != null ? b.discount_pct : 0,
             b.qty,
             b.sort_order,
             req.user.id,

@@ -1,9 +1,15 @@
 /** KIT / Productos finales — precio rollup y plantilla para presupuesto. */
 
-const { pool } = require('../config/db');
-const { fetchDirectDependencies } = require('./catalogItemDependencies');
+function fetchDirectDependencies(parentItemId, client) {
+  return require('./catalogItemDependencies').fetchDirectDependencies(parentItemId, client);
+}
+
+function getPool() {
+  return require('../config/db').pool;
+}
 
 async function fetchItemWithCategory(itemId, client = null) {
+  const pool = getPool();
   const q = client ? client.query.bind(client) : pool.query.bind(pool);
   const { rows } = await q(
     `SELECT i.*, c.is_kit_category, c.nombre AS category_nombre
@@ -21,6 +27,7 @@ async function isKitItem(catalogItemId, client = null) {
 }
 
 async function isKitCategory(categoryId, client = null) {
+  const pool = getPool();
   const q = client ? client.query.bind(client) : pool.query.bind(pool);
   const { rows } = await q(`SELECT is_kit_category FROM catalog_categories WHERE id = $1`, [categoryId]);
   return rows[0]?.is_kit_category === true;
@@ -37,6 +44,7 @@ async function computeKitCatalogPrice(parentItemId, client = null) {
 }
 
 async function recalcKitItemPrice(parentItemId, client = null) {
+  const pool = getPool();
   const q = client ? client.query.bind(client) : pool.query.bind(pool);
   const item = await fetchItemWithCategory(parentItemId, client);
   if (!item?.is_kit_category) return null;
@@ -125,6 +133,20 @@ function computeLinesTotal(lines) {
   ) / 100;
 }
 
+function normalizeKitDiscountPct(raw) {
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n <= 0) return 0;
+  return Math.min(100, Math.round(n * 100) / 100);
+}
+
+/** Precio del conjunto: bruto (suma de componentes) y neto tras descuento %. */
+function applyKitDiscount(gross, discountPct) {
+  const pct = normalizeKitDiscountPct(discountPct);
+  const g = Math.round((Number(gross) || 0) * 100) / 100;
+  const net = Math.round(g * (1 - pct / 100) * 100) / 100;
+  return { gross: g, net, discountPct: pct };
+}
+
 module.exports = {
   fetchItemWithCategory,
   isKitItem,
@@ -135,4 +157,6 @@ module.exports = {
   buildDisplayName,
   resolveKitTemplate,
   computeLinesTotal,
+  normalizeKitDiscountPct,
+  applyKitDiscount,
 };

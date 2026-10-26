@@ -507,6 +507,7 @@ CREATE TABLE project_item_bundles (
   instance_label  VARCHAR(50) NOT NULL DEFAULT '1',
   display_name    VARCHAR(300) NOT NULL,
   unit_price      NUMERIC(12,2) NOT NULL DEFAULT 0,
+  discount_pct    NUMERIC(6,2) NOT NULL DEFAULT 0,
   qty             NUMERIC(10,3) NOT NULL DEFAULT 1,
   sort_order      INTEGER NOT NULL DEFAULT 0,
   created_by      UUID REFERENCES users(id) ON DELETE SET NULL,

@@ -441,12 +441,13 @@ async function importSystemData(payload, { mode = 'merge', keepUserId = null } =
       if (!row.id || !row.project_id) continue;
       await client.query(
         `INSERT INTO project_item_bundles
-           (id, project_id, catalog_item_id, instance_label, display_name, unit_price, qty, sort_order, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)
+           (id, project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
          ON CONFLICT (id) DO UPDATE SET
            instance_label = EXCLUDED.instance_label,
            display_name = EXCLUDED.display_name,
            unit_price = EXCLUDED.unit_price,
+           discount_pct = EXCLUDED.discount_pct,
            qty = EXCLUDED.qty,
            sort_order = EXCLUDED.sort_order,
            updated_at = NOW()`,
@@ -457,6 +458,7 @@ async function importSystemData(payload, { mode = 'merge', keepUserId = null } =
           row.instance_label || 'ZONA 1',
           row.display_name || 'KIT',
           row.unit_price != null ? row.unit_price : 0,
+          row.discount_pct != null ? row.discount_pct : 0,
           row.qty != null ? row.qty : 1,
           row.sort_order != null ? row.sort_order : 0,
           uid(row.created_by),

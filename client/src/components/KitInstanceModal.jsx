@@ -45,6 +45,7 @@ export function KitInstanceModal({
   const [instanceLabel, setInstanceLabel] = useState('ZONA 1');
   const [displayName, setDisplayName] = useState('');
   const [addItemId, setAddItemId] = useState('');
+  const [discountPct, setDiscountPct] = useState(0);
   const [pickErr, setPickErr] = useState(null);
   const [extraAddBusy, setExtraAddBusy] = useState(false);
   const [pendingExtraDep, setPendingExtraDep] = useState(null);
@@ -68,6 +69,7 @@ export function KitInstanceModal({
       setInstanceLabel(initLabel);
       setDisplayName(buildDisplayNameClient(kitBase, initLabel));
       setAddItemId('');
+      setDiscountPct(Number(template.discountPct) > 0 ? Number(template.discountPct) : 0);
       setPickErr(null);
     }
   }, [open, template, suggestedLabel, editMode, kitBase]);
@@ -81,6 +83,8 @@ export function KitInstanceModal({
     const included = lines.filter((l) => l.included !== false);
     return Math.round(included.reduce((s, l) => s + Number(l.qty) * Number(l.unitPrice), 0) * 100) / 100;
   }, [lines]);
+  const discount = Math.min(100, Math.max(0, Number(discountPct) || 0));
+  const totalNet = Math.round(total * (1 - discount / 100) * 100) / 100;
 
   const consolidatedPreview = useMemo(() => {
     const map = new Map();
@@ -127,6 +131,11 @@ export function KitInstanceModal({
   function setLineQty(key, qty) {
     setPickErr(null);
     setLines((prev) => prev.map((l, i) => (lineKey(l, i) === key ? { ...l, qty } : l)));
+  }
+
+  function setLinePrice(key, unitPrice) {
+    setPickErr(null);
+    setLines((prev) => prev.map((l, i) => (lineKey(l, i) === key ? { ...l, unitPrice } : l)));
   }
 
   function setAllIncluded(included) {
@@ -297,17 +306,18 @@ export function KitInstanceModal({
       displayName: name,
       qty: template.mainQty || 1,
       lines: selected,
-      ...(hidePrices ? {} : { unitPrice: total }),
+      discountPct: discount,
+      ...(hidePrices ? {} : { unitPrice: totalNet }),
     });
   }
 
   const helpText = editMode
     ? hidePrices
-      ? 'Edite sub-grupos (plantilla y extras con dependencias). Abajo ve la vista consolidada que se mostrará en el presupuesto.'
-      : 'Edite sub-grupos con colores por bloque. Abajo: vista consolidada (cantidades sumadas por código) como en el presupuesto.'
+      ? 'Edite sub-grupos y, si desea, un descuento % al conjunto. Abajo ve la vista consolidada del presupuesto.'
+      : 'Edite cantidades y precios de cada componente. El descuento % aplica al total del conjunto (precio original tachado).'
     : hidePrices
-      ? 'Marque dependencias opcionales y agregue extras. Abajo ve la vista consolidada del conjunto en el presupuesto.'
-      : 'Marque dependencias opcionales y agregue extras. Abajo: vista consolidada (cantidades sumadas) como aparecerá en el presupuesto.';
+      ? 'Marque dependencias opcionales, agregue extras y, si desea, un descuento % al conjunto.'
+      : 'Marque dependencias, edite precios de componentes y, si aplica, un descuento % al conjunto.';
 
   return (
     <>
@@ -329,10 +339,10 @@ export function KitInstanceModal({
               : editMode
                 ? hidePrices
                   ? 'Guardar cambios'
-                  : `Guardar cambios (${formatUsd(total)})`
+                  : `Guardar cambios (${formatUsd(totalNet)})`
                 : hidePrices
                   ? 'Agregar conjunto'
-                  : `Agregar conjunto (${formatUsd(total)})`}
+                  : `Agregar conjunto (${formatUsd(totalNet)})`}
           </button>
         </>
       }
@@ -476,7 +486,21 @@ export function KitInstanceModal({
                           onChange={(e) => setLineQty(key, e.target.value)}
                         />
                       </td>
-                      {!hidePrices && <td className="num mono">{formatUsd(l.unitPrice)}</td>}
+                      {!hidePrices && (
+                        <td className="num">
+                          <input
+                            type="number"
+                            min="0"
+                            step="0.01"
+                            className="form-input table-input mono"
+                            style={{ width: 96 }}
+                            value={l.unitPrice}
+                            disabled={busy || l.included === false}
+                            aria-label={`Precio unitario ${l.codigo || ''}`}
+                            onChange={(e) => setLinePrice(key, e.target.value)}
+                          />
+                        </td>
+                      )}
                       {!hidePrices && (
                         <td className="num mono">{l.included !== false ? formatUsd(sub) : '—'}</td>
                       )}
@@ -499,6 +523,39 @@ export function KitInstanceModal({
               })}
             </tbody>
           </table>
+        </div>
+        <div className="kit-discount-row" style={{ marginTop: 14, display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12 }}>
+          <label>
+            <span className="fg-lbl">Descuento del conjunto (%)</span>
+            <input
+              type="number"
+              min="0"
+              max="100"
+              step="0.5"
+              className="form-input mono"
+              disabled={busy}
+              value={discountPct}
+              onChange={(e) => setDiscountPct(e.target.value)}
+            />
+          </label>
+          {!hidePrices && (
+            <div>
+              <span className="fg-lbl">Total conjunto</span>
+              <div className="mono" style={{ marginTop: 8 }}>
+                {discount > 0 && (
+                  <div className="budget-punit-official" title="Total antes del descuento del conjunto">
+                    {formatUsd(total)}
+                  </div>
+                )}
+                <strong>{formatUsd(totalNet)}</strong>
+                {discount > 0 && (
+                  <span className="muted" style={{ marginLeft: 8 }}>
+                    −{discount.toFixed(1)}%
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
         {consolidatedPreview.length > 0 && (
           <div className="kit-modal-consolidated" style={{ marginTop: 14 }}>

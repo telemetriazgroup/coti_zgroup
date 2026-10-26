@@ -55,6 +55,7 @@ function mapBundleForPayload(row) {
     instanceLabel: row.instance_label,
     displayName: row.display_name,
     unitPrice: num(row.unit_price),
+    discountPct: num(row.discount_pct, 0),
     qty: num(row.qty, 1),
     sortOrder: num(row.sort_order, 0),
     createdBy: row.created_by || null,
@@ -266,8 +267,8 @@ async function insertBudgetFromPayload(client, projectId, payload, { actorId, ke
     if (keepIds && b.id) {
       await client.query(
         `INSERT INTO project_item_bundles
-           (id, project_id, catalog_item_id, instance_label, display_name, unit_price, qty, sort_order, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)`,
+           (id, project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by, created_at, updated_at)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
         [
           b.id,
           projectId,
@@ -275,6 +276,7 @@ async function insertBudgetFromPayload(client, projectId, payload, { actorId, ke
           b.instanceLabel || '1',
           b.displayName || 'KIT',
           num(b.unitPrice),
+          num(b.discountPct, 0),
           num(b.qty, 1),
           num(b.sortOrder, 0),
           createdBy,
@@ -286,8 +288,8 @@ async function insertBudgetFromPayload(client, projectId, payload, { actorId, ke
     } else {
       const { rows } = await client.query(
         `INSERT INTO project_item_bundles
-           (project_id, catalog_item_id, instance_label, display_name, unit_price, qty, sort_order, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8)
+           (project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
          RETURNING id`,
         [
           projectId,
@@ -295,6 +297,7 @@ async function insertBudgetFromPayload(client, projectId, payload, { actorId, ke
           b.instanceLabel || '1',
           b.displayName || 'KIT',
           num(b.unitPrice),
+          num(b.discountPct, 0),
           num(b.qty, 1),
           num(b.sortOrder, 0),
           createdBy,
