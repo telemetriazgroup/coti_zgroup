@@ -36,12 +36,17 @@ export function AppShell() {
     return document.documentElement.getAttribute('data-theme') === 'light' ? 'light' : 'dark';
   });
   const [catalogPending, setCatalogPending] = useState(0);
+  const [priceApprovalPending, setPriceApprovalPending] = useState(0);
 
   useEffect(() => {
     if (!hasAdminPanelAccess()) return;
     api.get('/api/catalog/requests/pending-count')
       .then((d) => setCatalogPending(d?.count ?? 0))
       .catch(() => setCatalogPending(0));
+    api
+      .get('/api/projects/price-approvals/pending-count')
+      .then((d) => setPriceApprovalPending(d?.count ?? 0))
+      .catch(() => setPriceApprovalPending(0));
   }, [hasAdminPanelAccess, user?.id]);
 
   const toggleTheme = useCallback(() => {
@@ -172,6 +177,11 @@ export function AppShell() {
               <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
             </svg>
             Proyectos
+            {priceApprovalPending > 0 && hasAdminPanelAccess() && (
+              <span className="tag" style={{ marginLeft: 'auto', fontSize: 10, borderColor: 'var(--amber)', color: 'var(--amber)' }}>
+                {priceApprovalPending}
+              </span>
+            )}
           </NavLink>
           <NavLink to="/profile" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
             <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">

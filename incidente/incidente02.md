@@ -41,9 +41,17 @@ Había que alinear el producto con esta matriz:
 6. `app_settings.finance_defaults` + pantalla **Finanzas predet.** Los proyectos nuevos copian esos parámetros.
 7. SEMIADMIN persiste solo M1 (`adjType`/`adjPct`), `cpPlazo`, `lpN`, `lpNContrato` y toggles comerciales. El panel muestra el resto bloqueado. Comercial sigue en vista resumida.
 
+## Seguimiento — semiadmin: lista vs abrir proyecto
+
+El listado del SEMIADMIN incluía proyectos de su equipo y los compartidos, pero al abrirlos `loadProjectAccessContext` solo resolvía equipo/grupo si el rol era ADMIN. Quedaba `acceso denegado`. Ahora ADMIN y SEMIADMIN usan el mismo contexto (equipo, grupo y shares).
+
 ## Seguimiento — mercado del proyecto
 
 SEMIADMIN no cambia un proyecto de nacional a internacional (ni al revés). Solo ADMIN y SUPERUSER. Si le comparten un proyecto del otro mercado, ve **los precios de ese proyecto**; su usuario no cambia de vista. Cada cotización conserva su mercado.
+
+## Seguimiento — pedido de aprobación de precios
+
+Si el comercial no puede generar el reporte, ve un **modal** con el recuento de precios con `*` y un botón **Pedir aprobación**. El pedido llega a su semiadmin encargado, a los ADMIN y al SUPERUSER. Solo el semiadmin encargado o cualquier admin (o superusuario) aprueban; un semiadmin de otro equipo no.
 
 ## Seguimiento — precio de presupuesto del comercial
 

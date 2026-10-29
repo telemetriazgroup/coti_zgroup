@@ -28,7 +28,7 @@ describe('aprobación de precios de presupuesto', () => {
     assert.strictEqual(patch.approvedUnitPrice, 70);
   });
 
-  it('solo admin, semiadmin y superuser revisan', () => {
+  it('solo admin, semiadmin y superuser revisan (el semiadmin debe ser el encargado)', () => {
     assert.strictEqual(canReviewBudgetPrices({ role: 'COMERCIAL' }), false);
     assert.strictEqual(canReviewBudgetPrices({ role: 'SEMIADMIN' }), true);
     assert.strictEqual(canReviewBudgetPrices({ role: 'ADMIN' }), true);

@@ -506,6 +506,19 @@ CREATE INDEX idx_project_items_tipo ON project_items(tipo);
 CREATE INDEX idx_project_items_category_id ON project_items(category_id);
 CREATE INDEX idx_project_items_bundle ON project_items(bundle_id);
 
+CREATE TABLE project_price_approval_requests (
+  id            UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id    UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  requested_by  UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  status        VARCHAR(16) NOT NULL DEFAULT 'PENDING',
+  requested_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  resolved_at   TIMESTAMPTZ,
+  resolved_by   UUID REFERENCES users(id) ON DELETE SET NULL
+);
+CREATE UNIQUE INDEX idx_price_approval_req_open
+  ON project_price_approval_requests (project_id)
+  WHERE status = 'PENDING';
+
 -- ─── PROJECT ITEM BUNDLES (KIT / productos finales) ────────────
 
 CREATE TABLE project_item_bundles (

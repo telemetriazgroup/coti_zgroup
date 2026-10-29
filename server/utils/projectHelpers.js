@@ -81,6 +81,7 @@ function mapProject(row, viewerId, viewerRole) {
     canClone,
     canViewAudit: viewerRole === 'SUPERUSER',
     hasPendingPrices: row.has_pending_prices === true,
+    priceApprovalRequested: row.price_approval_requested === true,
     hasPlan: Boolean(row.current_plan_id),
     currentPlanId: row.current_plan_id || null,
     currentPlanMime: row.current_plan_mime || null,
@@ -125,6 +126,10 @@ const PROJECT_SELECT = `
       SELECT 1 FROM project_items pi_pend
       WHERE pi_pend.project_id = p.id AND pi_pend.price_status = 'PENDING'
     ) AS has_pending_prices,
+    EXISTS (
+      SELECT 1 FROM project_price_approval_requests r_pend
+      WHERE r_pend.project_id = p.id AND r_pend.status = 'PENDING'
+    ) AS price_approval_requested,
     plan_cur.id AS current_plan_id,
     plan_cur.mime_type AS current_plan_mime,
     plan_cur.nombre_original AS current_plan_nombre

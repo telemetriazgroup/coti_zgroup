@@ -58,7 +58,6 @@ export function ProjectBudgetPage() {
     canShareProjects,
     isSuperuser,
     canChangeQuotationMarket,
-    hasAdminPanelAccess,
   } = useAuth();
   const canChangeMarket = canChangeQuotationMarket();
   const viewerMode = user?.role === 'VIEWER';
@@ -69,7 +68,6 @@ export function ProjectBudgetPage() {
   /** Editar celdas, quitar línea y limpiar presupuesto: comercial en propios/compartidos; catálogo solo admin. */
   const canEditBudgetLines = canWrite && !viewerMode;
   const canEditUnitPrices = canEditBudgetLines;
-  const canReviewPrices = hasAdminPanelAccess() && !viewerMode;
   const showAdjustmentCol = canEditBudgetLines;
   const budgetTableColSpan = useMemo(() => {
     let n = 6;
@@ -130,6 +128,12 @@ export function ProjectBudgetPage() {
 
   const [deletingId, setDeletingId] = useState(null);
   const [reviewingId, setReviewingId] = useState(null);
+  const [canReviewPrices, setCanReviewPrices] = useState(false);
+  const [priceApprovalRequest, setPriceApprovalRequest] = useState(null);
+  const [priceApprovalRecipients, setPriceApprovalRecipients] = useState([]);
+  const [reportBlockedModal, setReportBlockedModal] = useState(false);
+  const [requestApprovalBusy, setRequestApprovalBusy] = useState(false);
+  const [requestApprovalMsg, setRequestApprovalMsg] = useState(null);
   const draftsRef = useRef({});
   const itemsRef = useRef([]);
   const flushTimers = useRef({});
@@ -255,9 +259,11 @@ export function ProjectBudgetPage() {
     (async () => {
       try {
         if (isCommercial && hasPendingPrices) {
-          throw new Error(
-            'Hay precios pendientes de aprobación. Un semiadmin o admin debe aprobarlos antes de generar el reporte.'
-          );
+          if (!cancelled) {
+            setPdfPreviewLoading(false);
+            setPdfPreviewErr(null);
+          }
+          return;
         }
         const html = await getText(
           `/api/export/pdf/preview-html?projectId=${encodeURIComponent(projectId)}&kind=${encodeURIComponent(
@@ -319,6 +325,9 @@ export function ProjectBudgetPage() {
       setProjectStatus(budget.projectStatus);
       setItems(budget.items || []);
       setTotals(budget.totals || { activos: 0, consumibles: 0, lista: 0 });
+      setCanReviewPrices(!!budget.canReviewPrices);
+      setPriceApprovalRequest(budget.priceApprovalRequest || null);
+      setPriceApprovalRecipients(budget.priceApprovalRecipients || []);
       setCategories(catData.categories || []);
       setCatItems(catData.items || []);
       const dm = {};
@@ -548,6 +557,8 @@ export function ProjectBudgetPage() {
       setItems(data.items);
       setTotals(data.totals);
       if (data.projectStatus) setProjectStatus(data.projectStatus);
+      if (data.canReviewPrices !== undefined) setCanReviewPrices(!!data.canReviewPrices);
+      if (data.priceApprovalRequest !== undefined) setPriceApprovalRequest(data.priceApprovalRequest);
       syncDraftFromItems(data.items);
     } catch (e) {
       setErr(e.message);
@@ -750,12 +761,39 @@ export function ProjectBudgetPage() {
     }
   }
 
+  function openReportBlockedModal() {
+    setRequestApprovalMsg(null);
+    setReportBlockedModal(true);
+  }
+
+  async function requestPriceApproval() {
+    if (!projectId || requestApprovalBusy) return;
+    setRequestApprovalBusy(true);
+    setRequestApprovalMsg(null);
+    setErr(null);
+    try {
+      const data = await api.post(`/api/projects/${projectId}/price-approval`);
+      setItems(data.items || items);
+      setTotals(data.totals || totals);
+      setPriceApprovalRequest(data.priceApprovalRequest || null);
+      setPriceApprovalRecipients(data.priceApprovalRecipients || []);
+      const names = (data.priceApprovalRecipients || []).map((r) => r.name).filter(Boolean);
+      setRequestApprovalMsg(
+        names.length
+          ? `Solicitud enviada a: ${names.join(', ')}.`
+          : 'Solicitud enviada al semiadmin encargado, a los admin y al superusuario.'
+      );
+    } catch (e) {
+      setRequestApprovalMsg(e.message);
+    } finally {
+      setRequestApprovalBusy(false);
+    }
+  }
+
   async function startPdf(kind) {
     if (!projectId || pdfBusy) return;
     if (reportsBlocked) {
-      setErr(
-        'Hay precios pendientes de aprobación. Un semiadmin o admin debe aprobarlos antes de generar el reporte.'
-      );
+      openReportBlockedModal();
       return;
     }
     const pdfKind = isCommercial ? 'CLIENTE' : kind;
@@ -1383,9 +1421,23 @@ export function ProjectBudgetPage() {
           {pendingPriceCount === 1
             ? '1 precio pendiente de aprobación (marcado con *).'
             : `${pendingPriceCount} precios pendientes de aprobación (marcados con *).`}{' '}
-          {isCommercial
-            ? 'No puede generar el reporte hasta que un semiadmin o admin los apruebe.'
-            : 'Apruebe o rechace cada precio marcado con *.'}
+          {isCommercial ? (
+            <>
+              No puede generar el reporte hasta que un semiadmin o admin los apruebe.{' '}
+              <button type="button" className="btn btn-ghost mono" onClick={openReportBlockedModal}>
+                {priceApprovalRequest ? 'Ver solicitud' : 'Pedir aprobación'}
+              </button>
+            </>
+          ) : canReviewPrices ? (
+            <>
+              {priceApprovalRequest
+                ? `${priceApprovalRequest.requestedByName} pidió aprobación. `
+                : null}
+              Apruebe o rechace cada precio marcado con *.
+            </>
+          ) : (
+            'Solo el semiadmin encargado o un admin pueden aprobarlos.'
+          )}
         </div>
       )}
 
@@ -2084,8 +2136,8 @@ export function ProjectBudgetPage() {
                 {reportsBlocked ? (
                   <>
                     {' '}
-                    <strong>Hay precios con *</strong> pendientes de un semiadmin o admin: no se puede generar
-                    el reporte hasta que estén aprobados.
+                    <strong>Hay precios con *</strong> pendientes: pulse vista previa o descargar para ver el
+                    detalle y pedir aprobación.
                   </>
                 ) : null}
               </>
@@ -2173,13 +2225,15 @@ export function ProjectBudgetPage() {
               <button
                 type="button"
                 className="btn btn-primary mono"
-                disabled={!!pdfPreviewLoading || reportsBlocked}
+                disabled={!!pdfPreviewLoading}
                 title={
                   reportsBlocked
                     ? 'Hay precios pendientes de aprobación'
                     : undefined
                 }
-                onClick={() => setPdfPreviewKind('CLIENTE')}
+                onClick={() =>
+                  reportsBlocked ? openReportBlockedModal() : setPdfPreviewKind('CLIENTE')
+                }
               >
                 {isCommercial ? 'Vista previa' : 'Ver Cliente'}
               </button>
@@ -2198,7 +2252,7 @@ export function ProjectBudgetPage() {
               <button
                 type="button"
                 className={`btn mono${isCommercial ? ' btn-primary' : ' btn-ghost'}`}
-                disabled={pdfBusy || reportsBlocked}
+                disabled={pdfBusy}
                 title={
                   reportsBlocked
                     ? 'Hay precios pendientes de aprobación'
@@ -2755,6 +2809,80 @@ export function ProjectBudgetPage() {
         onClose={() => !kitAddBusy && setKitModal(null)}
         onConfirm={confirmKitAdd}
       />
+
+      {reportBlockedModal && isCommercial && (
+        <Modal
+          title="No se puede generar el reporte"
+          onClose={() => setReportBlockedModal(false)}
+          footer={
+            <>
+              <button type="button" className="btn btn-ghost" onClick={() => setReportBlockedModal(false)}>
+                Cerrar
+              </button>
+              <button
+                type="button"
+                className="btn btn-primary"
+                disabled={requestApprovalBusy || !hasPendingPrices}
+                onClick={requestPriceApproval}
+              >
+                {requestApprovalBusy
+                  ? 'Enviando…'
+                  : priceApprovalRequest
+                    ? 'Volver a pedir aprobación'
+                    : 'Pedir aprobación'}
+              </button>
+            </>
+          }
+        >
+          <p className="mono" style={{ marginBottom: 10, lineHeight: 1.5 }}>
+            {pendingPriceCount === 1
+              ? '1 precio pendiente de aprobación (marcado con *).'
+              : `${pendingPriceCount} precios pendientes de aprobación (marcados con *).`}{' '}
+            No puede generar el reporte hasta que un semiadmin o admin los apruebe.
+          </p>
+          <p className="muted mono" style={{ fontSize: 12, marginBottom: 10 }}>
+            El pedido llega a su semiadmin encargado y a cualquier admin o superusuario. Solo el semiadmin
+            encargado o un admin pueden aprobar.
+          </p>
+          {priceApprovalRecipients.length > 0 && (
+            <ul className="mono" style={{ fontSize: 12, margin: '0 0 12px', paddingLeft: 18 }}>
+              {priceApprovalRecipients.map((r) => (
+                <li key={r.id}>
+                  {r.name}
+                  {r.role === 'SEMIADMIN'
+                    ? ' · semiadmin encargado'
+                    : r.role === 'SUPERUSER'
+                      ? ' · superusuario'
+                      : ' · admin'}
+                </li>
+              ))}
+            </ul>
+          )}
+          <ul className="mono" style={{ fontSize: 12, margin: 0, paddingLeft: 18 }}>
+            {items
+              .filter((it) => it.pricePending)
+              .map((it) => (
+                <li key={it.id}>
+                  {it.codigo} — {it.descripcion} · {formatUsd(it.unitPrice)}
+                </li>
+              ))}
+          </ul>
+          {requestApprovalMsg && (
+            <div className="banner banner--ok mono" style={{ marginTop: 12 }}>
+              {requestApprovalMsg}
+            </div>
+          )}
+          {priceApprovalRequest && !requestApprovalMsg && (
+            <p className="muted mono" style={{ fontSize: 12, marginTop: 12 }}>
+              Ya hay una solicitud enviada
+              {priceApprovalRequest.requestedAt
+                ? ` (${new Date(priceApprovalRequest.requestedAt).toLocaleString('es-PE')})`
+                : ''}
+              .
+            </p>
+          )}
+        </Modal>
+      )}
 
       {modal === 'clear' && canEditBudgetLines && (
         <Modal

@@ -467,6 +467,15 @@ export function ProjectsPage() {
                               *
                             </span>
                           ) : null}
+                          {row.priceApprovalRequested && hasAdminPanelAccess() ? (
+                            <span
+                              className="tag tag--warn mono"
+                              style={{ marginLeft: 8 }}
+                              title="El comercial pidió aprobación de precios"
+                            >
+                              aprobar
+                            </span>
+                          ) : null}
                           {row.deletedAt && (
                             <span className="tag tag--muted mono" style={{ marginLeft: 8 }}>
                               archivado

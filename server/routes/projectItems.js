@@ -38,6 +38,12 @@ const {
   reviewerPricePatch,
   canReviewBudgetPrices,
   priceApprovalMeta,
+  canApproveProjectPrices,
+  hasPendingPrices,
+  loadPriceApprovalState,
+  upsertPriceApprovalRequest,
+  resolveRequestIfNoPending,
+  countOpenPriceApprovalRequestsForReviewer,
 } = require('../lib/projectItemPriceApproval');
 
 const uploadBudgetImport = multer({
@@ -61,6 +67,20 @@ const uploadBudgetImport = multer({
 
 const router = express.Router();
 router.use(requireAuth);
+
+router.get(
+  '/price-approvals/pending-count',
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
+  async (req, res) => {
+    try {
+      const count = await countOpenPriceApprovalRequestsForReviewer(req.user);
+      return res.json({ success: true, data: { count } });
+    } catch (err) {
+      console.error('[PROJECT_ITEMS] price-approvals pending-count:', err);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
+  }
+);
 
 /** Lista ítems con nombre de categoría (LEFT JOIN). */
 const ITEMS_SELECT = `
@@ -671,10 +691,12 @@ router.get('/:id/items', async (req, res) => {
 
     const userFlags = await loadUserFlags(req.user.id);
     const mapped = rows.map(mapItem);
+    const approval = await loadPriceApprovalState(req.user, project, mapped);
     const payload = itemsResponse(mapped, {
       totals: totalsFromRows(rows),
       projectStatus: project.status,
       quotationMarket: project.quotation_market || 'NACIONAL',
+      ...approval,
     });
 
     return res.json({
@@ -683,6 +705,58 @@ router.get('/:id/items', async (req, res) => {
     });
   } catch (err) {
     console.error('[PROJECT_ITEMS] list:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── POST /api/projects/:id/price-approval — comercial pide revisión ─
+router.post('/:id/price-approval', requireRole('COMERCIAL'), async (req, res) => {
+  const ip = getClientIp(req);
+  try {
+    const project = await loadProject(req, res, req.params.id);
+    if (!project) return;
+    if (!canWriteProject(req.user, project, await loadShareContext(req.user, project))) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+    }
+    if (project.deleted_at) {
+      return res.status(400).json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
+    }
+    if (!(await hasPendingPrices(req.params.id))) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'NO_PENDING',
+          message: 'No hay precios pendientes de aprobación en este presupuesto',
+        },
+      });
+    }
+
+    await upsertPriceApprovalRequest(req.params.id, req.user.id);
+    logAuditEvent({
+      projectId: req.params.id,
+      eventType: 'BUDGET_PRICE_APPROVAL_REQUEST',
+      actorId: req.user.id,
+      prevData: null,
+      newData: { pending: true },
+      ip,
+    });
+
+    const { rows: all } = await pool.query(
+      `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
+      [req.params.id]
+    );
+    const mapped = all.map(mapItem);
+    const approval = await loadPriceApprovalState(req.user, project, mapped);
+    return res.json({
+      success: true,
+      data: itemsResponse(mapped, {
+        totals: totalsFromRows(all),
+        projectStatus: project.status,
+        ...approval,
+      }),
+    });
+  } catch (err) {
+    console.error('[PROJECT_ITEMS] price-approval request:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
@@ -1526,6 +1600,7 @@ router.put(
 
       const { rows: upRows } = await pool.query(`${ITEMS_SELECT} WHERE pi.id = $1`, [req.params.itemId]);
 
+      await resolveRequestIfNoPending(req.params.id, req.user.id);
       await touchProjectUpdated(req.params.id);
       await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_UPDATE');
 
@@ -1585,6 +1660,15 @@ router.post(
       if (!canReadProject(req.user, project, await loadShareContext(req.user, project))) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
       }
+      if (!(await canApproveProjectPrices(req.user, project))) {
+        return res.status(403).json({
+          success: false,
+          error: {
+            code: 'FORBIDDEN',
+            message: 'Solo el semiadmin encargado o un admin pueden aprobar estos precios',
+          },
+        });
+      }
       if (project.deleted_at) {
         return res.status(400).json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
       }
@@ -1622,6 +1706,7 @@ router.post(
       }
 
       const { rows: upRows } = await pool.query(`${ITEMS_SELECT} WHERE pi.id = $1`, [req.params.itemId]);
+      await resolveRequestIfNoPending(req.params.id, req.user.id);
       await touchProjectUpdated(req.params.id);
       await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_UPDATE');
 
@@ -1639,6 +1724,7 @@ router.post(
         [req.params.id]
       );
       const mapped = all.map(mapItem);
+      const approval = await loadPriceApprovalState(req.user, project, mapped);
 
       return res.json({
         success: true,
@@ -1647,6 +1733,7 @@ router.post(
           totals: totalsFromRows(all),
           projectStatus: project.status,
           action,
+          ...approval,
         }),
       });
     } catch (err) {

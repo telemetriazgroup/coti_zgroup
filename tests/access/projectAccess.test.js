@@ -1,3 +1,4 @@
+const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const { canReadProject, canWriteProject, canViewProjectAudit, canEditProjectKits } = require('../../server/utils/projectAccess');
 const { canViewArchivedProjects } = require('../../server/utils/userRoles');
@@ -26,6 +27,16 @@ describe('visibilidad de proyectos por rol', () => {
     assert.strictEqual(canReadProject(viewer, project, {}), true);
     assert.strictEqual(canReadProject(viewer, { ...project, assigned_viewer: 'otro' }, {}), false);
     assert.strictEqual(canWriteProject(viewer, project, {}), false);
+  });
+
+  it('SEMIADMIN lee y escribe proyectos de su comercial de equipo y los compartidos', () => {
+    const semi = { id: 's1', role: 'SEMIADMIN' };
+    assert.strictEqual(canReadProject(semi, project, {}), false);
+    assert.strictEqual(canReadProject(semi, project, { isTeamCommercial: true }), true);
+    assert.strictEqual(canWriteProject(semi, project, { isTeamCommercial: true }), true);
+    assert.strictEqual(canReadProject(semi, project, { isSharedWithMe: true }), true);
+    assert.strictEqual(canWriteProject(semi, project, { isSharedWithMe: true }), true);
+    assert.strictEqual(canReadProject(semi, project, { isGroupAccess: true }), true);
   });
 
   it('auditoría y archivados solo SUPERUSER', () => {
