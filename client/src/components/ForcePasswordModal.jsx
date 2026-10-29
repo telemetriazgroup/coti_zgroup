@@ -4,11 +4,12 @@ import { useAuth } from '../context/AuthContext';
 import { Modal } from './Modal';
 
 export function ForcePasswordModal() {
-  const { refreshProfile } = useAuth();
+  const { refreshProfile, logout } = useAuth();
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
   const [showPwd, setShowPwd] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [leaving, setLeaving] = useState(false);
   const [err, setErr] = useState(null);
 
   async function onSubmit(e) {
@@ -37,12 +38,39 @@ export function ForcePasswordModal() {
     }
   }
 
+  async function onExit() {
+    if (busy || leaving) return;
+    setLeaving(true);
+    try {
+      await logout();
+    } finally {
+      setLeaving(false);
+    }
+  }
+
+  const locked = busy || leaving;
+
   return (
-    <Modal title="Actualice su contraseña" persistent onClose={() => {}} panelClassName="modal-panel--force-pwd">
-      <form className="stack-form" onSubmit={onSubmit}>
+    <Modal
+      title="Actualice su contraseña"
+      persistent
+      onClose={() => {}}
+      panelClassName="modal-panel--force-pwd"
+      footer={
+        <>
+          <button type="button" className="btn btn-ghost" onClick={onExit} disabled={locked}>
+            {leaving ? 'Saliendo…' : 'Salir'}
+          </button>
+          <button type="submit" form="force-pwd-form" className="btn btn-primary" disabled={locked}>
+            {busy ? 'Guardando…' : 'Actualizar contraseña'}
+          </button>
+        </>
+      }
+    >
+      <form id="force-pwd-form" className="stack-form" onSubmit={onSubmit}>
         <p className="force-pwd-lead">
-          Ingresó con la clave temporal <span className="mono">123456789</span>. Debe cambiarla antes de
-          continuar.
+          Ingresó con la clave temporal <span className="mono">123456789</span>. Debe cambiarla para continuar,
+          o pulse <strong>Salir</strong> para volver al login.
         </p>
         <div className="force-pwd-hint">
           <strong>Sugerencia:</strong> use la misma contraseña con la que accede a{' '}
@@ -86,9 +114,6 @@ export function ForcePasswordModal() {
           />
         </label>
         {err && <div className="msg error show">{err}</div>}
-        <button type="submit" className="btn btn-primary" disabled={busy} style={{ width: '100%' }}>
-          {busy ? 'Guardando…' : 'Actualizar contraseña'}
-        </button>
       </form>
     </Modal>
   );

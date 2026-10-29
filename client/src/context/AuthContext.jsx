@@ -75,6 +75,11 @@ export function AuthProvider({ children }) {
     }
     clearToken();
     setUser(null);
+    try {
+      sessionStorage.removeItem('zgroup_admin_just_logged_in');
+    } catch {
+      /* ignore */
+    }
     navigate('/login', { replace: true });
   }, [navigate]);
 
