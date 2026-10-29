@@ -490,10 +490,16 @@ CREATE TABLE project_items (
   created_by      UUID REFERENCES users(id) ON DELETE SET NULL,
   created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   updated_by      UUID REFERENCES users(id) ON DELETE SET NULL,
-  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  -- Comercial puede cambiar unit_price; queda PENDING hasta semiadmin/admin.
+  price_status    VARCHAR(16) NOT NULL DEFAULT 'APPROVED'
+                    CHECK (price_status IN ('APPROVED', 'PENDING')),
+  approved_unit_price NUMERIC(12,2)
 );
 
 CREATE INDEX idx_project_items_project_id ON project_items(project_id);
+CREATE INDEX idx_project_items_price_pending ON project_items(project_id)
+  WHERE price_status = 'PENDING';
 CREATE INDEX idx_project_items_created_by ON project_items(created_by);
 CREATE INDEX idx_project_items_updated_by ON project_items(updated_by);
 CREATE INDEX idx_project_items_tipo ON project_items(tipo);
@@ -661,6 +667,23 @@ CREATE TRIGGER trg_catalog_items_updated_at
 CREATE TRIGGER trg_project_items_updated_at
   BEFORE UPDATE ON project_items
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+CREATE OR REPLACE FUNCTION trg_project_items_approved_price()
+RETURNS trigger AS $$
+BEGIN
+  IF NEW.approved_unit_price IS NULL THEN
+    NEW.approved_unit_price := NEW.unit_price;
+  END IF;
+  IF NEW.price_status IS NULL OR NEW.price_status = '' THEN
+    NEW.price_status := 'APPROVED';
+  END IF;
+  RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+CREATE TRIGGER trg_project_items_approved_price
+  BEFORE INSERT ON project_items
+  FOR EACH ROW EXECUTE FUNCTION trg_project_items_approved_price();
 
 CREATE TRIGGER trg_odoo_partners_updated_at
   BEFORE UPDATE ON odoo_partners

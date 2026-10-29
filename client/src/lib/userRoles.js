@@ -51,7 +51,7 @@ export function canWriteClients(user) {
   return canWriteProjects(user);
 }
 
-/** Precio de mercado del usuario (cotizaciones nuevas) y mercado de un proyecto. */
+/** Mercado de un proyecto o del usuario: solo ADMIN y SUPERUSER. SEMIADMIN no cambia nacional/internacional. */
 export function canChangeQuotationMarket(user) {
-  return hasAdminPanelAccess(user);
+  return isAdmin(user);
 }

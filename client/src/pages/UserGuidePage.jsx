@@ -49,9 +49,11 @@ function TocLink({ id, children }) {
 
 export function UserGuidePage() {
   const { hasRole, user } = useAuth();
-  const isAdmin = hasRole('ADMIN');
+  const isAdmin = hasRole('ADMIN', 'SUPERUSER');
+  const isSemi = hasRole('SEMIADMIN');
   const isCommercial = hasRole('COMERCIAL');
   const isViewer = hasRole('VIEWER');
+  const canSeeGerenciaReports = isAdmin || isSemi;
 
   return (
     <section className="view-active user-guide">
@@ -100,6 +102,11 @@ export function UserGuidePage() {
                 gerencial en dashboard, todos los proyectos.
               </li>
               <li>
+                <strong className="mono">SEMIADMIN</strong> — Proyectos propios y de su equipo comercial. Ve y
+                genera PDF Gerencia y PDF Cliente. Panel gerencial del dashboard limitado a su equipo. Catálogo
+                en consulta (filtro, sin editar precios ni categorías).
+              </li>
+              <li>
                 <strong className="mono">COMERCIAL</strong> — Sus proyectos y cotizaciones; en el menú solo
                 Dashboard y Proyectos. El resumen del dashboard muestra sus números (proyectos, clientes vinculados,
                 lista). Clientes (CRM), catálogo, empleados y usuarios los gestiona solo ADMIN.
@@ -114,12 +121,15 @@ export function UserGuidePage() {
           <GuideSection id="dashboard" title="Dashboard y reportes">
             <p>
               En <Link to="/dashboard">Dashboard</Link>, <strong>ADMIN</strong> ve totales globales y el panel
-              gerencial. <strong>COMERCIAL</strong> y <strong>VIEWER</strong> ven solo los números de sus proyectos
+              gerencial. <strong>SEMIADMIN</strong> ve el mismo tipo de reporte acotado a su equipo.{' '}
+              <strong>COMERCIAL</strong> y <strong>VIEWER</strong> ven solo los números de sus proyectos
               (y montos de lista asociados), no el CRM completo.
             </p>
-            {isAdmin && (
+            {canSeeGerenciaReports && (
               <>
-                <h3 className="guide-h3">Reporte gerencial (solo ADMIN)</h3>
+                <h3 className="guide-h3">
+                  {isSemi ? 'Reporte gerencial (tu equipo)' : 'Reporte gerencial (ADMIN)'}
+                </h3>
                 <Steps
                   items={[
                     'Abre Dashboard desde el menú lateral.',
@@ -134,10 +144,10 @@ export function UserGuidePage() {
                 </p>
               </>
             )}
-            {!isAdmin && (
+            {!canSeeGerenciaReports && (
               <p className="muted">
                 Tu dashboard muestra totales acotados a lo que puedes ver. El panel gerencial por comercial
-                está reservado a ADMIN.
+                está reservado a ADMIN y SEMIADMIN.
               </p>
             )}
           </GuideSection>
@@ -233,7 +243,7 @@ export function UserGuidePage() {
                 resúmenes referenciales en algunos acordeones.
               </p>
             )}
-            {(isCommercial || isAdmin) && (
+            {(isCommercial || isAdmin || isSemi) && (
               <p className="guide-note">
                 Consejo: deja el M5 alineado (horizonte en meses) antes de generar el PDF Gerencia para que el
                 informe coincida con lo que revisaste en pantalla.
@@ -244,6 +254,8 @@ export function UserGuidePage() {
           <GuideSection id="pdf" title="Exportar PDF (reporte de cotización)">
             <p>
               Desde el presupuesto, si tienes permiso de escritura, aparece el bloque <strong>Exportar PDF</strong>.
+              ADMIN, SEMIADMIN y SUPERUSER pueden generar <strong>Gerencia</strong> y <strong>Cliente</strong>. El
+              comercial solo el PDF Cliente.
             </p>
             <Steps
               items={[

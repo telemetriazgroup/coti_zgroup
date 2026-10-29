@@ -20,6 +20,7 @@ function mergeKitComponents(comps) {
       ex.qty = Math.round((Number(ex.qty) + Number(c.qty || 0)) * 1000) / 1000;
       ex.subtotal = Math.round((Number(ex.subtotal) + Number(c.subtotal || 0)) * 100) / 100;
       ex.kitMergedCount = (ex.kitMergedCount || 1) + 1;
+      if (c.pricePending) ex.pricePending = true;
     }
   }
   return [...merged.values()].sort((a, b) =>

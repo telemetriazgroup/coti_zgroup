@@ -33,6 +33,12 @@ const {
   sanitizeBundleEditPayload,
 } = require('../lib/commercialVisibility');
 const { recordBudgetRevision } = require('../lib/budgetRevisions');
+const {
+  commercialPricePatch,
+  reviewerPricePatch,
+  canReviewBudgetPrices,
+  priceApprovalMeta,
+} = require('../lib/projectItemPriceApproval');
 
 const uploadBudgetImport = multer({
   storage: multer.memoryStorage(),
@@ -108,8 +114,19 @@ function mapItem(row) {
     componentGroupKey: row.component_group_key ?? null,
     componentGroupLabel: row.component_group_label ?? null,
     componentGroupSort: row.component_group_sort != null ? Number(row.component_group_sort) : 0,
+    priceStatus: String(row.price_status || 'APPROVED').toUpperCase(),
+    pricePending: String(row.price_status || '').toUpperCase() === 'PENDING',
+    approvedUnitPrice: row.approved_unit_price != null ? Number(row.approved_unit_price) : null,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
+  };
+}
+
+function itemsResponse(mappedItems, extra = {}) {
+  return {
+    items: mappedItems,
+    ...priceApprovalMeta(mappedItems),
+    ...extra,
   };
 }
 
@@ -623,13 +640,13 @@ router.post(
         ip,
       });
 
+      const mappedImport = all.map(mapItem);
       return res.json({
         success: true,
-        data: {
-          items: all.map(mapItem),
+        data: itemsResponse(mappedImport, {
           totals: totalsFromRows(all),
           projectStatus: st[0]?.status,
-        },
+        }),
       });
     } catch (err) {
       if (client) await client.query('ROLLBACK').catch(() => {});
@@ -653,12 +670,12 @@ router.get('/:id/items', async (req, res) => {
     );
 
     const userFlags = await loadUserFlags(req.user.id);
-    const payload = {
-      items: rows.map(mapItem),
+    const mapped = rows.map(mapItem);
+    const payload = itemsResponse(mapped, {
       totals: totalsFromRows(rows),
       projectStatus: project.status,
       quotationMarket: project.quotation_market || 'NACIONAL',
-    };
+    });
 
     return res.json({
       success: true,
@@ -760,8 +777,21 @@ router.post('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERU
       const market = project.quotation_market || 'NACIONAL';
       const listPrice = resolveUnitPrice(cat, market);
       let unitPrice = listPrice;
-      if (overridePrice != null && req.user.role !== 'COMERCIAL') {
-        unitPrice = overridePrice;
+      let priceStatus = 'APPROVED';
+      let approvedUnitPrice = listPrice;
+      if (overridePrice != null) {
+        if (req.user.role === 'COMERCIAL') {
+          const patch = commercialPricePatch(
+            { unit_price: listPrice, approved_unit_price: listPrice },
+            overridePrice
+          );
+          unitPrice = patch.unitPrice;
+          priceStatus = patch.priceStatus;
+          approvedUnitPrice = patch.approvedUnitPrice;
+        } else {
+          unitPrice = overridePrice;
+          approvedUnitPrice = overridePrice;
+        }
       }
 
       const { rows: exist } = await client.query(
@@ -798,8 +828,10 @@ router.post('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERU
         const applyAdjustment = await resolveDefaultApplyAdjustment(client, cat.category_id);
         const { rows: ins } = await client.query(
           `INSERT INTO project_items
-            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price, qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $13)
+            (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price,
+             qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by,
+             price_status, approved_unit_price)
+           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, $12, $13, $13, $14, $15)
            RETURNING id`,
           [
             req.params.id,
@@ -815,6 +847,8 @@ router.post('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERU
             cat.category_id,
             applyAdjustment,
             req.user.id,
+            priceStatus,
+            approvedUnitPrice,
           ]
         );
         outRow = await fetchItemRow(client, ins[0].id);
@@ -833,8 +867,7 @@ router.post('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERU
       const descripcion = String(c.descripcion || '').trim().slice(0, 300);
       const unidad = String(c.unidad || 'UND').trim().slice(0, 30);
       const tipo = c.tipo === 'CONSUMIBLE' ? 'CONSUMIBLE' : 'ACTIVO';
-      let unitPrice = c.unitPrice != null ? Number(c.unitPrice) : 0;
-      if (req.user.role === 'COMERCIAL') unitPrice = 0;
+      const unitPrice = c.unitPrice != null ? Number(c.unitPrice) : 0;
       const qty = c.qty != null ? Number(c.qty) : 1;
 
       let categoryId = null;
@@ -951,16 +984,16 @@ router.post('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERU
       [req.params.id]
     );
     const { rows: st } = await pool.query(`SELECT status FROM projects WHERE id = $1`, [req.params.id]);
+    const mapped = all.map(mapItem);
 
     return res.status(merged ? 200 : 201).json({
       success: true,
-      data: {
+      data: itemsResponse(mapped, {
         item: mapItem(outRow),
         merged,
-        items: all.map(mapItem),
         totals: totalsFromRows(all),
         projectStatus: st[0]?.status,
-      },
+      }),
     });
   } catch (err) {
     await client.query('ROLLBACK');
@@ -1063,14 +1096,14 @@ router.post(
         ip,
       });
 
+      const mappedBatch = all.map(mapItem);
       return res.status(201).json({
         success: true,
-        data: {
+        data: itemsResponse(mappedBatch, {
           added,
-          items: all.map(mapItem),
           totals: totalsFromRows(all),
           projectStatus: st[0]?.status,
-        },
+        }),
       });
     } catch (err) {
       if (client) await client.query('ROLLBACK').catch(() => {});
@@ -1173,6 +1206,7 @@ router.post(
         lines: req.body.lines,
         discountPct: req.body.discountPct,
         ip,
+        actorRole: req.user.role,
       });
       if (result.errorCode) {
         await client.query('ROLLBACK');
@@ -1199,17 +1233,20 @@ router.post(
       );
       const { rows: st } = await pool.query(`SELECT status FROM projects WHERE id = $1`, [req.params.id]);
       const userFlags = await loadUserFlags(req.user.id);
+      const mapped = all.map(mapItem);
 
       return res.status(201).json({
         success: true,
-        data: sanitizeBudgetItemsResponse(userFlags, {
-          bundleId: result.bundleId,
-          displayName: result.displayName,
-          unitPrice: canSeeItemPrices(userFlags) ? result.unitPrice : null,
-          items: all.map(mapItem),
-          totals: totalsFromRows(all),
-          projectStatus: st[0]?.status,
-        }),
+        data: sanitizeBudgetItemsResponse(
+          userFlags,
+          itemsResponse(mapped, {
+            bundleId: result.bundleId,
+            displayName: result.displayName,
+            unitPrice: canSeeItemPrices(userFlags) ? result.unitPrice : null,
+            totals: totalsFromRows(all),
+            projectStatus: st[0]?.status,
+          })
+        ),
       });
     } catch (err) {
       if (client) await client.query('ROLLBACK').catch(() => {});
@@ -1297,6 +1334,7 @@ router.put(
         discountPct: req.body.discountPct,
         ip,
         preservePriceOverrides: true,
+        actorRole: req.user.role,
       });
       if (result.errorCode) {
         await client.query('ROLLBACK');
@@ -1316,17 +1354,20 @@ router.put(
       );
       const { rows: st } = await pool.query(`SELECT status FROM projects WHERE id = $1`, [req.params.id]);
       const userFlags = await loadUserFlags(req.user.id);
+      const mapped = all.map(mapItem);
 
       return res.json({
         success: true,
-        data: sanitizeBudgetItemsResponse(userFlags, {
-          bundleId: result.bundleId,
-          displayName: result.displayName,
-          unitPrice: canSeeItemPrices(userFlags) ? result.unitPrice : null,
-          items: all.map(mapItem),
-          totals: totalsFromRows(all),
-          projectStatus: st[0]?.status,
-        }),
+        data: sanitizeBudgetItemsResponse(
+          userFlags,
+          itemsResponse(mapped, {
+            bundleId: result.bundleId,
+            displayName: result.displayName,
+            unitPrice: canSeeItemPrices(userFlags) ? result.unitPrice : null,
+            totals: totalsFromRows(all),
+            projectStatus: st[0]?.status,
+          })
+        ),
       });
     } catch (err) {
       if (client) await client.query('ROLLBACK').catch(() => {});
@@ -1363,12 +1404,6 @@ router.put(
       return res.status(400).json({
         success: false,
         error: { code: 'VALIDATION_ERROR', message: 'Indique qty, unitPrice o applyAdjustment' },
-      });
-    }
-    if (unitPrice != null && req.user.role === 'COMERCIAL') {
-      return res.status(403).json({
-        success: false,
-        error: { code: 'FORBIDDEN', message: 'No puede modificar precios unitarios' },
       });
     }
 
@@ -1435,9 +1470,26 @@ router.put(
 
       const prevSnap = mapItem(cur[0]);
       const nextQty = qty != null ? Number(qty) : Number(cur[0].qty);
-      const nextPrice = unitPrice != null ? Number(unitPrice) : Number(cur[0].unit_price);
+      let nextPrice = unitPrice != null ? Number(unitPrice) : Number(cur[0].unit_price);
       const nextApply =
         applyAdjustment !== undefined ? !!applyAdjustment : cur[0].apply_adjustment !== false;
+      let nextStatus = cur[0].price_status || 'APPROVED';
+      let nextApproved =
+        cur[0].approved_unit_price != null ? Number(cur[0].approved_unit_price) : Number(cur[0].unit_price);
+
+      if (unitPrice != null) {
+        if (req.user.role === 'COMERCIAL') {
+          const patch = commercialPricePatch(cur[0], nextPrice);
+          nextPrice = patch.unitPrice;
+          nextStatus = patch.priceStatus;
+          nextApproved = patch.approvedUnitPrice;
+        } else {
+          const patch = reviewerPricePatch(nextPrice);
+          nextPrice = patch.unitPrice;
+          nextStatus = patch.priceStatus;
+          nextApproved = patch.approvedUnitPrice;
+        }
+      }
 
       if (
         cur[0].is_bundle_header &&
@@ -1454,9 +1506,10 @@ router.put(
       }
 
       await pool.query(
-        `UPDATE project_items SET qty = $1, unit_price = $2, apply_adjustment = $3, updated_at = NOW(), updated_by = $4
-         WHERE id = $5 AND project_id = $6`,
-        [nextQty, nextPrice, nextApply, req.user.id, req.params.itemId, req.params.id]
+        `UPDATE project_items SET qty = $1, unit_price = $2, apply_adjustment = $3,
+           price_status = $4, approved_unit_price = $5, updated_at = NOW(), updated_by = $6
+         WHERE id = $7 AND project_id = $8`,
+        [nextQty, nextPrice, nextApply, nextStatus, nextApproved, req.user.id, req.params.itemId, req.params.id]
       );
 
       if (cur[0].is_bundle_component && cur[0].bundle_id) {
@@ -1489,18 +1542,115 @@ router.put(
         `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
         [req.params.id]
       );
+      const mapped = all.map(mapItem);
 
       return res.json({
         success: true,
-        data: {
+        data: itemsResponse(mapped, {
           item: mapItem(upRows[0]),
-          items: all.map(mapItem),
           totals: totalsFromRows(all),
           projectStatus: project.status,
-        },
+        }),
       });
     } catch (err) {
       console.error('[PROJECT_ITEMS] put:', err);
+      return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+    }
+  }
+);
+
+// ─── POST /api/projects/:id/items/:itemId/price-review — aprobar/rechazar precio ─
+router.post(
+  '/:id/items/:itemId/price-review',
+  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
+  body('action').isIn(['APPROVE', 'REJECT']),
+  async (req, res) => {
+    const errors = validationResult(req);
+    if (!errors.isEmpty()) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'VALIDATION_ERROR', message: errors.array()[0].msg },
+      });
+    }
+    if (!canReviewBudgetPrices(req.user)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+    }
+
+    const ip = getClientIp(req);
+    const action = String(req.body.action).toUpperCase();
+
+    try {
+      const project = await loadProject(req, res, req.params.id);
+      if (!project) return;
+      if (!canReadProject(req.user, project, await loadShareContext(req.user, project))) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      }
+      if (project.deleted_at) {
+        return res.status(400).json({ success: false, error: { code: 'PROJECT_ARCHIVED', message: 'Proyecto archivado' } });
+      }
+
+      const { rows: cur } = await pool.query(
+        `${ITEMS_SELECT} WHERE pi.id = $1 AND pi.project_id = $2`,
+        [req.params.itemId, req.params.id]
+      );
+      if (!cur[0]) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
+      }
+      if (String(cur[0].price_status || '').toUpperCase() !== 'PENDING') {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'NOT_PENDING', message: 'Este precio no está pendiente de aprobación' },
+        });
+      }
+
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_UPDATE');
+
+      const prevSnap = mapItem(cur[0]);
+      const approved =
+        cur[0].approved_unit_price != null ? Number(cur[0].approved_unit_price) : Number(cur[0].unit_price);
+      const nextPrice = action === 'APPROVE' ? Number(cur[0].unit_price) : approved;
+
+      await pool.query(
+        `UPDATE project_items SET unit_price = $1, price_status = 'APPROVED', approved_unit_price = $1,
+           updated_at = NOW(), updated_by = $2
+         WHERE id = $3 AND project_id = $4`,
+        [nextPrice, req.user.id, req.params.itemId, req.params.id]
+      );
+
+      if (cur[0].is_bundle_component && cur[0].bundle_id) {
+        await recalcBundleHeaderTotals(pool, cur[0].bundle_id);
+      }
+
+      const { rows: upRows } = await pool.query(`${ITEMS_SELECT} WHERE pi.id = $1`, [req.params.itemId]);
+      await touchProjectUpdated(req.params.id);
+      await snapshotBudget(req.params.id, req.user, 'BUDGET_ITEM_UPDATE');
+
+      logAuditEvent({
+        projectId: req.params.id,
+        eventType: action === 'APPROVE' ? 'BUDGET_PRICE_APPROVE' : 'BUDGET_PRICE_REJECT',
+        actorId: req.user.id,
+        prevData: prevSnap,
+        newData: mapItem(upRows[0]),
+        ip,
+      });
+
+      const { rows: all } = await pool.query(
+        `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
+        [req.params.id]
+      );
+      const mapped = all.map(mapItem);
+
+      return res.json({
+        success: true,
+        data: itemsResponse(mapped, {
+          item: mapItem(upRows[0]),
+          totals: totalsFromRows(all),
+          projectStatus: project.status,
+          action,
+        }),
+      });
+    } catch (err) {
+      console.error('[PROJECT_ITEMS] price-review:', err);
       return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
     }
   }
@@ -1562,14 +1712,14 @@ router.delete('/:id/items/:itemId', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL
       `${ITEMS_SELECT} WHERE pi.project_id = $1 ORDER BY pi.sort_order ASC, pi.created_at ASC`,
       [req.params.id]
     );
+    const mapped = all.map(mapItem);
 
     return res.json({
       success: true,
-      data: {
-        items: all.map(mapItem),
+      data: itemsResponse(mapped, {
         totals: totalsFromRows(all),
         projectStatus: project.status,
-      },
+      }),
     });
   } catch (err) {
     console.error('[PROJECT_ITEMS] delete one:', err);
@@ -1608,12 +1758,11 @@ router.delete('/:id/items', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPE
 
     return res.json({
       success: true,
-      data: {
-        items: [],
+      data: itemsResponse([], {
         totals: { activos: 0, consumibles: 0, lista: 0 },
         cleared: rowCount,
         projectStatus: project.status,
-      },
+      }),
     });
   } catch (err) {
     console.error('[PROJECT_ITEMS] clear:', err);

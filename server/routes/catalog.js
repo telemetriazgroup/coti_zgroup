@@ -51,6 +51,14 @@ const {
   sanitizeDependencyBundle,
   canSeeUnreleasedCatalog,
 } = require('../lib/commercialVisibility');
+const { applyLinePricesForMarket, getProjectQuotationMarket } = require('../lib/pricingMarket');
+
+async function applyProjectMarketToLines(req, lines) {
+  const projectId = req.query.projectId;
+  if (!projectId || !uuidValidate(projectId)) return lines;
+  const market = await getProjectQuotationMarket(projectId);
+  return applyLinePricesForMarket(lines, market);
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -1057,7 +1065,12 @@ router.get('/items/:id/kit-template', requireAuth, [param('id').isUUID()], async
     if (!template) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
     }
-    return res.json({ success: true, data: sanitizeKitTemplate(userFlags, template) });
+    const lines = await applyProjectMarketToLines(req, template.lines || []);
+    const templatePrice = Math.round(lines.reduce((s, l) => s + Number(l.qty) * Number(l.unitPrice), 0) * 100) / 100;
+    return res.json({
+      success: true,
+      data: sanitizeKitTemplate(userFlags, { ...template, lines, templatePrice }),
+    });
   } catch (err) {
     if (err.code === 'NOT_KIT_ITEM') {
       return res.status(400).json({ success: false, error: { code: err.code, message: err.message } });
@@ -1082,7 +1095,11 @@ router.get('/items/:id/dependency-bundle', requireAuth, [param('id').isUUID()], 
     if (!bundle) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
     }
-    return res.json({ success: true, data: sanitizeDependencyBundle(userFlags, bundle) });
+    const lines = await applyProjectMarketToLines(req, bundle.lines || []);
+    return res.json({
+      success: true,
+      data: sanitizeDependencyBundle(userFlags, { ...bundle, lines }),
+    });
   } catch (err) {
     console.error('[CATALOG] dependency bundle:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });

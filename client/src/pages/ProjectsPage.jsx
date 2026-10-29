@@ -459,6 +459,14 @@ export function ProjectsPage() {
                         <MarketIcon market={row.quotationMarket} />
                         <span>
                           {row.nombre}
+                          {row.hasPendingPrices ? (
+                            <span
+                              className="proj-price-pending"
+                              title="Hay precios pendientes de aprobación"
+                            >
+                              *
+                            </span>
+                          ) : null}
                           {row.deletedAt && (
                             <span className="tag tag--muted mono" style={{ marginLeft: 8 }}>
                               archivado

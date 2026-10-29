@@ -3,6 +3,7 @@ const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { loadSuperuserAnalytics } = require('../lib/superuserAnalytics');
 const { loadUserActivityDashboard } = require('../lib/userActivity');
+const { projectVisibilityWhere } = require('../utils/projectHelpers');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -39,6 +40,36 @@ router.get('/summary', async (req, res) => {
           scope: 'all',
           clientsTotal: cRows[0].n,
           projectsActive: pRows[0].n,
+        },
+      });
+    }
+
+    if (role === 'SEMIADMIN') {
+      const vis = projectVisibilityWhere('$2', '$1', '$3');
+      const params = [uid, role, false];
+      const { rows: pRows } = await pool.query(
+        `SELECT COUNT(*)::int AS n FROM projects p WHERE ${vis}`,
+        params
+      );
+      const { rows: clRows } = await pool.query(
+        `SELECT COUNT(DISTINCT p.client_id)::int AS n FROM projects p
+         WHERE ${vis} AND p.client_id IS NOT NULL`,
+        params
+      );
+      const { rows: pipeRows } = await pool.query(
+        `SELECT COALESCE(SUM(pi.subtotal), 0)::numeric AS v
+         FROM project_items pi
+         INNER JOIN projects p ON p.id = pi.project_id
+         WHERE ${vis}`,
+        params
+      );
+      return res.json({
+        success: true,
+        data: {
+          scope: 'team',
+          projectsActive: pRows[0].n,
+          clientsInMyProjects: clRows[0].n,
+          pipelineMy: Number(pipeRows[0]?.v || 0),
         },
       });
     }
@@ -117,18 +148,39 @@ router.get('/summary', async (req, res) => {
 // ─── GET /api/dashboard/admin — KPIs gerenciales (solo ADMIN) ──
 router.get('/admin', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
+    const scopeAll = req.user.role === 'ADMIN' || req.user.role === 'SUPERUSER';
+    const vis = projectVisibilityWhere('$2', '$1', '$3');
+    const visParams = [req.user.id, req.user.role, false];
+
     const { rows: statusRows } = await pool.query(
-      `SELECT status, COUNT(*)::int AS n FROM projects WHERE deleted_at IS NULL GROUP BY status ORDER BY status`
+      scopeAll
+        ? `SELECT status, COUNT(*)::int AS n FROM projects WHERE deleted_at IS NULL GROUP BY status ORDER BY status`
+        : `SELECT status, COUNT(*)::int AS n FROM projects p WHERE ${vis} GROUP BY status ORDER BY status`,
+      scopeAll ? [] : visParams
     );
     const { rows: pipeRow } = await pool.query(
-      `SELECT COALESCE(SUM(pi.subtotal), 0)::numeric AS pipeline
-       FROM project_items pi
-       INNER JOIN projects p ON p.id = pi.project_id
-       WHERE p.deleted_at IS NULL`
+      scopeAll
+        ? `SELECT COALESCE(SUM(pi.subtotal), 0)::numeric AS pipeline
+           FROM project_items pi
+           INNER JOIN projects p ON p.id = pi.project_id
+           WHERE p.deleted_at IS NULL`
+        : `SELECT COALESCE(SUM(pi.subtotal), 0)::numeric AS pipeline
+           FROM project_items pi
+           INNER JOIN projects p ON p.id = pi.project_id
+           WHERE ${vis}`,
+      scopeAll ? [] : visParams
     );
-    const { rows: totProj } = await pool.query(`SELECT COUNT(*)::int AS n FROM projects WHERE deleted_at IS NULL`);
+    const { rows: totProj } = await pool.query(
+      scopeAll
+        ? `SELECT COUNT(*)::int AS n FROM projects WHERE deleted_at IS NULL`
+        : `SELECT COUNT(*)::int AS n FROM projects p WHERE ${vis}`,
+      scopeAll ? [] : visParams
+    );
     const { rows: accepted } = await pool.query(
-      `SELECT COUNT(*)::int AS n FROM projects WHERE deleted_at IS NULL AND status = 'ACEPTADA'`
+      scopeAll
+        ? `SELECT COUNT(*)::int AS n FROM projects WHERE deleted_at IS NULL AND status = 'ACEPTADA'`
+        : `SELECT COUNT(*)::int AS n FROM projects p WHERE ${vis} AND p.status = 'ACEPTADA'`,
+      scopeAll ? [] : visParams
     );
 
     const pipelineTotal = Number(pipeRow[0]?.pipeline || 0);
@@ -137,20 +189,42 @@ router.get('/admin', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req,
     const ratioCierre = projectsTotal > 0 ? acceptedTotal / projectsTotal : 0;
 
     const { rows: commercial } = await pool.query(
-      `SELECT
-         u.id,
-         u.email,
-         e.nombres,
-         e.apellidos,
-         (SELECT COUNT(*)::int FROM projects p WHERE p.created_by = u.id AND p.deleted_at IS NULL) AS projects_n,
-         (SELECT COALESCE(SUM(pi.subtotal), 0)::numeric FROM project_items pi
-            INNER JOIN projects p ON p.id = pi.project_id
-            WHERE p.created_by = u.id AND p.deleted_at IS NULL) AS pipeline_value,
-         (SELECT COUNT(*)::int FROM projects p WHERE p.created_by = u.id AND p.deleted_at IS NULL AND p.status = 'ACEPTADA') AS accepted_n
-       FROM users u
-       LEFT JOIN employees e ON e.user_id = u.id
-       WHERE u.role = 'COMERCIAL'
-       ORDER BY u.email`
+      scopeAll
+        ? `SELECT
+             u.id,
+             u.email,
+             e.nombres,
+             e.apellidos,
+             (SELECT COUNT(*)::int FROM projects p WHERE p.created_by = u.id AND p.deleted_at IS NULL) AS projects_n,
+             (SELECT COALESCE(SUM(pi.subtotal), 0)::numeric FROM project_items pi
+                INNER JOIN projects p ON p.id = pi.project_id
+                WHERE p.created_by = u.id AND p.deleted_at IS NULL) AS pipeline_value,
+             (SELECT COUNT(*)::int FROM projects p WHERE p.created_by = u.id AND p.deleted_at IS NULL AND p.status = 'ACEPTADA') AS accepted_n
+           FROM users u
+           LEFT JOIN employees e ON e.user_id = u.id
+           WHERE u.role = 'COMERCIAL'
+           ORDER BY u.email`
+        : `SELECT
+             u.id,
+             u.email,
+             e.nombres,
+             e.apellidos,
+             (SELECT COUNT(*)::int FROM projects p WHERE p.created_by = u.id AND p.deleted_at IS NULL) AS projects_n,
+             (SELECT COALESCE(SUM(pi.subtotal), 0)::numeric FROM project_items pi
+                INNER JOIN projects p ON p.id = pi.project_id
+                WHERE p.created_by = u.id AND p.deleted_at IS NULL) AS pipeline_value,
+             (SELECT COUNT(*)::int FROM projects p WHERE p.created_by = u.id AND p.deleted_at IS NULL AND p.status = 'ACEPTADA') AS accepted_n
+           FROM users u
+           LEFT JOIN employees e ON e.user_id = u.id
+           WHERE u.role = 'COMERCIAL' AND (
+             u.created_by = $1::uuid OR
+             EXISTS (
+               SELECT 1 FROM admin_commercial_assignments a
+               WHERE a.admin_id = $1::uuid AND a.commercial_id = u.id
+             )
+           )
+           ORDER BY u.email`,
+      scopeAll ? [] : [req.user.id]
     );
 
     return res.json({

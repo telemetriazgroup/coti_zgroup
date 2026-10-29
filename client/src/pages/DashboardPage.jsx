@@ -15,7 +15,9 @@ export function DashboardPage() {
   const { user, hasRole, isAdmin, isSuperuser } = useAuth();
   const isAdminUser = isAdmin();
   const isSuper = isSuperuser();
-  const scopedDash = hasRole('COMERCIAL', 'VIEWER');
+  const isSemi = hasRole('SEMIADMIN');
+  const canSeeGerencial = isAdminUser || isSuper || isSemi;
+  const scopedDash = hasRole('COMERCIAL', 'VIEWER') || isSemi;
   const [summary, setSummary] = useState(null);
   const [admin, setAdmin] = useState(null);
 
@@ -35,7 +37,7 @@ export function DashboardPage() {
   }, []);
 
   useEffect(() => {
-    if (!isAdminUser && !isSuper) return;
+    if (!canSeeGerencial) return;
     let alive = true;
     (async () => {
       try {
@@ -48,7 +50,7 @@ export function DashboardPage() {
     return () => {
       alive = false;
     };
-  }, [isAdminUser, isSuper]);
+  }, [canSeeGerencial]);
 
   return (
     <section className="view-active">
@@ -59,6 +61,8 @@ export function DashboardPage() {
             ? 'Vista global del sistema (superusuario)'
             : isAdminUser
             ? 'Vista global del sistema'
+            : isSemi
+              ? 'Tus proyectos, los de tu equipo comercial y el panel gerencial de ese alcance'
             : hasRole('COMERCIAL')
               ? 'Tus proyectos y montos de lista'
               : hasRole('VIEWER')
@@ -88,7 +92,11 @@ export function DashboardPage() {
         <div className="kpi-grid">
           <Link to="/projects" className="kpi-card kpi-card--link" title="Ir a la lista de proyectos">
             <div className="kpi-label mono">
-              {hasRole('VIEWER') ? 'Proyectos (asignados)' : 'Proyectos (tuyos)'}
+              {hasRole('VIEWER')
+                ? 'Proyectos (asignados)'
+                : isSemi
+                  ? 'Proyectos (tuyos y de tu equipo)'
+                  : 'Proyectos (tuyos)'}
             </div>
             <div className="kpi-value">{summary != null ? summary.projectsActive : '—'}</div>
           </Link>
@@ -109,10 +117,10 @@ export function DashboardPage() {
         </div>
       )}
 
-      {(isAdminUser || isSuper) && admin && (
+      {canSeeGerencial && admin && (
         <>
           <h2 className="budget-panel-title" style={{ marginTop: 24 }}>
-            Panel gerencial (ADMIN)
+            {isSemi ? 'Panel gerencial (tu equipo)' : 'Panel gerencial (ADMIN)'}
           </h2>
           <div className="kpi-grid">
             <div className="kpi-card">
@@ -222,6 +230,12 @@ export function DashboardPage() {
             <>
               Ves <strong>todos los proyectos activos</strong>. Catálogo, clientes, empleados y usuarios. Backup, base de
               datos, grupos admin, asignar comerciales y archivados son exclusivos del superusuario.
+            </>
+          ) : isSemi ? (
+            <>
+              Ves <strong>tus proyectos y los de tu equipo comercial</strong>. En cada presupuesto puedes generar los
+              PDF de <strong>Gerencia</strong> y <strong>Cliente</strong>. El panel gerencial de este dashboard cubre
+              ese mismo alcance.
             </>
           ) : hasRole('COMERCIAL') ? (
             <>

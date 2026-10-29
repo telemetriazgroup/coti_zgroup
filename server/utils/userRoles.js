@@ -49,9 +49,9 @@ function isAdminLikeRole(role) {
   return role === 'ADMIN' || role === 'SEMIADMIN';
 }
 
-/** Precio de mercado del usuario (cotizaciones nuevas) y mercado de un proyecto. */
+/** Mercado de un proyecto o del usuario: solo ADMIN y SUPERUSER. SEMIADMIN no cambia nacional/internacional. */
 function canChangeQuotationMarket(user) {
-  return hasAdminPanelAccess(user);
+  return isAdmin(user);
 }
 
 module.exports = {

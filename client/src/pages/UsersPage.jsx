@@ -41,9 +41,10 @@ const emptyCreate = {
 };
 
 export function UsersPage() {
-  const { hasRole, user: me, isSuperuser, startImpersonation } = useAuth();
+  const { hasRole, user: me, isSuperuser, startImpersonation, canChangeQuotationMarket } = useAuth();
   const canImportExport = hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER');
   const canAssignRoles = hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER');
+  const canAssignMarket = canChangeQuotationMarket();
   const isCommercialOnly = me?.role === 'COMERCIAL';
 
   const [list, setList] = useState([]);
@@ -102,7 +103,7 @@ export function UsersPage() {
       if (createForm.telefono) body.telefono = createForm.telefono;
       if (createForm.dni) body.dni = createForm.dni;
     }
-    if (canAssignRoles && createForm.role !== 'VIEWER') {
+    if (canAssignMarket && createForm.role !== 'VIEWER') {
       body.pricingMarket = createForm.pricingMarket || 'NACIONAL';
     }
     if (canAssignRoles && createForm.role === 'COMERCIAL') {
@@ -167,7 +168,7 @@ export function UsersPage() {
       if (editForm.password && editForm.password.length >= 8) {
         body.password = editForm.password;
       }
-      if (canAssignRoles && editForm.role !== 'VIEWER' && editForm.pricingMarket) {
+      if (canAssignMarket && editForm.role !== 'VIEWER' && editForm.pricingMarket) {
         body.pricingMarket = editForm.pricingMarket;
       }
       if (canAssignRoles && editForm.role === 'COMERCIAL') {
@@ -612,7 +613,7 @@ export function UsersPage() {
                 Los usuarios VIEWER no tienen ficha de empleado; solo acceso de lectura a proyectos asignados.
               </p>
             )}
-            {canAssignRoles && createForm.role !== 'VIEWER' && (
+            {canAssignMarket && createForm.role !== 'VIEWER' && (
               <label>
                 <span className="fg-lbl">Precio de mercado de sus cotizaciones</span>
                 <select
@@ -755,7 +756,7 @@ export function UsersPage() {
                 ))}
               </fieldset>
             )}
-            {canAssignRoles && editForm.role !== 'VIEWER' && (
+            {canAssignMarket && editForm.role !== 'VIEWER' && (
               <label>
                 <span className="fg-lbl">Precio de mercado de sus cotizaciones</span>
                 <select

@@ -11,6 +11,7 @@ const {
   applyKitDiscount,
 } = require('./catalogKit');
 const { resolveUnitPrice, getProjectQuotationMarket } = require('./pricingMarket');
+const { pricesDiffer } = require('./projectItemPriceApproval');
 
 const INSTANCE_LABEL_MAX = 50;
 const GROUP_KEY_MAX = 64;
@@ -79,10 +80,11 @@ async function resolveKitLinesForMarket(client, lines, market, { preserveOverrid
   return out;
 }
 
-async function insertBundleComponents(client, { projectId, userId, bundleId, lines, startSortOrder, market }) {
+async function insertBundleComponents(client, { projectId, userId, bundleId, lines, startSortOrder, market, actorRole }) {
   let sortOrder = startSortOrder;
   const componentIds = [];
   const m = market || 'NACIONAL';
+  const isCommercial = actorRole === 'COMERCIAL';
   for (const line of lines) {
     const { rows: compRows } = await client.query(
       `SELECT * FROM catalog_items WHERE id = $1 AND active = true`,
@@ -98,13 +100,23 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
       line.unitPrice != null && Number.isFinite(Number(line.unitPrice))
         ? Number(line.unitPrice)
         : resolved;
+    let priceStatus = 'APPROVED';
+    let approvedUnitPrice = cPrice;
+    if (isCommercial) {
+      approvedUnitPrice =
+        line.approvedUnitPrice != null && Number.isFinite(Number(line.approvedUnitPrice))
+          ? Number(line.approvedUnitPrice)
+          : resolved;
+      priceStatus = pricesDiffer(cPrice, approvedUnitPrice) ? 'PENDING' : 'APPROVED';
+    }
     const { rows: compIns } = await client.query(
       `INSERT INTO project_items
         (project_id, catalog_item_id, codigo, descripcion, unidad, tipo, unit_price, official_unit_price,
          qty, is_custom, sort_order, category_id, apply_adjustment, created_by, updated_by,
          bundle_id, is_bundle_header, is_bundle_component,
-         component_group_key, component_group_label, component_group_sort)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, false, $12, $12, $13, false, true, $14, $15, $16)
+         component_group_key, component_group_label, component_group_sort,
+         price_status, approved_unit_price)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, false, $10, $11, false, $12, $12, $13, false, true, $14, $15, $16, $17, $18)
        RETURNING id`,
       [
         projectId,
@@ -123,6 +135,8 @@ async function insertBundleComponents(client, { projectId, userId, bundleId, lin
         clipVarchar(line.componentGroupKey || 'template', GROUP_KEY_MAX) || 'template',
         clipVarchar(line.componentGroupLabel, GROUP_LABEL_MAX),
         Number(line.componentGroupSort) || 0,
+        priceStatus,
+        approvedUnitPrice,
       ]
     );
     componentIds.push(compIns[0].id);
@@ -324,7 +338,7 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
  */
 async function createProjectBundle(
   client,
-  { projectId, userId, catalogItemId, instanceLabel, displayName, qty, lines, discountPct, ip }
+  { projectId, userId, catalogItemId, instanceLabel, displayName, qty, lines, discountPct, ip, actorRole }
 ) {
   const kit = await fetchItemWithCategory(catalogItemId, client);
   if (!kit?.is_kit_category) {
@@ -403,6 +417,7 @@ async function createProjectBundle(
     lines: sortedIncluded,
     startSortOrder: sortOrder,
     market,
+    actorRole,
   });
   if (compResult.errorCode) return compResult;
   componentIds.push(...compResult.componentIds);
@@ -441,7 +456,7 @@ async function createProjectBundle(
  */
 async function updateProjectBundle(
   client,
-  { projectId, userId, bundleId, instanceLabel, displayName, qty, lines, discountPct, ip, preservePriceOverrides = true }
+  { projectId, userId, bundleId, instanceLabel, displayName, qty, lines, discountPct, ip, preservePriceOverrides = true, actorRole }
 ) {
   const { rows: bundleRows } = await client.query(
     `SELECT b.*, i.descripcion AS kit_descripcion, i.codigo AS kit_codigo, i.unidad, i.tipo
@@ -457,21 +472,28 @@ async function updateProjectBundle(
 
   const market = await getProjectQuotationMarket(projectId, client);
   const { rows: existingComps } = await client.query(
-    `SELECT catalog_item_id, unit_price FROM project_items
+    `SELECT catalog_item_id, unit_price, approved_unit_price FROM project_items
      WHERE bundle_id = $1 AND is_bundle_component = true AND project_id = $2`,
     [bundleId, projectId]
   );
-  const existingPriceByCat = new Map();
+  const existingMetaByCat = new Map();
   for (const r of existingComps) {
-    if (r.catalog_item_id && !existingPriceByCat.has(r.catalog_item_id)) {
-      existingPriceByCat.set(r.catalog_item_id, Number(r.unit_price));
+    if (r.catalog_item_id && !existingMetaByCat.has(r.catalog_item_id)) {
+      existingMetaByCat.set(r.catalog_item_id, {
+        unitPrice: Number(r.unit_price),
+        approvedUnitPrice:
+          r.approved_unit_price != null ? Number(r.approved_unit_price) : Number(r.unit_price),
+      });
     }
   }
   const linesWithPrices = (lines || []).map((line) => {
-    if (line.unitPrice != null && Number.isFinite(Number(line.unitPrice))) return line;
-    const prev = existingPriceByCat.get(line.catalogItemId);
-    if (prev != null && Number.isFinite(prev)) return { ...line, unitPrice: prev };
-    return line;
+    const prev = existingMetaByCat.get(line.catalogItemId);
+    const next = { ...line };
+    if (next.unitPrice == null && prev != null && Number.isFinite(prev.unitPrice)) {
+      next.unitPrice = prev.unitPrice;
+    }
+    if (prev != null) next.approvedUnitPrice = prev.approvedUnitPrice;
+    return next;
   });
   const included = await resolveKitLinesForMarket(client, linesWithPrices, market, {
     preserveOverrides: preservePriceOverrides,
@@ -515,6 +537,7 @@ async function updateProjectBundle(
     lines: sortedIncluded,
     startSortOrder: sortOrder,
     market,
+    actorRole,
   });
   if (compResult.errorCode) return compResult;
 

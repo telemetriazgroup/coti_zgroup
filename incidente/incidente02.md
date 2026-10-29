@@ -41,6 +41,14 @@ Había que alinear el producto con esta matriz:
 6. `app_settings.finance_defaults` + pantalla **Finanzas predet.** Los proyectos nuevos copian esos parámetros.
 7. SEMIADMIN persiste solo M1 (`adjType`/`adjPct`), `cpPlazo`, `lpN`, `lpNContrato` y toggles comerciales. El panel muestra el resto bloqueado. Comercial sigue en vista resumida.
 
+## Seguimiento — mercado del proyecto
+
+SEMIADMIN no cambia un proyecto de nacional a internacional (ni al revés). Solo ADMIN y SUPERUSER. Si le comparten un proyecto del otro mercado, ve **los precios de ese proyecto**; su usuario no cambia de vista. Cada cotización conserva su mercado.
+
+## Seguimiento — precio de presupuesto del comercial
+
+El comercial **sí puede cambiar el precio en el presupuesto** (no el catálogo). El valor queda `PENDING` con `*` hasta que un SEMIADMIN o ADMIN lo apruebe o rechace. Mientras haya precios pendientes, el comercial no puede generar vista previa ni PDF. Rechazar restaura el último precio aprobado.
+
 ## Registro
 
 - Este archivo documenta la observación y el alcance del cambio.

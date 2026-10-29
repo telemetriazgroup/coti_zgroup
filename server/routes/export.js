@@ -10,6 +10,7 @@ const { processPdfJob } = require('../workers/pdf.worker');
 const jobStore = require('../lib/pdfJobsStore');
 const pdfService = require('../services/pdf.service');
 const { loadUserFlags, resolveCommercialModules } = require('../lib/commercialVisibility');
+const { hasPendingPrices } = require('../lib/projectItemPriceApproval');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -107,6 +108,21 @@ function rejectGerenciaForCommercial(req, res, kind) {
   return false;
 }
 
+async function rejectCommercialPdfIfPendingPrices(req, res, projectId) {
+  if (req.user.role !== 'COMERCIAL') return false;
+  const pending = await hasPendingPrices(projectId);
+  if (!pending) return false;
+  res.status(409).json({
+    success: false,
+    error: {
+      code: 'PRICE_PENDING_APPROVAL',
+      message:
+        'Hay precios pendientes de aprobación. Un semiadmin o admin debe aprobarlos antes de generar el reporte.',
+    },
+  });
+  return true;
+}
+
 async function buildClienteHtmlForUser(req, projectId) {
   const payload = await pdfService.loadExportPayload(projectId);
   let commercialModules = null;
@@ -120,7 +136,7 @@ async function buildClienteHtmlForUser(req, projectId) {
 // ─── GET /api/export/pdf/preview-html — HTML mismo layout que el PDF (sin Puppeteer) ─
 router.get(
   '/pdf/preview-html',
-  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'),
   query('projectId').isUUID(),
   query('kind').isIn(['GERENCIA', 'CLIENTE']),
   async (req, res) => {
@@ -134,6 +150,7 @@ router.get(
 
     const { projectId, kind } = req.query;
     if (rejectGerenciaForCommercial(req, res, kind)) return;
+    if (await rejectCommercialPdfIfPendingPrices(req, res, projectId)) return;
     const row = await loadProjectRow(projectId);
     if (!row) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
@@ -168,7 +185,7 @@ router.get(
 // ─── POST /api/export/pdf ──────────────────────────────────────
 router.post(
   '/pdf',
-  requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'),
+  requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'),
   body('projectId').isUUID(),
   body('kind').isIn(['GERENCIA', 'CLIENTE']),
   async (req, res) => {
@@ -182,6 +199,7 @@ router.post(
 
     const { projectId, kind } = req.body;
     if (rejectGerenciaForCommercial(req, res, kind)) return;
+    if (await rejectCommercialPdfIfPendingPrices(req, res, projectId)) return;
     const row = await loadProjectRow(projectId);
     if (!row) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
@@ -232,7 +250,7 @@ router.post(
 router.get('/pdf/status/:jobId', async (req, res) => {
   const { jobId } = req.params;
   const own = jobOwners.get(jobId);
-  if (!own || (own.userId !== req.user.id && req.user.role !== 'ADMIN')) {
+  if (!own || (own.userId !== req.user.id && req.user.role !== 'ADMIN' && req.user.role !== 'SUPERUSER')) {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
   }
   const st = jobStates.get(jobId);
@@ -279,7 +297,7 @@ router.get('/pdf/download/:jobId', async (req, res) => {
   if (!own) {
     return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Job no encontrado' } });
   }
-  if (own.userId !== req.user.id && req.user.role !== 'ADMIN') {
+  if (own.userId !== req.user.id && req.user.role !== 'ADMIN' && req.user.role !== 'SUPERUSER') {
     return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
   }
   const row = await loadProjectRow(own.projectId);

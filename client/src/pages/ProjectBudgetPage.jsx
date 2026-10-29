@@ -28,6 +28,7 @@ import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
 import { buildConsolidatedKitBudgetRows } from '@shared/kitBudgetRows.js';
 import { MarketIcon } from '../components/MarketIcon';
 import { financeEditableKeys as resolveFinanceEditableKeys } from '../lib/financeAccess';
+import { catalogUnitPriceForMarket } from '../lib/pricingMarket';
 
 const LS_FINANCE_SIDEBAR = 'zgroup_budget_finance_open';
 
@@ -50,7 +51,15 @@ function unitPricesDiffer(official, current) {
 export function ProjectBudgetPage() {
   const { projectId } = useParams();
   const navigate = useNavigate();
-  const { hasRole, user, canManageCatalog, canShareProjects, isSuperuser, canChangeQuotationMarket } = useAuth();
+  const {
+    hasRole,
+    user,
+    canManageCatalog,
+    canShareProjects,
+    isSuperuser,
+    canChangeQuotationMarket,
+    hasAdminPanelAccess,
+  } = useAuth();
   const canChangeMarket = canChangeQuotationMarket();
   const viewerMode = user?.role === 'VIEWER';
   const canWrite = hasRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER');
@@ -59,7 +68,8 @@ export function ProjectBudgetPage() {
   const hideItemPrices = false;
   /** Editar celdas, quitar línea y limpiar presupuesto: comercial en propios/compartidos; catálogo solo admin. */
   const canEditBudgetLines = canWrite && !viewerMode;
-  const canEditUnitPrices = canEditBudgetLines && !isCommercial;
+  const canEditUnitPrices = canEditBudgetLines;
+  const canReviewPrices = hasAdminPanelAccess() && !viewerMode;
   const showAdjustmentCol = canEditBudgetLines;
   const budgetTableColSpan = useMemo(() => {
     let n = 6;
@@ -74,6 +84,12 @@ export function ProjectBudgetPage() {
   const canEditKits = Boolean(project?.canEditKits) && !viewerMode;
   const canDuplicateProject = Boolean(project?.canClone) && !viewerMode;
   const [items, setItems] = useState([]);
+  const pendingPriceCount = useMemo(
+    () => items.filter((it) => it.pricePending === true).length,
+    [items]
+  );
+  const hasPendingPrices = pendingPriceCount > 0;
+  const reportsBlocked = isCommercial && hasPendingPrices;
   const [totals, setTotals] = useState({
     activos: 0,
     consumibles: 0,
@@ -113,6 +129,7 @@ export function ProjectBudgetPage() {
   });
 
   const [deletingId, setDeletingId] = useState(null);
+  const [reviewingId, setReviewingId] = useState(null);
   const draftsRef = useRef({});
   const itemsRef = useRef([]);
   const flushTimers = useRef({});
@@ -237,6 +254,11 @@ export function ProjectBudgetPage() {
     setPdfPreviewErr(null);
     (async () => {
       try {
+        if (isCommercial && hasPendingPrices) {
+          throw new Error(
+            'Hay precios pendientes de aprobación. Un semiadmin o admin debe aprobarlos antes de generar el reporte.'
+          );
+        }
         const html = await getText(
           `/api/export/pdf/preview-html?projectId=${encodeURIComponent(projectId)}&kind=${encodeURIComponent(
             pdfPreviewKind
@@ -255,7 +277,7 @@ export function ProjectBudgetPage() {
     return () => {
       cancelled = true;
     };
-  }, [pdfPreviewKind, projectId]);
+  }, [pdfPreviewKind, projectId, isCommercial, hasPendingPrices]);
 
   useEffect(() => {
     const t = setTimeout(() => setQDebounced(qInput), 200);
@@ -391,8 +413,16 @@ export function ProjectBudgetPage() {
     draftsRef.current = dm;
   }, []);
 
+  const catalogPricedForProject = useMemo(() => {
+    const market = project?.quotationMarket || 'NACIONAL';
+    return catItems.map((it) => ({
+      ...it,
+      unitPrice: catalogUnitPriceForMarket(it, market),
+    }));
+  }, [catItems, project?.quotationMarket]);
+
   const filteredCatalog = useMemo(() => {
-    let list = catItems.filter((it) => it.active !== false);
+    let list = catalogPricedForProject.filter((it) => it.active !== false);
     if (filterCat) list = list.filter((it) => it.categoryId === filterCat);
     if (filterTipo) list = list.filter((it) => it.tipo === filterTipo);
     const qq = qDebounced.trim().toLowerCase();
@@ -404,7 +434,7 @@ export function ProjectBudgetPage() {
       );
     }
     return [...list].sort((a, b) => Number(b.unitPrice || 0) - Number(a.unitPrice || 0));
-  }, [catItems, filterCat, qDebounced, filterTipo]);
+  }, [catalogPricedForProject, filterCat, qDebounced, filterTipo]);
 
   const displayBudgetItems = useMemo(() => {
     let list = [...items].sort((a, b) => {
@@ -447,7 +477,7 @@ export function ProjectBudgetPage() {
     () =>
       accessibleProjects.map((p) => ({
         value: p.id,
-        label: `${p.nombre}${p.clientRazonSocial ? ` — ${p.clientRazonSocial}` : ''}`,
+        label: `${p.hasPendingPrices ? '* ' : ''}${p.nombre}${p.clientRazonSocial ? ` — ${p.clientRazonSocial}` : ''}`,
         searchText: [p.nombre, p.clientRazonSocial, p.odooRef].filter(Boolean).join(' '),
       })),
     [accessibleProjects]
@@ -494,7 +524,11 @@ export function ProjectBudgetPage() {
 
     setErr(null);
     try {
-      const data = await api.put(`/api/projects/${projectId}/items/${id}`, { qty, unitPrice });
+      const payload = {};
+      if (qty !== Number(cur.qty)) payload.qty = qty;
+      if (unitPrice !== Number(cur.unitPrice)) payload.unitPrice = unitPrice;
+      if (!Object.keys(payload).length) return;
+      const data = await api.put(`/api/projects/${projectId}/items/${id}`, payload);
       setItems(data.items);
       setTotals(data.totals);
       if (data.projectStatus) setProjectStatus(data.projectStatus);
@@ -502,6 +536,23 @@ export function ProjectBudgetPage() {
     } catch (e) {
       setErr(e.message);
       syncDraftFromItems(itemsRef.current);
+    }
+  }
+
+  async function reviewPrice(id, action) {
+    if (!canReviewPrices) return;
+    setErr(null);
+    setReviewingId(id);
+    try {
+      const data = await api.post(`/api/projects/${projectId}/items/${id}/price-review`, { action });
+      setItems(data.items);
+      setTotals(data.totals);
+      if (data.projectStatus) setProjectStatus(data.projectStatus);
+      syncDraftFromItems(data.items);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setReviewingId(null);
     }
   }
 
@@ -536,7 +587,9 @@ export function ProjectBudgetPage() {
           return;
         }
         const [template, labelData] = await Promise.all([
-          api.get(`/api/catalog/items/${catalogItem.id}/kit-template?qty=${qty}`),
+          api.get(
+            `/api/catalog/items/${catalogItem.id}/kit-template?qty=${qty}&projectId=${encodeURIComponent(projectId)}`
+          ),
           api.get(`/api/projects/${projectId}/bundles/next-label?catalogItemId=${catalogItem.id}`),
         ]);
         if (!template?.catalogItemId) {
@@ -548,7 +601,9 @@ export function ProjectBudgetPage() {
       }
       if (!canWrite) return;
       if (hasDeps) {
-        const bundle = await api.get(`/api/catalog/items/${catalogItem.id}/dependency-bundle?qty=${qty}`);
+        const bundle = await api.get(
+          `/api/catalog/items/${catalogItem.id}/dependency-bundle?qty=${qty}&projectId=${encodeURIComponent(projectId)}`
+        );
         if (!bundle?.lines?.length) {
           setErr('No se pudieron cargar las dependencias de este ítem.');
           return;
@@ -644,6 +699,11 @@ export function ProjectBudgetPage() {
       setErr('Cantidad inválida');
       return;
     }
+    const unitPrice = parseFloat(String(customForm.unitPrice).replace(',', '.'));
+    if (Number.isNaN(unitPrice) || unitPrice < 0) {
+      setErr('Precio y cantidad inválidos');
+      return;
+    }
     const body = {
       codigo: customForm.codigo.trim(),
       descripcion: customForm.descripcion.trim(),
@@ -651,15 +711,8 @@ export function ProjectBudgetPage() {
       unidad: customForm.unidad.trim() || 'UND',
       tipo: customForm.tipo,
       qty,
+      unitPrice,
     };
-    if (!isCommercial) {
-      const unitPrice = parseFloat(String(customForm.unitPrice).replace(',', '.'));
-      if (Number.isNaN(unitPrice) || unitPrice < 0) {
-        setErr('Precio y cantidad inválidos');
-        return;
-      }
-      body.unitPrice = unitPrice;
-    }
     try {
       const data = await api.post(`/api/projects/${projectId}/items`, {
         custom: body,
@@ -699,6 +752,12 @@ export function ProjectBudgetPage() {
 
   async function startPdf(kind) {
     if (!projectId || pdfBusy) return;
+    if (reportsBlocked) {
+      setErr(
+        'Hay precios pendientes de aprobación. Un semiadmin o admin debe aprobarlos antes de generar el reporte.'
+      );
+      return;
+    }
     const pdfKind = isCommercial ? 'CLIENTE' : kind;
     if (isCommercial && kind === 'GERENCIA') return;
     if (pdfPollRef.current) {
@@ -1091,7 +1150,14 @@ export function ProjectBudgetPage() {
               ← Proyectos
             </Link>
           </p>
-          <h1 className="page-title">{project?.nombre || 'Presupuesto'}</h1>
+          <h1 className="page-title">
+            {project?.nombre || 'Presupuesto'}
+            {hasPendingPrices ? (
+              <span className="proj-price-pending" title="Hay precios pendientes de aprobación">
+                *
+              </span>
+            ) : null}
+          </h1>
           <p className="page-sub muted mono">
             {STATUS_LABEL[project?.status || projectStatus] || projectStatus} · {items.length} ítems · Lista{' '}
             {formatUsd(totals.lista)}
@@ -1156,7 +1222,13 @@ export function ProjectBudgetPage() {
           </label>
         )}
         {project && !canChangeMarket && (
-          <span className="budget-project-bar__market-ro" title={project.quotationMarket === 'INTERNACIONAL' ? 'Mercado internacional' : 'Mercado nacional'}>
+          <span
+            className="budget-project-bar__market-ro"
+            title={
+              (project.quotationMarket === 'INTERNACIONAL' ? 'Mercado internacional' : 'Mercado nacional') +
+              '. Los precios de este proyecto no cambian según el usuario; solo un admin o superusuario puede cambiar el mercado.'
+            }
+          >
             <MarketIcon market={project.quotationMarket} />
             <span className="mono muted" style={{ fontSize: 11 }}>
               {project.quotationMarket === 'INTERNACIONAL' ? 'Internacional' : 'Nacional'}
@@ -1306,6 +1378,16 @@ export function ProjectBudgetPage() {
           {err}
         </div>
       )}
+      {hasPendingPrices && (
+        <div className="banner banner--warn mono" style={{ marginBottom: 12 }}>
+          {pendingPriceCount === 1
+            ? '1 precio pendiente de aprobación (marcado con *).'
+            : `${pendingPriceCount} precios pendientes de aprobación (marcados con *).`}{' '}
+          {isCommercial
+            ? 'No puede generar el reporte hasta que un semiadmin o admin los apruebe.'
+            : 'Apruebe o rechace cada precio marcado con *.'}
+        </div>
+      )}
 
       <div className="budget-infobar mono">
         <span>Total lista: {formatUsd(totals.lista)}</span>
@@ -1369,7 +1451,13 @@ export function ProjectBudgetPage() {
                   />
                 </label>
                 {canEditUnitPrices && (
-                  <label title="Opcional">
+                  <label
+                    title={
+                      isCommercial
+                        ? 'Si es distinto al catálogo, queda con * hasta que un semiadmin o admin lo apruebe'
+                        : 'Opcional'
+                    }
+                  >
                     Precio USD
                     <input
                       className="form-input"
@@ -1749,29 +1837,59 @@ export function ProjectBudgetPage() {
                                       {formatUsd(row.officialUnitPrice)}
                                     </div>
                                   )}
-                                  {rowPriceEditable ? (
-                                    <input
-                                      className="form-input table-input mono"
-                                      value={dr.unitPrice}
-                                      aria-label={showListRef ? 'Precio unitario asumido' : 'Precio unitario'}
-                                      onChange={(e) => setDraft(row.id, 'unitPrice', e.target.value)}
-                                    />
-                                  ) : (
-                                    <span
-                                      className="budget-punit-shown mono"
-                                      title={
-                                        isHeader
-                                          ? Number(row.bundleDiscountPct) > 0
-                                            ? `Total del conjunto con descuento ${Number(row.bundleDiscountPct).toFixed(1)}%`
-                                            : 'Precio del conjunto (edite componentes o el descuento en «Editar conjunto»)'
-                                          : isComponent
-                                            ? 'Precio del componente en esta cotización'
-                                            : undefined
-                                      }
-                                    >
-                                      {formatUsd(row.unitPrice)}
-                                    </span>
-                                  )}
+                                  <div className="budget-punit-row">
+                                    {rowPriceEditable ? (
+                                      <input
+                                        className="form-input table-input mono"
+                                        value={dr.unitPrice}
+                                        aria-label={showListRef ? 'Precio unitario asumido' : 'Precio unitario'}
+                                        onChange={(e) => setDraft(row.id, 'unitPrice', e.target.value)}
+                                      />
+                                    ) : (
+                                      <span
+                                        className="budget-punit-shown mono"
+                                        title={
+                                          isHeader
+                                            ? Number(row.bundleDiscountPct) > 0
+                                              ? `Total del conjunto con descuento ${Number(row.bundleDiscountPct).toFixed(1)}%`
+                                              : 'Precio del conjunto (edite componentes o el descuento en «Editar conjunto»)'
+                                            : isComponent
+                                              ? 'Precio del componente en esta cotización'
+                                              : undefined
+                                        }
+                                      >
+                                        {formatUsd(row.unitPrice)}
+                                      </span>
+                                    )}
+                                    {row.pricePending ? (
+                                      <span
+                                        className="budget-price-pending"
+                                        title="Precio pendiente de aprobación"
+                                      >
+                                        *
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                  {canReviewPrices && row.pricePending && (row.kitMergedCount || 1) <= 1 ? (
+                                    <div className="budget-price-review">
+                                      <button
+                                        type="button"
+                                        className="btn btn-ghost mono"
+                                        disabled={reviewingId === row.id}
+                                        onClick={() => reviewPrice(row.id, 'APPROVE')}
+                                      >
+                                        Aprobar
+                                      </button>
+                                      <button
+                                        type="button"
+                                        className="btn btn-ghost mono"
+                                        disabled={reviewingId === row.id}
+                                        onClick={() => reviewPrice(row.id, 'REJECT')}
+                                      >
+                                        Rechazar
+                                      </button>
+                                    </div>
+                                  ) : null}
                                 </>
                               );
                             })()}
@@ -1963,6 +2081,13 @@ export function ProjectBudgetPage() {
                 PDF para el cliente: partidas sin precios unitarios. Si tiene venta directa autorizada, el total
                 de la propuesta se incluye. Corto/largo plazo y estacionalidad se agregan al activarlos aquí
                 (solo montos y plazos, sin fórmulas ni costos internos).
+                {reportsBlocked ? (
+                  <>
+                    {' '}
+                    <strong>Hay precios con *</strong> pendientes de un semiadmin o admin: no se puede generar
+                    el reporte hasta que estén aprobados.
+                  </>
+                ) : null}
               </>
             ) : (
               <>
@@ -2048,7 +2173,12 @@ export function ProjectBudgetPage() {
               <button
                 type="button"
                 className="btn btn-primary mono"
-                disabled={!!pdfPreviewLoading}
+                disabled={!!pdfPreviewLoading || reportsBlocked}
+                title={
+                  reportsBlocked
+                    ? 'Hay precios pendientes de aprobación'
+                    : undefined
+                }
                 onClick={() => setPdfPreviewKind('CLIENTE')}
               >
                 {isCommercial ? 'Vista previa' : 'Ver Cliente'}
@@ -2068,7 +2198,12 @@ export function ProjectBudgetPage() {
               <button
                 type="button"
                 className={`btn mono${isCommercial ? ' btn-primary' : ' btn-ghost'}`}
-                disabled={pdfBusy}
+                disabled={pdfBusy || reportsBlocked}
+                title={
+                  reportsBlocked
+                    ? 'Hay precios pendientes de aprobación'
+                    : undefined
+                }
                 onClick={() => startPdf('CLIENTE')}
               >
                 Descargar PDF Cliente
@@ -2609,11 +2744,13 @@ export function ProjectBudgetPage() {
         template={kitModal?.template}
         suggestedLabel={kitModal?.suggestedLabel}
         editMode={!!kitModal?.editMode}
-        catalogItems={catItems}
+        catalogItems={catalogPricedForProject}
         busy={kitAddBusy}
         hidePrices={hideItemPrices}
         fetchDependencyBundle={(id, qty) =>
-          api.get(`/api/catalog/items/${id}/dependency-bundle?qty=${qty}`)
+          api.get(
+            `/api/catalog/items/${id}/dependency-bundle?qty=${qty}&projectId=${encodeURIComponent(projectId)}`
+          )
         }
         onClose={() => !kitAddBusy && setKitModal(null)}
         onConfirm={confirmKitAdd}
@@ -2710,20 +2847,19 @@ export function ProjectBudgetPage() {
                 <option value="CONSUMIBLE">CONSUMIBLE</option>
               </select>
             </label>
-            {!isCommercial && (
-              <label>
-                <span className="fg-lbl">Precio unitario (USD)</span>
-                <input
-                  className="form-input mono"
-                  required
-                  value={customForm.unitPrice}
-                  onChange={(e) => setCustomForm((f) => ({ ...f, unitPrice: e.target.value }))}
-                />
-              </label>
-            )}
+            <label>
+              <span className="fg-lbl">Precio unitario (USD)</span>
+              <input
+                className="form-input mono"
+                required
+                value={customForm.unitPrice}
+                onChange={(e) => setCustomForm((f) => ({ ...f, unitPrice: e.target.value }))}
+              />
+            </label>
             {isCommercial && (
               <p className="muted mono" style={{ fontSize: 12 }}>
-                El precio lo define el catálogo. Para cambiarlo solicite permiso a un semiadmin o admin.
+                Si más adelante cambia este precio en el presupuesto, queda pendiente de un semiadmin o admin
+                (aparece con *) y no podrá generar el reporte hasta que lo aprueben.
               </p>
             )}
             <label>

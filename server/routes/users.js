@@ -14,7 +14,7 @@ const {
   applyUserImport,
 } = require('../lib/usersExcel');
 const { buildDefaultPassword } = require('../lib/defaultPassword');
-const { normalizeMarket, MARKETS } = require('../lib/pricingMarket');
+const { normalizeMarket, MARKETS, getUserPricingMarket } = require('../lib/pricingMarket');
 
 function commercialFinanceFromBody(body) {
   const m1 = body.canSeeFinanceM1 === true;
@@ -492,7 +492,7 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
   const isElevated = ['ADMIN', 'SEMIADMIN', 'SUPERUSER'].includes(req.user.role);
   const creatorMarket = canChangeQuotationMarket(req.user)
     ? normalizeMarket(pricingMarket)
-    : 'NACIONAL';
+    : await getUserPricingMarket(req.user.id);
 
   if (!canCreateRole(req.user.role, role)) {
     return res.status(403).json({

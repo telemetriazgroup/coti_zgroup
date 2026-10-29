@@ -1,7 +1,8 @@
-const { pool } = require('../config/db');
-const { applyKitDiscount } = require('./catalogKit');
-
 const MARKETS = ['NACIONAL', 'INTERNACIONAL'];
+
+function db(client) {
+  return client || require('../config/db').pool;
+}
 
 function normalizeMarket(m) {
   return m === 'INTERNACIONAL' ? 'INTERNACIONAL' : 'NACIONAL';
@@ -22,22 +23,38 @@ function resolveUnitPrice(catalogRow, market) {
   return national;
 }
 
-async function getUserPricingMarket(userId, client = pool) {
-  const { rows } = await client.query(`SELECT pricing_market FROM users WHERE id = $1`, [userId]);
+async function getUserPricingMarket(userId, client) {
+  const { rows } = await db(client).query(`SELECT pricing_market FROM users WHERE id = $1`, [userId]);
   return normalizeMarket(rows[0]?.pricing_market);
 }
 
-async function getProjectQuotationMarket(projectId, client = pool) {
-  const { rows } = await client.query(`SELECT quotation_market FROM projects WHERE id = $1`, [projectId]);
+async function getProjectQuotationMarket(projectId, client) {
+  const { rows } = await db(client).query(`SELECT quotation_market FROM projects WHERE id = $1`, [projectId]);
   return normalizeMarket(rows[0]?.quotation_market);
+}
+
+/** Aplica el precio de catálogo del mercado a líneas { catalogItemId, unitPrice }. */
+async function applyLinePricesForMarket(lines, market, client) {
+  const list = Array.isArray(lines) ? lines : [];
+  const ids = [...new Set(list.map((l) => l.catalogItemId || l.catalog_item_id).filter(Boolean))];
+  if (!ids.length) return list;
+  const { rows } = await db(client).query(`SELECT * FROM catalog_items WHERE id = ANY($1::uuid[])`, [ids]);
+  const catMap = new Map(rows.map((c) => [c.id, c]));
+  return list.map((line) => {
+    const cat = catMap.get(line.catalogItemId || line.catalog_item_id);
+    if (!cat) return line;
+    return { ...line, unitPrice: resolveUnitPrice(cat, market) };
+  });
 }
 
 /**
  * Recalcula precios de líneas de catálogo y cabeceras KIT al cambiar mercado del proyecto.
  * Piezas custom (is_custom) conservan su precio asumido.
  */
-async function recalcProjectPricesForMarket(projectId, market, client = pool) {
-  const q = client.query.bind(client);
+async function recalcProjectPricesForMarket(projectId, market, client) {
+  const conn = db(client);
+  const q = conn.query.bind(conn);
+  const { applyKitDiscount } = require('./catalogKit');
   const m = normalizeMarket(market);
 
   const { rows: items } = await q(
@@ -100,5 +117,6 @@ module.exports = {
   resolveUnitPrice,
   getUserPricingMarket,
   getProjectQuotationMarket,
+  applyLinePricesForMarket,
   recalcProjectPricesForMarket,
 };

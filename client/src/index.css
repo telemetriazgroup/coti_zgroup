@@ -2105,6 +2105,33 @@ select.form-input {
   text-align: right;
   width: 100%;
 }
+.budget-punit-row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 4px;
+}
+.budget-price-pending,
+.proj-price-pending {
+  color: var(--amber);
+  font-weight: 700;
+  font-family: 'Rajdhani', sans-serif;
+  font-size: 1.15em;
+  line-height: 1;
+  letter-spacing: 0;
+}
+.budget-price-review {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 4px;
+  justify-content: flex-end;
+}
+.budget-price-review .btn {
+  font-size: 10px;
+  padding: 2px 8px;
+  min-height: 0;
+}
 .budget-footer {
   display: flex;
   flex-wrap: wrap;
