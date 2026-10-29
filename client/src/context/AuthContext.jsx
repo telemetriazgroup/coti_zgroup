@@ -57,6 +57,11 @@ export function AuthProvider({ children }) {
       const data = await api.post('/api/auth/login', { email, password });
       setToken(data.accessToken);
       setUser(data.user);
+      try {
+        sessionStorage.setItem('zgroup_admin_just_logged_in', '1');
+      } catch {
+        /* ignore */
+      }
       navigate('/dashboard', { replace: true });
     },
     [navigate]

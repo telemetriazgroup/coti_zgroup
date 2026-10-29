@@ -54,6 +54,11 @@ function canChangeQuotationMarket(user) {
   return isAdmin(user);
 }
 
+/** Correo de otro usuario: solo ADMIN y SUPERUSER, si no hay duplicado. */
+function canChangeUserEmail(user) {
+  return isAdmin(user);
+}
+
 module.exports = {
   isSuperuser,
   isSemiAdmin,
@@ -67,4 +72,5 @@ module.exports = {
   canViewInactiveCatalog,
   isAdminLikeRole,
   canChangeQuotationMarket,
+  canChangeUserEmail,
 };

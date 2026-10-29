@@ -1,12 +1,12 @@
-/** Contraseña por defecto al reiniciar: local@email + año + ! (ej. ejemplo@a.com → ejemplo2026!) */
+/** Contraseña temporal al reiniciar. El login la detecta y pide actualizarla. */
+const TEMPORARY_PASSWORD = '123456789';
 
-function buildDefaultPassword(email, year = new Date().getFullYear()) {
-  const local = String(email || '')
-    .toLowerCase()
-    .trim()
-    .split('@')[0]
-    .replace(/[^a-z0-9._-]/g, '') || 'user';
-  return `${local}${year}!`;
+function isTemporaryPassword(password) {
+  return String(password || '') === TEMPORARY_PASSWORD;
 }
 
-module.exports = { buildDefaultPassword };
+function buildDefaultPassword() {
+  return TEMPORARY_PASSWORD;
+}
+
+module.exports = { TEMPORARY_PASSWORD, isTemporaryPassword, buildDefaultPassword };

@@ -41,7 +41,7 @@ const emptyCreate = {
 };
 
 export function UsersPage() {
-  const { hasRole, user: me, isSuperuser, startImpersonation, canChangeQuotationMarket } = useAuth();
+  const { hasRole, user: me, isSuperuser, isAdmin, startImpersonation, canChangeQuotationMarket } = useAuth();
   const canImportExport = hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER');
   const canAssignRoles = hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER');
   const canAssignMarket = canChangeQuotationMarket();
@@ -165,6 +165,9 @@ export function UsersPage() {
         dni: editForm.dni || undefined,
         notas: editForm.notas || undefined,
       };
+      if (isAdmin() && editForm.email) {
+        body.email = editForm.email.trim().toLowerCase();
+      }
       if (editForm.password && editForm.password.length >= 8) {
         body.password = editForm.password;
       }
@@ -189,17 +192,18 @@ export function UsersPage() {
   function canResetPassword(row) {
     if (row.id === me?.id) return false;
     if (isSuperuser()) return true;
+    if (me?.role === 'ADMIN') return true;
     return row.created_by === me?.id;
   }
 
   async function resetPassword(row) {
     if (!canResetPassword(row)) return;
-    if (!window.confirm(`¿Reiniciar la contraseña de ${row.email} al valor por defecto?`)) return;
+    if (!window.confirm(`¿Reiniciar la contraseña de ${row.email} a 123456789? El usuario deberá cambiarla al ingresar.`)) return;
     setErr(null);
     try {
       const data = await api.post(`/api/users/${row.id}/reset-password`, {});
       window.alert(
-        `Contraseña reiniciada.\n\nEmail: ${data.email}\nNueva contraseña: ${data.defaultPassword}\n\nComuníquela al usuario de forma segura.`
+        `Contraseña reiniciada.\n\nEmail: ${data.email}\nNueva contraseña: ${data.defaultPassword}\n\nAl ingresar, el sistema le pedirá actualizarla (se sugiere usar la de Odoo).`
       );
     } catch (e2) {
       setErr(e2.message);
@@ -684,9 +688,22 @@ export function UsersPage() {
           }
         >
           <form id="user-edit-form" className="stack-form" onSubmit={submitEdit}>
-            <p className="mono muted" style={{ fontSize: 12, marginBottom: 8 }}>
-              {editForm.email}
-            </p>
+            {isAdmin() ? (
+              <label>
+                <span className="fg-lbl">Correo electrónico</span>
+                <input
+                  className="form-input mono"
+                  type="email"
+                  required
+                  value={editForm.email}
+                  onChange={(e) => setEditForm((f) => ({ ...f, email: e.target.value }))}
+                />
+              </label>
+            ) : (
+              <p className="mono muted" style={{ fontSize: 12, marginBottom: 8 }}>
+                {editForm.email}
+              </p>
+            )}
             <label>
               <span className="fg-lbl">Nueva contraseña (opcional, mín. 8)</span>
               <input

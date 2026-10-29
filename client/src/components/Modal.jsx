@@ -1,7 +1,7 @@
 import React, { useEffect } from 'react';
 import { createPortal } from 'react-dom';
 
-export function Modal({ title, children, footer, onClose, wide, lg, panelClassName = '' }) {
+export function Modal({ title, children, footer, onClose, wide, lg, panelClassName = '', persistent = false }) {
   useEffect(() => {
     const prev = document.body.style.overflow;
     document.body.style.overflow = 'hidden';
@@ -15,7 +15,7 @@ export function Modal({ title, children, footer, onClose, wide, lg, panelClassNa
       className="modal-backdrop"
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        if (!persistent && e.target === e.currentTarget) onClose();
       }}
     >
       <div
@@ -33,9 +33,15 @@ export function Modal({ title, children, footer, onClose, wide, lg, panelClassNa
           <span className="modal-title" id="modal-title">
             {title}
           </span>
-          <button type="button" className="modal-x" onClick={onClose} aria-label="Cerrar">
-            ×
-          </button>
+          {persistent ? (
+            <span className="modal-x modal-x--locked" aria-hidden>
+              {' '}
+            </span>
+          ) : (
+            <button type="button" className="modal-x" onClick={onClose} aria-label="Cerrar">
+              ×
+            </button>
+          )}
         </div>
         <div className="modal-body">{children}</div>
         {footer ? <div className="modal-ft">{footer}</div> : null}

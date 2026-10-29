@@ -63,6 +63,7 @@ CREATE TABLE users (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   email       VARCHAR(255) UNIQUE NOT NULL,
   password_hash VARCHAR(255) NOT NULL,
+  must_change_password BOOLEAN NOT NULL DEFAULT false,
   role        user_role NOT NULL DEFAULT 'COMERCIAL',
   active      BOOLEAN NOT NULL DEFAULT true,
   pricing_market pricing_market NOT NULL DEFAULT 'NACIONAL',
@@ -338,6 +339,17 @@ CREATE TABLE project_shares (
 
 CREATE INDEX idx_project_shares_project ON project_shares(project_id);
 CREATE INDEX idx_project_shares_user ON project_shares(user_id);
+
+-- ─── ADMIN PROJECT REVIEWS (modal de login) ────────────────────
+
+CREATE TABLE admin_project_reviews (
+  user_id     UUID NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  reviewed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  PRIMARY KEY (user_id, project_id)
+);
+
+CREATE INDEX idx_admin_project_reviews_user ON admin_project_reviews (user_id, reviewed_at DESC);
 
 -- ─── CATALOG CATEGORIES ────────────────────────────────────────
 

@@ -3,7 +3,7 @@ const multer = require('multer');
 const bcrypt = require('bcrypt');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
-const { isAdminLikeRole, canChangeQuotationMarket } = require('../utils/userRoles');
+const { isAdminLikeRole, canChangeQuotationMarket, canChangeUserEmail } = require('../utils/userRoles');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { canCreateRole, allowedCreateRoles } = require('../lib/userCreation');
 const {
@@ -13,7 +13,8 @@ const {
   fetchAllUsersForExport,
   applyUserImport,
 } = require('../lib/usersExcel');
-const { buildDefaultPassword } = require('../lib/defaultPassword');
+const { buildDefaultPassword, isTemporaryPassword } = require('../lib/defaultPassword');
+const { normalizeUserEmail, isValidUserEmail } = require('../lib/userEmail');
 const { normalizeMarket, MARKETS, getUserPricingMarket } = require('../lib/pricingMarket');
 
 function commercialFinanceFromBody(body) {
@@ -55,6 +56,15 @@ async function userManagedBy(actor, targetId) {
     );
     return rows.length > 0;
   }
+  if (actor.role === 'ADMIN') {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM users u WHERE u.id = $1 AND u.role <> 'SUPERUSER' AND (
+        u.id = $2 OR u.created_by = $2 OR u.role IN ('SEMIADMIN', 'COMERCIAL')
+      )`,
+      [targetId, actor.id]
+    );
+    return rows.length > 0;
+  }
   if (isAdminLikeRole(actor.role)) {
     const { rows } = await pool.query(
       `SELECT 1 FROM users u WHERE u.id = $1 AND (
@@ -80,6 +90,9 @@ async function userManagedBy(actor, targetId) {
 async function canResetUserPassword(actor, targetId) {
   if (actor.id === targetId) return false;
   if (actor.role === 'SUPERUSER') return true;
+  if (actor.role === 'ADMIN') {
+    return userManagedBy(actor, targetId);
+  }
   const { rows } = await pool.query(`SELECT id FROM users WHERE id = $1 AND created_by = $2`, [
     targetId,
     actor.id,
@@ -213,11 +226,8 @@ router.get('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), asy
       params.push(req.user.id);
     } else if (req.user.role === 'ADMIN') {
       sql += `
-       WHERE u.id = $1 OR u.created_by = $1 OR (
-         u.role = 'COMERCIAL' AND EXISTS (
-           SELECT 1 FROM admin_commercial_assignments a
-           WHERE a.admin_id = $1 AND a.commercial_id = u.id
-         )
+       WHERE u.role <> 'SUPERUSER' AND (
+         u.id = $1 OR u.created_by = $1 OR u.role IN ('SEMIADMIN', 'COMERCIAL')
        )`;
       params.push(req.user.id);
     } else if (req.user.role === 'COMERCIAL') {
@@ -337,19 +347,19 @@ router.post('/:id/reset-password', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL'
       });
     }
 
-    const defaultPassword = buildDefaultPassword(rows[0].email);
+    const defaultPassword = buildDefaultPassword();
     const passwordHash = await bcrypt.hash(defaultPassword, 12);
-    await pool.query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [
-      passwordHash,
-      rows[0].id,
-    ]);
+    await pool.query(
+      `UPDATE users SET password_hash = $1, must_change_password = true, updated_at = NOW() WHERE id = $2`,
+      [passwordHash, rows[0].id]
+    );
 
     return res.json({
       success: true,
       data: {
         email: rows[0].email,
         defaultPassword,
-        message: 'Contraseña reiniciada. Comunique la nueva contraseña al usuario de forma segura.',
+        message: 'Contraseña reiniciada a 123456789. Al ingresar, el usuario deberá actualizarla.',
       },
     });
   } catch (err) {
@@ -360,46 +370,9 @@ router.post('/:id/reset-password', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL'
 
 // ─── GET /api/users/:id — Ver usuario ──────────────────────────
 router.get('/:id', async (req, res) => {
-  if (req.user.id !== req.params.id) {
-    if (req.user.role === 'SUPERUSER') {
-      /* ok */
-    } else if (req.user.role === 'SEMIADMIN') {
-      const { rows: ok } = await pool.query(
-        `SELECT 1 FROM users u WHERE u.id = $1 AND (
-          u.created_by = $2 OR u.id = $2 OR u.role = 'COMERCIAL' OR EXISTS (
-            SELECT 1 FROM admin_commercial_assignments a
-            WHERE a.admin_id = $2 AND a.commercial_id = u.id
-          )
-        )`,
-        [req.params.id, req.user.id]
-      );
-      if (!ok.length) {
-        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
-      }
-    } else if (isAdminLikeRole(req.user.role)) {
-      const { rows: ok } = await pool.query(
-        `SELECT 1 FROM users u WHERE u.id = $1 AND (
-          u.created_by = $2 OR u.id = $2 OR EXISTS (
-            SELECT 1 FROM admin_commercial_assignments a
-            WHERE a.admin_id = $2 AND a.commercial_id = u.id
-          )
-        )`,
-        [req.params.id, req.user.id]
-      );
-      if (!ok.length) {
-        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
-      }
-    } else if (req.user.role === 'COMERCIAL') {
-      const { rows: ok } = await pool.query(
-        `SELECT 1 FROM users WHERE id = $1 AND created_by = $2`,
-        [req.params.id, req.user.id]
-      );
-      if (!ok.length) {
-        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
-      }
-    } else {
-      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
-    }
+  const canSee = await userManagedBy(req.user, req.params.id);
+  if (!canSee) {
+    return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
   }
 
   try {
@@ -507,7 +480,7 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
   try {
     // Verificar email único
     const { rows: existing } = await pool.query(
-      'SELECT id FROM users WHERE email = $1', [email.toLowerCase().trim()]
+      'SELECT id FROM users WHERE email = $1', [normalizeUserEmail(email)]
     );
     if (existing.length > 0) {
       return res.status(409).json({
@@ -538,10 +511,10 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
         `INSERT INTO users (
            email, password_hash, role, created_by, pricing_market,
            can_see_finance_summary, can_see_finance_m1, can_see_finance_cp,
-           can_see_finance_lp, can_see_finance_est
-         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING id`,
+           can_see_finance_lp, can_see_finance_est, must_change_password
+         ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11) RETURNING id`,
         [
-          email.toLowerCase().trim(),
+          normalizeUserEmail(email),
           passwordHash,
           role,
           req.user.id,
@@ -551,6 +524,7 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
           financeAccess.cp,
           financeAccess.lp,
           financeAccess.est,
+          isTemporaryPassword(password),
         ]
       );
       const userId = userRows[0].id;
@@ -572,7 +546,7 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
 
       return res.status(201).json({
         success: true,
-        data: { id: userId, email: email.toLowerCase().trim(), role }
+        data: { id: userId, email: normalizeUserEmail(email), role }
       });
     } catch (err) {
       await client.query('ROLLBACK');
@@ -605,6 +579,7 @@ router.put('/:id', async (req, res) => {
     notas,
     password,
     role,
+    email,
     active,
     pricingMarket,
     canSeeFinanceSummary,
@@ -631,6 +606,7 @@ router.put('/:id', async (req, res) => {
 
     if (
       password ||
+      email !== undefined ||
       (role && isElevated) ||
       (active !== undefined && (isElevated || req.user.role === 'COMERCIAL')) ||
       pricingMarket !== undefined ||
@@ -657,7 +633,7 @@ router.put('/:id', async (req, res) => {
         params.push(normalizeMarket(pricingMarket));
       }
 
-      const { rows: targetRows } = await pool.query(`SELECT role FROM users WHERE id = $1`, [req.params.id]);
+      const { rows: targetRows } = await pool.query(`SELECT role, email FROM users WHERE id = $1`, [req.params.id]);
       if (!targetRows[0]) {
         return res.status(404).json({
           success: false,
@@ -667,6 +643,39 @@ router.put('/:id', async (req, res) => {
       const currentRole = targetRows[0].role;
       const nextRole =
         role && isElevated && !isSelf ? role : currentRole;
+
+      if (email !== undefined) {
+        const nextEmail = normalizeUserEmail(email);
+        if (!isValidUserEmail(nextEmail)) {
+          return res.status(400).json({
+            success: false,
+            error: { code: 'VALIDATION_ERROR', message: 'Email inválido' },
+          });
+        }
+        if (nextEmail !== targetRows[0].email) {
+          if (!canChangeUserEmail(req.user)) {
+            return res.status(403).json({
+              success: false,
+              error: {
+                code: 'FORBIDDEN',
+                message: 'Solo un administrador o superadmin puede cambiar el correo',
+              },
+            });
+          }
+          const { rows: taken } = await pool.query(
+            `SELECT id FROM users WHERE email = $1 AND id <> $2`,
+            [nextEmail, req.params.id]
+          );
+          if (taken.length) {
+            return res.status(409).json({
+              success: false,
+              error: { code: 'DUPLICATE_EMAIL', message: 'El email ya está registrado' },
+            });
+          }
+          updates.push(`email = $${idx++}`);
+          params.push(nextEmail);
+        }
+      }
 
       if (password) {
         if (isSelf) {
@@ -680,6 +689,8 @@ router.put('/:id', async (req, res) => {
         }
         updates.push(`password_hash = $${idx++}`);
         params.push(await bcrypt.hash(password, 12));
+        updates.push(`must_change_password = $${idx++}`);
+        params.push(isTemporaryPassword(password));
       }
       if (role && isElevated && !isSelf) {
         if (!canCreateRole(req.user.role, role)) {
@@ -759,6 +770,12 @@ router.put('/:id', async (req, res) => {
 
     return res.json({ success: true, data: { message: 'Usuario actualizado' } });
   } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: { code: 'DUPLICATE_EMAIL', message: 'El email ya está registrado' },
+      });
+    }
     console.error('[USERS] Update error:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
@@ -782,7 +799,12 @@ router.delete('/:id', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'
       if (!rows.length) {
         return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
       }
-    } else if (isAdminLikeRole(req.user.role)) {
+    } else if (req.user.role === 'ADMIN') {
+      const allowed = await userManagedBy(req.user, req.params.id);
+      if (!allowed) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      }
+    } else if (req.user.role === 'SEMIADMIN') {
       const { rows } = await pool.query(
         `SELECT id FROM users WHERE id = $1 AND (created_by = $2 OR id IN (
           SELECT commercial_id FROM admin_commercial_assignments WHERE admin_id = $2

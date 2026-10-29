@@ -10,6 +10,7 @@ const {
   requireAuth,
 } = require('../middleware/auth');
 const { mapAuthUser, AUTH_USER_SELECT } = require('../lib/userProfile');
+const { isTemporaryPassword } = require('../lib/defaultPassword');
 const {
   checkLoginLockout,
   recordFailedLogin,
@@ -155,6 +156,13 @@ router.post('/login', async (req, res) => {
     }
 
     await clearLoginLockout(emailNorm);
+
+    if (isTemporaryPassword(password) && user.must_change_password !== true) {
+      await pool.query(`UPDATE users SET must_change_password = true, updated_at = NOW() WHERE id = $1`, [
+        user.id,
+      ]);
+      user.must_change_password = true;
+    }
 
     // Generar tokens
     const accessToken  = signAccessToken(user);
@@ -489,7 +497,7 @@ router.put(
   '/me/password',
   requireAuth,
   [
-    body('currentPassword').notEmpty().withMessage('Contraseña actual requerida'),
+    body('currentPassword').optional({ values: 'falsy' }).isString(),
     body('newPassword').isLength({ min: 8 }).withMessage('La nueva contraseña debe tener al menos 8 caracteres'),
   ],
   async (req, res) => {
@@ -511,7 +519,16 @@ router.put(
         },
       });
     }
-    if (currentPassword === newPassword) {
+    if (isTemporaryPassword(newPassword)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'TEMPORARY_PASSWORD',
+          message: 'No puede usar la contraseña temporal. Use una clave personal, idealmente la misma de Odoo.',
+        },
+      });
+    }
+    if (currentPassword && currentPassword === newPassword) {
       return res.status(400).json({
         success: false,
         error: { code: 'SAME_PASSWORD', message: 'La nueva contraseña debe ser distinta a la actual' },
@@ -519,9 +536,10 @@ router.put(
     }
 
     try {
-      const { rows } = await pool.query(`SELECT password_hash FROM users WHERE id = $1 AND active = true`, [
-        req.user.id,
-      ]);
+      const { rows } = await pool.query(
+        `SELECT password_hash, must_change_password FROM users WHERE id = $1 AND active = true`,
+        [req.user.id]
+      );
       if (!rows[0]) {
         return res.status(404).json({
           success: false,
@@ -529,21 +547,42 @@ router.put(
         });
       }
 
-      const ok = await bcrypt.compare(currentPassword, rows[0].password_hash);
-      if (!ok) {
-        return res.status(401).json({
+      const mustChange = rows[0].must_change_password === true;
+      if (!mustChange && !currentPassword) {
+        return res.status(400).json({
           success: false,
-          error: { code: 'INVALID_PASSWORD', message: 'Contraseña actual incorrecta' },
+          error: { code: 'VALIDATION_ERROR', message: 'Contraseña actual requerida' },
+        });
+      }
+
+      if (currentPassword) {
+        const ok = await bcrypt.compare(currentPassword, rows[0].password_hash);
+        if (!ok) {
+          return res.status(401).json({
+            success: false,
+            error: { code: 'INVALID_PASSWORD', message: 'Contraseña actual incorrecta' },
+          });
+        }
+      }
+
+      const sameAsStored = await bcrypt.compare(newPassword, rows[0].password_hash);
+      if (sameAsStored) {
+        return res.status(400).json({
+          success: false,
+          error: { code: 'SAME_PASSWORD', message: 'La nueva contraseña debe ser distinta a la actual' },
         });
       }
 
       const passwordHash = await bcrypt.hash(newPassword, 12);
-      await pool.query(`UPDATE users SET password_hash = $1, updated_at = NOW() WHERE id = $2`, [
-        passwordHash,
-        req.user.id,
-      ]);
+      await pool.query(
+        `UPDATE users SET password_hash = $1, must_change_password = false, updated_at = NOW() WHERE id = $2`,
+        [passwordHash, req.user.id]
+      );
 
-      return res.json({ success: true, data: { message: 'Contraseña actualizada' } });
+      return res.json({
+        success: true,
+        data: { message: 'Contraseña actualizada', mustChangePassword: false },
+      });
     } catch (err) {
       console.error('[AUTH] Change password error:', err);
       return res.status(500).json({

@@ -55,3 +55,8 @@ export function canWriteClients(user) {
 export function canChangeQuotationMarket(user) {
   return isAdmin(user);
 }
+
+/** Correo de usuarios: solo ADMIN y SUPERUSER, si no hay duplicado. */
+export function canChangeUserEmail(user) {
+  return isAdmin(user);
+}

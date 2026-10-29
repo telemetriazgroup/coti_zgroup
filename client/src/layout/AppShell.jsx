@@ -3,6 +3,8 @@ import { Link, NavLink, Outlet, useLocation } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
 import { api } from '../lib/api';
 import { ImpersonationBanner } from '../components/ImpersonationBanner';
+import { ForcePasswordModal } from '../components/ForcePasswordModal';
+import { RecentProjectsModal } from '../components/RecentProjectsModal';
 import { useReportUserActivity } from '../lib/reportUserActivity';
 
 const LS_SIDEBAR = 'zgroup_sidebar_open';
@@ -37,6 +39,29 @@ export function AppShell() {
   });
   const [catalogPending, setCatalogPending] = useState(0);
   const [priceApprovalPending, setPriceApprovalPending] = useState(0);
+  const [recentProjects, setRecentProjects] = useState(null);
+
+  useEffect(() => {
+    if (!user || user.mustChangePassword || isImpersonating || !isAdmin()) return;
+    let justLoggedIn = false;
+    try {
+      justLoggedIn = sessionStorage.getItem('zgroup_admin_just_logged_in') === '1';
+    } catch {
+      justLoggedIn = false;
+    }
+    if (!justLoggedIn) return;
+    try {
+      sessionStorage.removeItem('zgroup_admin_just_logged_in');
+    } catch {
+      /* ignore */
+    }
+    api
+      .get('/api/projects/admin-recent')
+      .then((rows) => {
+        if (Array.isArray(rows) && rows.length) setRecentProjects(rows);
+      })
+      .catch(() => setRecentProjects(null));
+  }, [user, user?.mustChangePassword, isImpersonating, isAdmin]);
 
   useEffect(() => {
     if (!hasAdminPanelAccess()) return;
@@ -119,6 +144,10 @@ export function AppShell() {
   return (
     <div className={navClass}>
       <ImpersonationBanner />
+      {user?.mustChangePassword && !isImpersonating ? <ForcePasswordModal /> : null}
+      {!user?.mustChangePassword && recentProjects?.length ? (
+        <RecentProjectsModal projects={recentProjects} onClose={() => setRecentProjects(null)} />
+      ) : null}
       {isMobile && sidebarOpen ? (
         <button
           type="button"

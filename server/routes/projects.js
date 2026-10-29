@@ -27,6 +27,7 @@ const {
 } = require('../lib/commercialVisibility');
 const { pickSemiAdminFinancePatch } = require('../lib/financeAccess');
 const { getFinanceDefaults } = require('../lib/financeDefaults');
+const { listUnreviewedRecentProjects, markProjectReviewed } = require('../lib/adminRecentProjects');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -87,6 +88,33 @@ router.get('/', async (req, res) => {
     return res.json({ success: true, data: rows.map((r) => mapProject(r, uid, role)) });
   } catch (err) {
     console.error('[PROJECTS] list:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/projects/admin-recent — últimos 5 de la semana (ADMIN) ──
+router.get('/admin-recent', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+  try {
+    const data = await listUnreviewedRecentProjects(req.user.id);
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[PROJECTS] admin-recent:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+router.post('/:id/admin-review', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+  try {
+    const ok = await markProjectReviewed(req.user.id, req.params.id);
+    if (!ok) {
+      return res.status(404).json({
+        success: false,
+        error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' },
+      });
+    }
+    return res.json({ success: true, data: { reviewed: true } });
+  } catch (err) {
+    console.error('[PROJECTS] admin-review:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });

@@ -2,16 +2,6 @@ import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 
-function buildDefaultPasswordPreview(email) {
-  const local =
-    String(email || '')
-      .toLowerCase()
-      .trim()
-      .split('@')[0]
-      .replace(/[^a-z0-9._-]/g, '') || 'user';
-  return `${local}${new Date().getFullYear()}!`;
-}
-
 export function ProfilePage() {
   const { user, refreshProfile } = useAuth();
   const [loading, setLoading] = useState(true);
@@ -103,8 +93,6 @@ export function ProfilePage() {
       setPwdBusy(false);
     }
   }
-
-  const defaultPwdHint = buildDefaultPasswordPreview(user?.email);
 
   return (
     <section className="view-active">
@@ -236,8 +224,9 @@ export function ProfilePage() {
             </button>
           </form>
           <p className="muted mono" style={{ fontSize: 11, marginTop: 16, lineHeight: 1.4 }}>
-            Si un administrador reinicia su acceso, el formato por defecto es:{' '}
-            <span style={{ color: 'var(--amber)' }}>{defaultPwdHint}</span> (usuario del email + año + !).
+            Si un administrador reinicia su acceso, la clave temporal es{' '}
+            <span style={{ color: 'var(--amber)' }}>123456789</span>. Al ingresar con ella el sistema le pedirá
+            actualizarla; se sugiere usar la misma de Odoo.
           </p>
         </div>
       </div>

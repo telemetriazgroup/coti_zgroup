@@ -15,11 +15,12 @@ function mapAuthUser(row) {
     canSeeFinanceCp: row.can_see_finance_cp === true || row.can_see_finance_summary === true,
     canSeeFinanceLp: row.can_see_finance_lp === true || row.can_see_finance_summary === true,
     canSeeFinanceEst: row.can_see_finance_est === true || row.can_see_finance_summary === true,
+    mustChangePassword: row.must_change_password === true,
   };
 }
 
 const AUTH_USER_SELECT = `
-  u.id, u.email, u.role, u.active, u.pricing_market,
+  u.id, u.email, u.role, u.active, u.pricing_market, u.must_change_password,
   u.can_see_finance_summary, u.can_see_finance_m1, u.can_see_finance_cp,
   u.can_see_finance_lp, u.can_see_finance_est,
   e.nombres, e.apellidos, e.cargo, e.foto_url
