@@ -92,7 +92,7 @@ CREATE TABLE admin_commercial_assignments (
 CREATE INDEX idx_admin_commercial_admin ON admin_commercial_assignments(admin_id);
 CREATE INDEX idx_admin_commercial_com ON admin_commercial_assignments(commercial_id);
 
--- ─── GRUPOS DE ADMIN (visibilidad cruzada de proyectos) ─────────
+-- ─── GRUPOS DE SEMIADMIN (visibilidad cruzada de proyectos) ─────
 
 CREATE TABLE admin_groups (
   id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
@@ -367,6 +367,7 @@ CREATE TABLE catalog_items (
   unit_price_intl NUMERIC(12,2),
   has_dual_price BOOLEAN NOT NULL DEFAULT false,
   active        BOOLEAN NOT NULL DEFAULT true,
+  released      BOOLEAN NOT NULL DEFAULT true,
   sort_order    INTEGER NOT NULL DEFAULT 0,
   created_by    UUID REFERENCES users(id) ON DELETE SET NULL,
   updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
@@ -376,6 +377,7 @@ CREATE TABLE catalog_items (
 CREATE INDEX idx_catalog_items_category ON catalog_items(category_id);
 CREATE INDEX idx_catalog_items_tipo ON catalog_items(tipo);
 CREATE INDEX idx_catalog_items_active ON catalog_items(active);
+CREATE INDEX idx_catalog_items_released ON catalog_items(released);
 CREATE UNIQUE INDEX idx_catalog_items_category_codigo ON catalog_items(category_id, codigo);
 
 CREATE TABLE catalog_item_dependencies (
@@ -635,6 +637,14 @@ CREATE TRIGGER trg_employees_updated_at
 CREATE TRIGGER trg_clients_updated_at
   BEFORE UPDATE ON clients
   FOR EACH ROW EXECUTE FUNCTION update_updated_at();
+
+-- ─── AJUSTES GLOBALES ──────────────────────────────────────────
+CREATE TABLE app_settings (
+  key         TEXT PRIMARY KEY,
+  value       JSONB NOT NULL,
+  updated_by  UUID REFERENCES users(id) ON DELETE SET NULL,
+  updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
 CREATE TRIGGER trg_projects_updated_at
   BEFORE UPDATE ON projects

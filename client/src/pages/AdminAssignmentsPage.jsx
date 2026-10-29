@@ -72,10 +72,10 @@ export function AdminAssignmentsPage() {
   return (
     <section className="view-active">
       <div className="page-header">
-        <h1 className="page-title">Asignación comerciales → admin</h1>
+        <h1 className="page-title">Equipo comercial</h1>
         <p className="page-sub muted">
-          El superusuario asigna comerciales a cada administrador. Los admin también ven proyectos de comerciales que
-          ellos mismos crearon.
+          El semiadmin arma su equipo de comerciales (crear, editar o traer existentes). Verá los proyectos de esos
+          comerciales. Un ADMIN puede tener asignaciones, pero no cambian su visibilidad: ya ve todos los proyectos.
         </p>
       </div>
 
@@ -95,7 +95,7 @@ export function AdminAssignmentsPage() {
           <table className="data-table">
             <thead>
               <tr>
-                <th>Administrador</th>
+                <th>Gestor</th>
                 <th>Comerciales asignados</th>
                 <th className="actions-col">Acciones</th>
               </tr>
@@ -118,10 +118,17 @@ export function AdminAssignmentsPage() {
                   <tr key={a.id}>
                     <td>
                       <span className="mono">{a.email}</span>
-                      {a.nombre && a.nombre !== a.email && (
+                      {a.role ? (
                         <span className="muted" style={{ display: 'block', fontSize: 11 }}>
-                          {a.nombre}
+                          {a.role}
+                          {a.nombre && a.nombre !== a.email ? ` · ${a.nombre}` : ''}
                         </span>
+                      ) : (
+                        a.nombre && a.nombre !== a.email && (
+                          <span className="muted" style={{ display: 'block', fontSize: 11 }}>
+                            {a.nombre}
+                          </span>
+                        )
                       )}
                     </td>
                     <td className="mono" style={{ fontSize: 11 }}>

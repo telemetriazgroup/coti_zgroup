@@ -5,6 +5,7 @@ const { validate: uuidValidate } = require('uuid');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { canManageCatalog, canViewInactiveCatalog } = require('../utils/userRoles');
+const CATALOG_WRITE_ROLES = ['ADMIN', 'SUPERUSER'];
 const { getCached, setCached, invalidateCatalogCache } = require('../lib/catalogRedis');
 const { buildCatalogXlsx, parseImportBuffer, validateImportRows, applyImportRows } = require('../lib/catalogExcel');
 const {
@@ -43,7 +44,13 @@ const {
   assertKitDependencies,
   resolveKitTemplate,
 } = require('../lib/catalogKit');
-const { sanitizeCatalogData, loadUserFlags, sanitizeKitTemplate, sanitizeDependencyBundle } = require('../lib/commercialVisibility');
+const {
+  sanitizeCatalogData,
+  loadUserFlags,
+  sanitizeKitTemplate,
+  sanitizeDependencyBundle,
+  canSeeUnreleasedCatalog,
+} = require('../lib/commercialVisibility');
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -89,6 +96,7 @@ function mapItem(row) {
     unitPrice: row.unit_price != null ? Number(row.unit_price) : 0,
     unitPriceIntl: row.unit_price_intl != null ? Number(row.unit_price_intl) : null,
     hasDualPrice: row.has_dual_price === true,
+    released: row.released !== false,
     active: normalizeBool(row.active, true),
     sortOrder: row.sort_order,
     dependencyCount: row.dependency_count != null ? Number(row.dependency_count) : 0,
@@ -148,7 +156,7 @@ router.get('/export', async (req, res) => {
 });
 
 // ─── POST /api/catalog/import/preview — ADMIN ───────────────────
-router.post('/import/preview', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), upload.single('file'), async (req, res) => {
+router.post('/import/preview', requireRole(...CATALOG_WRITE_ROLES), upload.single('file'), async (req, res) => {
   try {
     if (!req.file || !req.file.buffer) {
       return res.status(400).json({
@@ -178,7 +186,7 @@ router.post('/import/preview', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), u
 });
 
 // ─── POST /api/catalog/import/apply — ADMIN ─────────────────────
-router.post('/import/apply', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
+router.post('/import/apply', requireRole(...CATALOG_WRITE_ROLES), async (req, res) => {
   try {
     const incoming = req.body?.rows;
     if (!Array.isArray(incoming) || incoming.length === 0) {
@@ -256,7 +264,7 @@ router.get('/', async (req, res) => {
 });
 
 // ─── POST /api/catalog/refresh-cache — ADMIN / SUPERUSER ────────
-router.post('/refresh-cache', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
+router.post('/refresh-cache', requireRole(...CATALOG_WRITE_ROLES), async (req, res) => {
   try {
     await invalidateCatalogCache();
     const act = await fetchCatalogFromDb(false);
@@ -274,7 +282,7 @@ router.post('/refresh-cache', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), as
 });
 
 // ─── POST /api/catalog/regularize-active — normalizar active ───
-router.post('/regularize-active', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
+router.post('/regularize-active', requireRole(...CATALOG_WRITE_ROLES), async (req, res) => {
   const client = await pool.connect();
   try {
     await client.query('BEGIN');
@@ -311,7 +319,7 @@ const reorderValidation = [
 ];
 
 // ─── PATCH /api/catalog/categories/reorder — ADMIN ───────────────
-router.patch('/categories/reorder', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), reorderValidation, async (req, res) => {
+router.patch('/categories/reorder', requireRole(...CATALOG_WRITE_ROLES), reorderValidation, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -353,7 +361,7 @@ const catBody = [
 ];
 
 // ─── POST /api/catalog/categories — ADMIN ───────────────────────
-router.post('/categories', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), catBody, async (req, res) => {
+router.post('/categories', requireRole(...CATALOG_WRITE_ROLES), catBody, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -496,7 +504,7 @@ async function runCategoryDeactivate(req, res, categoryId) {
 }
 
 // ─── PUT /api/catalog/categories/:id — ADMIN ───────────────────
-router.put('/categories/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), catPutValidators, async (req, res) => {
+router.put('/categories/:id', requireRole(...CATALOG_WRITE_ROLES), catPutValidators, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -667,7 +675,7 @@ router.put('/categories/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), ca
 // ─── POST /api/catalog/categories/:id/deactivate — ADMIN ─────────
 router.post(
   '/categories/:id/deactivate',
-  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
+  requireRole(...CATALOG_WRITE_ROLES),
   [param('id').isUUID(), body('confirmPassword').notEmpty().withMessage('Contraseña requerida')],
   async (req, res) => {
     const errors = validationResult(req);
@@ -682,7 +690,7 @@ router.post(
 );
 
 // ─── DELETE /api/catalog/categories/:id — desactivar (legacy) ───
-router.delete('/categories/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.delete('/categories/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUID()], async (req, res) => {
   return res.status(400).json({
     success: false,
     error: {
@@ -703,10 +711,11 @@ const itemBody = [
   body('hasDualPrice').optional().isBoolean(),
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
+  body('released').optional().isBoolean(),
 ];
 
 // ─── POST /api/catalog/items — ADMIN ───────────────────────────
-router.post('/items', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), itemBody, async (req, res) => {
+router.post('/items', requireRole(...CATALOG_WRITE_ROLES), itemBody, async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -715,7 +724,8 @@ router.post('/items', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), itemBody, 
     });
   }
 
-  const { categoryId, codigo, descripcion, unidad, tipo, unitPrice, unitPriceIntl, hasDualPrice, sortOrder, active } = req.body;
+  const { categoryId, codigo, descripcion, unidad, tipo, unitPrice, unitPriceIntl, hasDualPrice, sortOrder, active, released } = req.body;
+  const releasedFlag = released !== false;
 
   try {
     const { rows: catRows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [categoryId]);
@@ -759,8 +769,8 @@ router.post('/items', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), itemBody, 
 
     const { rows } = await pool.query(
       `INSERT INTO catalog_items
-        (category_id, codigo, descripcion, unidad, tipo, unit_price, unit_price_intl, has_dual_price, sort_order, active, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, true), $11)
+        (category_id, codigo, descripcion, unidad, tipo, unit_price, unit_price_intl, has_dual_price, sort_order, active, released, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, true), $11, $12)
        RETURNING *`,
       [
         categoryId,
@@ -773,6 +783,7 @@ router.post('/items', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), itemBody, 
         dual,
         so,
         active,
+        releasedFlag,
         req.user.id,
       ]
     );
@@ -821,7 +832,7 @@ router.post('/items', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), itemBody, 
 });
 
 // ─── PUT /api/catalog/items/:id — ADMIN ────────────────────────
-router.put('/items/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.put('/items/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUID()], async (req, res) => {
   const verr = validationResult(req);
   if (!verr.isEmpty()) {
     return res.status(400).json({
@@ -841,6 +852,7 @@ router.put('/items/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param(
     hasDualPrice,
     sortOrder,
     active,
+    released,
   } = req.body;
 
   if (tipo !== undefined && !['ACTIVO', 'CONSUMIBLE'].includes(tipo)) {
@@ -906,6 +918,10 @@ router.put('/items/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param(
     if (active !== undefined) {
       fields.push(`active = $${i++}`);
       vals.push(active);
+    }
+    if (released !== undefined) {
+      fields.push(`released = $${i++}`);
+      vals.push(!!released);
     }
 
     if (fields.length === 0 && req.body.dependencies === undefined) {
@@ -1012,7 +1028,7 @@ router.put('/items/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param(
 });
 
 // ─── GET /api/catalog/items/:id/dependencies ───────────────────
-router.get('/items/:id/dependencies', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.get('/items/:id/dependencies', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUID()], async (req, res) => {
   try {
     const { rows: item } = await pool.query(`SELECT id FROM catalog_items WHERE id = $1`, [req.params.id]);
     if (!item[0]) {
@@ -1029,12 +1045,18 @@ router.get('/items/:id/dependencies', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUS
 // ─── GET /api/catalog/items/:id/kit-template — presupuesto (productos finales)
 router.get('/items/:id/kit-template', requireAuth, [param('id').isUUID()], async (req, res) => {
   try {
+    const userFlags = await loadUserFlags(req.user.id);
+    if (!canSeeUnreleasedCatalog(userFlags)) {
+      const { rows: vis } = await pool.query(`SELECT released FROM catalog_items WHERE id = $1`, [req.params.id]);
+      if (vis[0] && vis[0].released === false) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
+      }
+    }
     const qty = req.query.qty != null ? Number(req.query.qty) : 1;
     const template = await resolveKitTemplate(req.params.id, qty);
     if (!template) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
     }
-    const userFlags = await loadUserFlags(req.user.id);
     return res.json({ success: true, data: sanitizeKitTemplate(userFlags, template) });
   } catch (err) {
     if (err.code === 'NOT_KIT_ITEM') {
@@ -1048,12 +1070,18 @@ router.get('/items/:id/kit-template', requireAuth, [param('id').isUUID()], async
 // ─── GET /api/catalog/items/:id/dependency-bundle — presupuesto
 router.get('/items/:id/dependency-bundle', requireAuth, [param('id').isUUID()], async (req, res) => {
   try {
+    const userFlags = await loadUserFlags(req.user.id);
+    if (!canSeeUnreleasedCatalog(userFlags)) {
+      const { rows: vis } = await pool.query(`SELECT released FROM catalog_items WHERE id = $1`, [req.params.id]);
+      if (vis[0] && vis[0].released === false) {
+        return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
+      }
+    }
     const qty = req.query.qty != null ? Number(req.query.qty) : 1;
     const bundle = await resolveDependencyBundle(req.params.id, qty);
     if (!bundle) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Ítem no encontrado' } });
     }
-    const userFlags = await loadUserFlags(req.user.id);
     return res.json({ success: true, data: sanitizeDependencyBundle(userFlags, bundle) });
   } catch (err) {
     console.error('[CATALOG] dependency bundle:', err);
@@ -1064,7 +1092,7 @@ router.get('/items/:id/dependency-bundle', requireAuth, [param('id').isUUID()], 
 // ─── PUT /api/catalog/items/:id/dependencies ───────────────────
 router.put(
   '/items/:id/dependencies',
-  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
+  requireRole(...CATALOG_WRITE_ROLES),
   [
     param('id').isUUID(),
     body('dependencies').isArray(),
@@ -1110,7 +1138,7 @@ router.put(
 );
 
 // ─── DELETE /api/catalog/items/:id — desactivar — ADMIN ────────
-router.delete('/items/:id', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.delete('/items/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUID()], async (req, res) => {
   const errors = validationResult(req);
   if (!errors.isEmpty()) {
     return res.status(400).json({
@@ -1161,7 +1189,7 @@ router.get('/categories/:id/next-codigo', requireRole('ADMIN', 'SUPERUSER', 'COM
 // ─── POST /api/catalog/categories/:id/regularize-codigos ────────
 router.post(
   '/categories/:id/regularize-codigos',
-  requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
+  requireRole(...CATALOG_WRITE_ROLES),
   [param('id').isUUID()],
   async (req, res) => {
     try {
@@ -1233,7 +1261,7 @@ router.post(
 );
 
 // ─── GET /api/catalog/categories/:id/history — ADMIN ────────────
-router.get('/categories/:id/history', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.get('/categories/:id/history', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUID()], async (req, res) => {
   try {
     const data = await fetchCatalogHistory('CATEGORY', req.params.id);
     return res.json({ success: true, data });
@@ -1244,7 +1272,7 @@ router.get('/categories/:id/history', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUS
 });
 
 // ─── GET /api/catalog/items/:id/history — ADMIN ─────────────────
-router.get('/items/:id/history', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), [param('id').isUUID()], async (req, res) => {
+router.get('/items/:id/history', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUID()], async (req, res) => {
   try {
     const data = await fetchCatalogHistory('ITEM', req.params.id);
     return res.json({ success: true, data });

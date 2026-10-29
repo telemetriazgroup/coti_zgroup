@@ -27,12 +27,13 @@ const ISSUE_LABELS = {
 
 export function CatalogPage() {
   const location = useLocation();
-  const { canManageCatalog, hasRole, isSuperuser, canViewInactiveCatalog } = useAuth();
+  const { canManageCatalog, hasRole, isSuperuser, canViewInactiveCatalog, hasAdminPanelAccess } = useAuth();
   const isAdmin = canManageCatalog();
+  const canReview = hasAdminPanelAccess();
   const isCommercial = hasRole('COMERCIAL');
-  const hideCatalogPrices = isCommercial;
+  const hideCatalogPrices = false;
   const superuser = isSuperuser();
-  const showRequests = isAdmin || isCommercial;
+  const showRequests = canReview || isCommercial;
 
   const [pageView, setPageView] = useState('catalog');
   const [pendingCount, setPendingCount] = useState(0);
@@ -68,6 +69,7 @@ export function CatalogPage() {
     hasDualPrice: false,
     sortOrder: '',
     active: true,
+    released: true,
     dependencies: [],
   });
   const [itemCodigoHint, setItemCodigoHint] = useState(null);
@@ -153,14 +155,14 @@ export function CatalogPage() {
   }, [load]);
 
   const loadPendingCount = useCallback(async () => {
-    if (!isAdmin) return;
+    if (!canReview) return;
     try {
       const data = await api.get('/api/catalog/requests/pending-count');
       setPendingCount(data?.count ?? 0);
     } catch {
       /* ignore */
     }
-  }, [isAdmin]);
+  }, [canReview]);
 
   useEffect(() => {
     loadPendingCount();
@@ -409,6 +411,7 @@ export function CatalogPage() {
       hasDualPrice: false,
       sortOrder: '',
       active: true,
+      released: true,
       dependencies: [],
     });
     setModalItem('new');
@@ -427,6 +430,7 @@ export function CatalogPage() {
       hasDualPrice: row.hasDualPrice === true,
       sortOrder: '',
       active: true,
+      released: row.released !== false,
       dependencies: [],
     });
     setModalItem('duplicate');
@@ -457,6 +461,7 @@ export function CatalogPage() {
       hasDualPrice: row.hasDualPrice === true,
       sortOrder: String(row.sortOrder ?? 0),
       active: row.active,
+      released: row.released !== false,
       _id: row.id,
       dependencies: [],
     });
@@ -519,6 +524,7 @@ export function CatalogPage() {
           : undefined,
       sortOrder: itemForm.sortOrder === '' ? undefined : parseInt(itemForm.sortOrder, 10),
       active: itemForm.active,
+      released: itemForm.released !== false,
       dependencies: deps,
     };
     try {
@@ -628,7 +634,7 @@ export function CatalogPage() {
                 onClick={() => setPageView('requests')}
               >
                 Solicitudes
-                {isAdmin && pendingCount > 0 && (
+                {canReview && pendingCount > 0 && (
                   <span className="tag" style={{ marginLeft: 6, borderColor: 'var(--amber)', color: 'var(--amber)' }}>
                     {pendingCount}
                   </span>
@@ -684,7 +690,7 @@ export function CatalogPage() {
         <CatalogRequestsPanel
           categories={categories}
           catalogItems={items}
-          canReview={isAdmin}
+          canReview={canReview}
           isCommercial={isCommercial}
           autoOpen={requestAutoOpen}
           onAutoOpenHandled={() => setRequestAutoOpen(null)}
@@ -741,6 +747,7 @@ export function CatalogPage() {
         )}
       </div>
 
+      {isAdmin && (
       <div className="panel" style={{ marginBottom: 16 }}>
         <div className="panel-hdr">
           <span className="panel-title">Categorías</span>
@@ -818,6 +825,7 @@ export function CatalogPage() {
         )}
         {isAdmin && <p className="muted mono" style={{ fontSize: 11, marginTop: 8 }}>Arrastra filas para reordenar (escritorio).</p>}
       </div>
+      )}
 
       <div className="toolbar">
         <select className="form-input toolbar-filter" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
@@ -886,6 +894,9 @@ export function CatalogPage() {
                       {!hideCatalogPrices && (
                         <td className="num mono">
                           {Number(row.unitPrice).toLocaleString('en-US', { minimumFractionDigits: 2 })}
+                          {isAdmin && row.released === false ? (
+                            <div className="muted" style={{ fontSize: 10 }}>Solo admin</div>
+                          ) : null}
                         </td>
                       )}
                       <td className="mono" style={{ fontSize: 11 }}>
@@ -1293,6 +1304,14 @@ export function CatalogPage() {
                 onChange={(e) => setItemForm((f) => ({ ...f, active: e.target.checked }))}
               />
               <span>Activo</span>
+            </label>
+            <label className="chk-row">
+              <input
+                type="checkbox"
+                checked={itemForm.released !== false}
+                onChange={(e) => setItemForm((f) => ({ ...f, released: e.target.checked }))}
+              />
+              <span>Liberar al catálogo (semiadmin y comercial). Si se desmarca, solo lo ven admin y superusuario.</span>
             </label>
             <CatalogItemDependenciesEditor
               excludeItemId={modalItem === 'edit' ? itemForm._id : null}

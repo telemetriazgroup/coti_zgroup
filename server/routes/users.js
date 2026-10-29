@@ -31,9 +31,30 @@ function commercialFinanceFromBody(body) {
   };
 }
 
+async function assignCommercialToManager(db, adminId, commercialId, assignedBy) {
+  await db.query(
+    `INSERT INTO admin_commercial_assignments (admin_id, commercial_id, assigned_by)
+     VALUES ($1, $2, $3)
+     ON CONFLICT (admin_id, commercial_id) DO NOTHING`,
+    [adminId, commercialId, assignedBy]
+  );
+}
+
 async function userManagedBy(actor, targetId) {
   if (actor.id === targetId) return true;
   if (actor.role === 'SUPERUSER') return true;
+  if (actor.role === 'SEMIADMIN') {
+    const { rows } = await pool.query(
+      `SELECT 1 FROM users u WHERE u.id = $1 AND (
+        u.created_by = $2 OR u.id = $2 OR u.role = 'COMERCIAL' OR EXISTS (
+          SELECT 1 FROM admin_commercial_assignments a
+          WHERE a.admin_id = $2 AND a.commercial_id = u.id
+        )
+      )`,
+      [targetId, actor.id]
+    );
+    return rows.length > 0;
+  }
   if (isAdminLikeRole(actor.role)) {
     const { rows } = await pool.query(
       `SELECT 1 FROM users u WHERE u.id = $1 AND (
@@ -148,7 +169,7 @@ router.get('/shareable', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (
              TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre
       FROM users u
       LEFT JOIN employees e ON e.user_id = u.id
-      WHERE u.active = true AND u.role IN ('ADMIN', 'COMERCIAL') AND u.id != $1`;
+      WHERE u.active = true AND u.role IN ('ADMIN', 'SEMIADMIN', 'COMERCIAL') AND u.id != $1`;
     const params = [req.user.id];
     if (q) {
       params.push(`%${q}%`);
@@ -187,7 +208,10 @@ router.get('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), asy
        LEFT JOIN users cb ON cb.id = u.created_by`;
     const params = [];
 
-    if (req.user.role === 'ADMIN' || req.user.role === 'SEMIADMIN') {
+    if (req.user.role === 'SEMIADMIN') {
+      sql += ` WHERE u.id = $1 OR u.created_by = $1 OR u.role = 'COMERCIAL'`;
+      params.push(req.user.id);
+    } else if (req.user.role === 'ADMIN') {
       sql += `
        WHERE u.id = $1 OR u.created_by = $1 OR (
          u.role = 'COMERCIAL' AND EXISTS (
@@ -339,6 +363,19 @@ router.get('/:id', async (req, res) => {
   if (req.user.id !== req.params.id) {
     if (req.user.role === 'SUPERUSER') {
       /* ok */
+    } else if (req.user.role === 'SEMIADMIN') {
+      const { rows: ok } = await pool.query(
+        `SELECT 1 FROM users u WHERE u.id = $1 AND (
+          u.created_by = $2 OR u.id = $2 OR u.role = 'COMERCIAL' OR EXISTS (
+            SELECT 1 FROM admin_commercial_assignments a
+            WHERE a.admin_id = $2 AND a.commercial_id = u.id
+          )
+        )`,
+        [req.params.id, req.user.id]
+      );
+      if (!ok.length) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+      }
     } else if (isAdminLikeRole(req.user.role)) {
       const { rows: ok } = await pool.query(
         `SELECT 1 FROM users u WHERE u.id = $1 AND (
@@ -452,7 +489,7 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
     canSeeFinanceEst,
     pricingMarket,
   } = req.body;
-  const isElevated = ['ADMIN', 'SUPERUSER'].includes(req.user.role);
+  const isElevated = ['ADMIN', 'SEMIADMIN', 'SUPERUSER'].includes(req.user.role);
   const creatorMarket = canChangeQuotationMarket(req.user)
     ? normalizeMarket(pricingMarket)
     : 'NACIONAL';
@@ -527,6 +564,10 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
         );
       }
 
+      if (role === 'COMERCIAL' && req.user.role === 'SEMIADMIN') {
+        await assignCommercialToManager(client, req.user.id, userId, req.user.id);
+      }
+
       await client.query('COMMIT');
 
       return res.status(201).json({
@@ -572,7 +613,7 @@ router.put('/:id', async (req, res) => {
     canSeeFinanceLp,
     canSeeFinanceEst,
   } = req.body;
-  const isElevated = ['ADMIN', 'SUPERUSER'].includes(req.user.role);
+  const isElevated = ['ADMIN', 'SEMIADMIN', 'SUPERUSER'].includes(req.user.role);
   const hasFinanceUpdate =
     canSeeFinanceSummary !== undefined ||
     canSeeFinanceM1 !== undefined ||
@@ -707,6 +748,13 @@ router.put('/:id', async (req, res) => {
          WHERE user_id = $8`,
         [nombres, apellidos, cargo, telefono, dni, fechaIngreso, notas, req.params.id]
       );
+    }
+
+    if (req.user.role === 'SEMIADMIN' && !isSelf) {
+      const { rows: tgt } = await pool.query(`SELECT role FROM users WHERE id = $1`, [req.params.id]);
+      if (tgt[0]?.role === 'COMERCIAL') {
+        await assignCommercialToManager(pool, req.user.id, req.params.id, req.user.id);
+      }
     }
 
     return res.json({ success: true, data: { message: 'Usuario actualizado' } });

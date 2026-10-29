@@ -27,6 +27,7 @@ import { fetchCategoryNextCodigo } from '../lib/catalogCodigoApi';
 import { MeasureUnitSelect } from '../components/MeasureUnitSelect';
 import { buildConsolidatedKitBudgetRows } from '@shared/kitBudgetRows.js';
 import { MarketIcon } from '../components/MarketIcon';
+import { financeEditableKeys as resolveFinanceEditableKeys } from '../lib/financeAccess';
 
 const LS_FINANCE_SIDEBAR = 'zgroup_budget_finance_open';
 
@@ -52,13 +53,13 @@ export function ProjectBudgetPage() {
   const { hasRole, user, canManageCatalog, canShareProjects, isSuperuser, canChangeQuotationMarket } = useAuth();
   const canChangeMarket = canChangeQuotationMarket();
   const viewerMode = user?.role === 'VIEWER';
-  const hideItemPrices = user?.role === 'COMERCIAL';
   const canWrite = hasRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER');
   const isAdmin = canManageCatalog();
   const isCommercial = user?.role === 'COMERCIAL';
+  const hideItemPrices = false;
   /** Editar celdas, quitar línea y limpiar presupuesto: comercial en propios/compartidos; catálogo solo admin. */
   const canEditBudgetLines = canWrite && !viewerMode;
-  const canEditUnitPrices = canEditBudgetLines && !hideItemPrices;
+  const canEditUnitPrices = canEditBudgetLines && !isCommercial;
   const showAdjustmentCol = canEditBudgetLines;
   const budgetTableColSpan = useMemo(() => {
     let n = 6;
@@ -118,20 +119,20 @@ export function ProjectBudgetPage() {
   const [financeParams, setFinanceParams] = useState(() => mergeFinanceParams({}));
   const financeTcPersistRef = useRef('');
   const commercialAllowed = useMemo(
-    () => (hideItemPrices ? resolveCommercialAllowedModules(user) : null),
-    [hideItemPrices, user]
+    () => (isCommercial ? resolveCommercialAllowedModules(user) : null),
+    [isCommercial, user]
   );
   const commercialModules = useMemo(
-    () => (hideItemPrices ? resolveCommercialModules(user, financeParams) : null),
-    [hideItemPrices, user, financeParams]
+    () => (isCommercial ? resolveCommercialModules(user, financeParams) : null),
+    [isCommercial, user, financeParams]
   );
   const commercialM1Locked =
-    hideItemPrices && hasExplicitFinanceModuleFlags(user) && commercialAllowed?.m1 === true;
+    isCommercial && hasExplicitFinanceModuleFlags(user) && commercialAllowed?.m1 === true;
   const hasAnyCommercialFinance =
     commercialAllowed && Object.values(commercialAllowed).some(Boolean);
-  const showFinancePanel = !viewerMode && (!hideItemPrices || hasAnyCommercialFinance);
+  const showFinancePanel = !viewerMode && (!isCommercial || hasAnyCommercialFinance);
   const commercialVentaTotal = useMemo(() => {
-    if (!hideItemPrices || !commercialModules?.m1) return null;
+    if (!isCommercial || !commercialModules?.m1) return null;
     const out = computeFinance({
       baseLista: totals.lista,
       baseActivos: totals.activos,
@@ -145,7 +146,7 @@ export function ProjectBudgetPage() {
       params: financeParams,
     });
     return out?.m1?.ventaTotal;
-  }, [hideItemPrices, commercialModules, totals, financeParams]);
+  }, [isCommercial, commercialModules, totals, financeParams]);
   const [financeSidebarOpen, setFinanceSidebarOpen] = useState(() => {
     if (typeof window === 'undefined') return false;
     const stored = localStorage.getItem(LS_FINANCE_SIDEBAR);
@@ -354,7 +355,7 @@ export function ProjectBudgetPage() {
 
   useEffect(() => {
     if (!projectId || !canWrite || !project) return;
-    if (hideItemPrices && !hasAnyCommercialFinance) return;
+    if (isCommercial && !hasAnyCommercialFinance) return;
     const fpJson = JSON.stringify(financeParams);
     const tcVal = project.tc != null ? Number(project.tc) : 3.75;
     const sig = `${fpJson}|${tcVal}`;
@@ -377,7 +378,7 @@ export function ProjectBudgetPage() {
       }
     }, 500);
     return () => clearTimeout(t);
-  }, [financeParams, project, projectId, canWrite, hideItemPrices, hasAnyCommercialFinance]);
+  }, [financeParams, project, projectId, canWrite, isCommercial, hasAnyCommercialFinance]);
 
   const syncDraftFromItems = useCallback((list) => {
     const dm = { ...draftsRef.current };
@@ -651,7 +652,7 @@ export function ProjectBudgetPage() {
       tipo: customForm.tipo,
       qty,
     };
-    if (!hideItemPrices) {
+    if (!isCommercial) {
       const unitPrice = parseFloat(String(customForm.unitPrice).replace(',', '.'));
       if (Number.isNaN(unitPrice) || unitPrice < 0) {
         setErr('Precio y cantidad inválidos');
@@ -698,8 +699,8 @@ export function ProjectBudgetPage() {
 
   async function startPdf(kind) {
     if (!projectId || pdfBusy) return;
-    const pdfKind = hideItemPrices ? 'CLIENTE' : kind;
-    if (hideItemPrices && kind === 'GERENCIA') return;
+    const pdfKind = isCommercial ? 'CLIENTE' : kind;
+    if (isCommercial && kind === 'GERENCIA') return;
     if (pdfPollRef.current) {
       clearInterval(pdfPollRef.current);
       pdfPollRef.current = null;
@@ -1367,7 +1368,7 @@ export function ProjectBudgetPage() {
                     onChange={(e) => setAddQty(e.target.value)}
                   />
                 </label>
-                {!hideItemPrices && (
+                {canEditUnitPrices && (
                   <label title="Opcional">
                     Precio USD
                     <input
@@ -1913,7 +1914,7 @@ export function ProjectBudgetPage() {
                   )}
                 </>
               )}
-              {hideItemPrices && commercialModules?.m1 ? (
+              {isCommercial && commercialModules?.m1 ? (
                 <span className="budget-footer-total">TOTAL VENTA: {formatUsd(commercialVentaTotal)}</span>
               ) : (
                 <span className="budget-footer-total">TOTAL LISTA: {formatUsd(totals.lista)}</span>
@@ -1943,7 +1944,8 @@ export function ProjectBudgetPage() {
         commercialAllowed={commercialAllowed}
         commercialM1Locked={commercialM1Locked}
         tc={project?.tc != null ? Number(project.tc) : 3.75}
-        onTcChange={canWrite && !hideItemPrices ? handleTcChange : undefined}
+        onTcChange={canWrite && !isCommercial ? handleTcChange : undefined}
+        financeEditableKeys={resolveFinanceEditableKeys(user)}
         finPanelClassName="zgroup-scroll"
       />
         </aside>
@@ -1953,10 +1955,10 @@ export function ProjectBudgetPage() {
       {canWrite && (
         <div className="panel budget-export-panel">
           <div className="panel-hdr">
-            <span className="panel-title">{hideItemPrices ? 'Reporte para cliente (PDF)' : 'Exportar PDF'}</span>
+            <span className="panel-title">{isCommercial ? 'Reporte para cliente (PDF)' : 'Exportar PDF'}</span>
           </div>
           <p className="muted mono" style={{ fontSize: 12, lineHeight: 1.5 }}>
-            {hideItemPrices ? (
+            {isCommercial ? (
               <>
                 PDF para el cliente: partidas sin precios unitarios. Si tiene venta directa autorizada, el total
                 de la propuesta se incluye. Corto/largo plazo y estacionalidad se agregan al activarlos aquí
@@ -1972,7 +1974,7 @@ export function ProjectBudgetPage() {
               </>
             )}
           </p>
-          {!hideItemPrices && (
+          {!isCommercial && (
           <div
             className="panel panel--flush"
             style={{ marginTop: 14, padding: 12, border: '1px solid var(--border-dim)', borderRadius: 8 }}
@@ -2031,9 +2033,9 @@ export function ProjectBudgetPage() {
           <div className="pdf-export-actions">
             <div className="pdf-export-actions__row">
               <span className="fg-lbl" style={{ width: '100%', marginBottom: 4 }}>
-                {hideItemPrices ? 'Vista previa del reporte cliente' : 'Vista previa (mismo HTML que el PDF)'}
+                {isCommercial ? 'Vista previa del reporte cliente' : 'Vista previa (mismo HTML que el PDF)'}
               </span>
-              {!hideItemPrices && (
+              {!isCommercial && (
                 <button
                   type="button"
                   className="btn btn-primary mono"
@@ -2049,11 +2051,11 @@ export function ProjectBudgetPage() {
                 disabled={!!pdfPreviewLoading}
                 onClick={() => setPdfPreviewKind('CLIENTE')}
               >
-                {hideItemPrices ? 'Vista previa' : 'Ver Cliente'}
+                {isCommercial ? 'Vista previa' : 'Ver Cliente'}
               </button>
             </div>
             <div className="pdf-export-actions__row" style={{ marginTop: 10 }}>
-              {!hideItemPrices && (
+              {!isCommercial && (
                 <button
                   type="button"
                   className="btn btn-ghost mono"
@@ -2065,11 +2067,11 @@ export function ProjectBudgetPage() {
               )}
               <button
                 type="button"
-                className={`btn mono${hideItemPrices ? ' btn-primary' : ' btn-ghost'}`}
+                className={`btn mono${isCommercial ? ' btn-primary' : ' btn-ghost'}`}
                 disabled={pdfBusy}
                 onClick={() => startPdf('CLIENTE')}
               >
-                {hideItemPrices ? 'Descargar PDF Cliente' : 'Descargar PDF Cliente'}
+                Descargar PDF Cliente
               </button>
             </div>
           </div>
@@ -2084,7 +2086,7 @@ export function ProjectBudgetPage() {
 
       {pdfPreviewKind && (
         <Modal
-          title={hideItemPrices ? 'Vista previa — reporte cliente' : 'Vista previa del reporte PDF'}
+          title={isCommercial ? 'Vista previa — reporte cliente' : 'Vista previa del reporte PDF'}
           panelClassName="modal-panel--pdf-preview"
           onClose={() => setPdfPreviewKind(null)}
           footer={
@@ -2097,18 +2099,18 @@ export function ProjectBudgetPage() {
                 className="btn btn-primary mono"
                 disabled={pdfBusy}
                 onClick={() => {
-                  const k = hideItemPrices ? 'CLIENTE' : pdfPreviewKind;
+                  const k = isCommercial ? 'CLIENTE' : pdfPreviewKind;
                   setPdfPreviewKind(null);
                   startPdf(k);
                 }}
               >
-                Descargar {hideItemPrices || pdfPreviewKind === 'CLIENTE' ? 'Cliente' : 'Gerencia'}
+                Descargar {isCommercial || pdfPreviewKind === 'CLIENTE' ? 'Cliente' : 'Gerencia'}
               </button>
             </>
           }
         >
           <p className="pdf-preview-hint">
-            {hideItemPrices ? (
+            {isCommercial ? (
               <>Resumen para el cliente: partidas sin precios unitarios y modalidades financieras habilitadas (solo montos).</>
             ) : (
               <>
@@ -2118,7 +2120,7 @@ export function ProjectBudgetPage() {
             )}
           </p>
           <div className="pdf-preview-toolbar">
-            {!hideItemPrices && (
+            {!isCommercial && (
             <div className="pdf-preview-tabs" role="tablist" aria-label="Tipo de reporte">
               <button
                 type="button"
@@ -2708,7 +2710,7 @@ export function ProjectBudgetPage() {
                 <option value="CONSUMIBLE">CONSUMIBLE</option>
               </select>
             </label>
-            {!hideItemPrices && (
+            {!isCommercial && (
               <label>
                 <span className="fg-lbl">Precio unitario (USD)</span>
                 <input
@@ -2719,9 +2721,9 @@ export function ProjectBudgetPage() {
                 />
               </label>
             )}
-            {hideItemPrices && (
+            {isCommercial && (
               <p className="muted mono" style={{ fontSize: 12 }}>
-                El precio lo define el administrador; usted solo indica cantidades.
+                El precio lo define el catálogo. Para cambiarlo solicite permiso a un semiadmin o admin.
               </p>
             )}
             <label>

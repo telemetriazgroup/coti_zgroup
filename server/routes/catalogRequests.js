@@ -40,7 +40,7 @@ function mapRequest(row) {
 
 async function canReviewRequest(user, requestRow) {
   if (user.role === 'SUPERUSER') return true;
-  if (user.role === 'ADMIN') {
+  if (user.role === 'ADMIN' || user.role === 'SEMIADMIN') {
     return isManagedCommercial(user.id, requestRow.requested_by);
   }
   return false;
@@ -69,7 +69,7 @@ router.get('/pending-count', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), asy
   try {
     let sql = `SELECT COUNT(*)::int AS n FROM catalog_item_requests r WHERE r.status = 'PENDING'`;
     const params = [];
-    if (req.user.role === 'ADMIN') {
+    if (req.user.role === 'ADMIN' || req.user.role === 'SEMIADMIN') {
       params.push(req.user.id);
       sql += ` AND EXISTS (
         SELECT 1 FROM users u WHERE u.id = r.requested_by AND (
@@ -110,7 +110,7 @@ router.get('/', async (req, res) => {
     if (req.user.role === 'COMERCIAL') {
       sql += ` AND r.requested_by = $${idx++}`;
       params.push(req.user.id);
-    } else if (req.user.role === 'ADMIN') {
+    } else if (req.user.role === 'ADMIN' || req.user.role === 'SEMIADMIN') {
       sql += ` AND EXISTS (
         SELECT 1 FROM users u WHERE u.id = r.requested_by AND (
           u.created_by = $${idx}::uuid OR EXISTS (
@@ -336,7 +336,7 @@ router.get('/:id', param('id').isUUID(), async (req, res) => {
     if (req.user.role === 'COMERCIAL' && row.requested_by !== req.user.id) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
-    if (req.user.role === 'ADMIN' && !(await canReviewRequest(req.user, row))) {
+    if ((req.user.role === 'ADMIN' || req.user.role === 'SEMIADMIN') && !(await canReviewRequest(req.user, row))) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
     return res.json({ success: true, data: mapRequest(row) });

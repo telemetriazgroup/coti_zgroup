@@ -65,7 +65,7 @@ export function AdminGroupsPage() {
     }));
   }
 
-  async function submitForm(e) {
+  async function removeGroup(group) {
     if (!window.confirm(`¿Eliminar el grupo «${group.nombre}»?`)) return;
     setErr(null);
     try {
@@ -107,9 +107,10 @@ export function AdminGroupsPage() {
     <section className="view-active">
       <div className="page-header page-header--row">
         <div>
-          <h1 className="page-title">Grupos de administradores</h1>
+          <h1 className="page-title">Grupos de semiadmin</h1>
           <p className="page-sub muted">
-            Los ADMIN del mismo grupo ven proyectos de los demás miembros y de sus comerciales asignados.
+            Los SEMIADMIN del mismo grupo ven proyectos de los demás miembros y de sus comerciales. Un ADMIN
+            puede estar en el grupo, pero no cambia su visibilidad: ya ve todos los proyectos.
           </p>
         </div>
         <button type="button" className="btn btn-primary" onClick={openCreate}>
@@ -131,14 +132,14 @@ export function AdminGroupsPage() {
       {loading ? (
         <p className="muted mono">Cargando…</p>
       ) : groups.length === 0 ? (
-        <p className="muted mono">No hay grupos. Cree uno para compartir visibilidad entre administradores.</p>
+        <p className="muted mono">No hay grupos. Cree uno para compartir visibilidad entre semiadmins.</p>
       ) : (
         <div className="table-wrap">
           <table className="data-table">
             <thead>
               <tr>
                 <th>Grupo</th>
-                <th>Miembros (ADMIN)</th>
+                <th>Miembros</th>
                 <th className="actions-col">Acciones</th>
               </tr>
             </thead>
@@ -202,7 +203,7 @@ export function AdminGroupsPage() {
               />
             </label>
             <label>
-              <span className="fg-lbl">Buscar administrador</span>
+              <span className="fg-lbl">Buscar semiadmin / admin</span>
               <input
                 className="form-input mono"
                 value={search}
@@ -234,7 +235,7 @@ export function AdminGroupsPage() {
               )}
             </div>
             <p className="muted mono" style={{ fontSize: 12 }}>
-              Seleccionados: {form.adminIds.length}. Un admin puede estar en varios grupos.
+              Seleccionados: {form.adminIds.length}. Un semiadmin puede estar en varios grupos.
             </p>
           </form>
         </Modal>

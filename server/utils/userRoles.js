@@ -16,8 +16,19 @@ function hasAdminPanelAccess(user) {
   return isAdmin(user) || isSemiAdmin(user);
 }
 
+/** Alta/edición de categorías, precios y productos del catálogo. */
 function canManageCatalog(user) {
+  return isAdmin(user);
+}
+
+/** Aprobar solicitudes de precio/alta del comercial. */
+function canReviewCatalogRequests(user) {
   return hasAdminPanelAccess(user);
+}
+
+/** Productos no liberados: solo ADMIN / SUPERUSER. */
+function canSeeUnreleasedCatalog(user) {
+  return isAdmin(user);
 }
 
 function canShareProjects(user) {
@@ -49,6 +60,8 @@ module.exports = {
   isAdmin,
   hasAdminPanelAccess,
   canManageCatalog,
+  canReviewCatalogRequests,
+  canSeeUnreleasedCatalog,
   canShareProjects,
   canViewArchivedProjects,
   canViewInactiveCatalog,

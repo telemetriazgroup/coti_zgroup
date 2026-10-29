@@ -2,6 +2,7 @@
 function allowedCreateRoles(creatorRole) {
   if (creatorRole === 'SUPERUSER') return ['ADMIN', 'SEMIADMIN', 'COMERCIAL', 'VIEWER'];
   if (creatorRole === 'ADMIN') return ['SEMIADMIN', 'COMERCIAL', 'VIEWER'];
+  if (creatorRole === 'SEMIADMIN') return ['COMERCIAL'];
   if (creatorRole === 'COMERCIAL') return ['VIEWER'];
   return [];
 }

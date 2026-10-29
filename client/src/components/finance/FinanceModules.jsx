@@ -257,6 +257,7 @@ export function FinanceModules({
   commercialM1Locked = false,
   tc: tcProp,
   onTcChange,
+  financeEditableKeys = null,
   finPanelClassName = '',
 }) {
   const p = useMemo(() => mergeFinanceParams(financeParams), [financeParams]);
@@ -302,12 +303,28 @@ export function FinanceModules({
 
   const toggle = (id) => setOpen((o) => ({ ...o, [id]: !o[id] }));
 
+  const hideSensitive = !!viewerMode;
+  const editableSet = Array.isArray(financeEditableKeys) ? new Set(financeEditableKeys) : null;
+  const paramLocked = (key) => {
+    if (hideSensitive) return true;
+    if (editableSet == null) return false;
+    return !editableSet.has(key);
+  };
+
   function patch(next) {
+    if (editableSet) {
+      const filtered = {};
+      for (const [k, v] of Object.entries(next)) {
+        if (editableSet.has(k)) filtered[k] = v;
+      }
+      if (Object.keys(filtered).length === 0) return;
+      onFinanceParamsChange({ ...p, ...filtered });
+      return;
+    }
     onFinanceParamsChange({ ...p, ...next });
   }
 
   const { m1, m2, m3, m4, m5 } = fin;
-  const hideSensitive = !!viewerMode;
   const handleTc = typeof onTcChange === 'function' ? onTcChange : () => {};
   const setDisplayCurrency = (c) => patch({ displayCurrency: c });
   const isCommercialEditor = commercialAllowed != null;
@@ -334,9 +351,9 @@ export function FinanceModules({
         <input
           type="checkbox"
           checked={checked}
-          disabled={!!locked}
+          disabled={!!locked || paramLocked(paramKey)}
           onChange={(e) => {
-            if (locked) return;
+            if (locked || paramLocked(paramKey)) return;
             patch({ [paramKey]: e.target.checked });
           }}
         />
@@ -506,7 +523,7 @@ export function FinanceModules({
             onDisplayCurrency={setDisplayCurrency}
             tc={tc}
             onTcChange={handleTc}
-            disabled={hideSensitive}
+            disabled={hideSensitive || paramLocked('displayCurrency')}
           />
         </div>
 
@@ -520,7 +537,7 @@ export function FinanceModules({
               <input
                 type="checkbox"
                 checked={p.enableCp !== false}
-                disabled={hideSensitive}
+                disabled={hideSensitive || paramLocked('enableCp')}
                 onChange={(e) => {
                   const on = e.target.checked;
                   patch(on ? { enableCp: true } : { enableCp: false, commercialShowCp: false });
@@ -535,7 +552,7 @@ export function FinanceModules({
               <input
                 type="checkbox"
                 checked={p.enableLp !== false}
-                disabled={hideSensitive}
+                disabled={hideSensitive || paramLocked('enableLp')}
                 onChange={(e) => {
                   const on = e.target.checked;
                   patch(on ? { enableLp: true } : { enableLp: false, commercialShowLp: false });
@@ -550,7 +567,7 @@ export function FinanceModules({
               <input
                 type="checkbox"
                 checked={p.enableEst !== false}
-                disabled={hideSensitive}
+                disabled={hideSensitive || paramLocked('enableEst')}
                 onChange={(e) => {
                   const on = e.target.checked;
                   patch(on ? { enableEst: true } : { enableEst: false, commercialShowEst: false });
@@ -573,7 +590,7 @@ export function FinanceModules({
         open={open.m1}
         onToggle={toggle}
       >
-        <M1AdjEditor p={p} m1={m1} patch={patch} disabled={hideSensitive} />
+        <M1AdjEditor p={p} m1={m1} patch={patch} disabled={hideSensitive || paramLocked('adjPct')} />
         <div className="fin-result fin-result--cyan mono">
           <div className="fin-result__row">
             <span className="muted">Base lista (con ajuste ✓)</span>
@@ -627,6 +644,7 @@ export function FinanceModules({
                     min={1}
                     className="form-input mono fin-input-lg"
                     value={p.cpPlazo}
+                    disabled={paramLocked('cpPlazo')}
                     onChange={(e) => patch({ cpPlazo: parseInt(e.target.value, 10) || 1 })}
                   />
                 </FinParam>
@@ -636,6 +654,7 @@ export function FinanceModules({
                     min={1}
                     className="form-input mono fin-input-lg"
                     value={p.cpVida}
+                    disabled={paramLocked('cpVida')}
                     onChange={(e) => patch({ cpVida: parseInt(e.target.value, 10) || 1 })}
                   />
                 </FinParam>
@@ -645,6 +664,7 @@ export function FinanceModules({
                     step="0.5"
                     className="form-input mono fin-input-lg"
                     value={p.cpOp}
+                    disabled={paramLocked('cpOp')}
                     onChange={(e) => patch({ cpOp: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -654,6 +674,7 @@ export function FinanceModules({
                     step="0.5"
                     className="form-input mono fin-input-lg"
                     value={p.cpRoa}
+                    disabled={paramLocked('cpRoa')}
                     onChange={(e) => patch({ cpRoa: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -663,6 +684,7 @@ export function FinanceModules({
                     step="0.5"
                     className="form-input mono fin-input-lg"
                     value={p.cpMerma}
+                    disabled={paramLocked('cpMerma')}
                     onChange={(e) => patch({ cpMerma: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -757,6 +779,7 @@ export function FinanceModules({
                     min={1}
                     className="form-input mono fin-input-lg"
                     value={p.lpVida}
+                    disabled={paramLocked('lpVida')}
                     onChange={(e) => patch({ lpVida: parseInt(e.target.value, 10) || 1 })}
                   />
                 </FinParam>
@@ -766,6 +789,7 @@ export function FinanceModules({
                     min={1}
                     className="form-input mono fin-input-lg"
                     value={p.lpN}
+                    disabled={paramLocked('lpN')}
                     onChange={(e) => patch({ lpN: parseInt(e.target.value, 10) || 1 })}
                   />
                 </FinParam>
@@ -775,6 +799,7 @@ export function FinanceModules({
                     min={1}
                     className="form-input mono fin-input-lg"
                     value={p.lpNContrato}
+                    disabled={paramLocked('lpNContrato')}
                     onChange={(e) => {
                       const v = parseInt(e.target.value, 10) || 1;
                       patch({ lpNContrato: Math.max(p.lpN || 24, v) });
@@ -787,6 +812,7 @@ export function FinanceModules({
                     step="0.1"
                     className="form-input mono fin-input-lg"
                     value={p.lpTeaBanco}
+                    disabled={paramLocked('lpTeaBanco')}
                     onChange={(e) => patch({ lpTeaBanco: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -798,6 +824,7 @@ export function FinanceModules({
                     max={300}
                     className="form-input mono fin-input-lg"
                     value={p.lpMargen ?? 30}
+                    disabled={paramLocked('lpMargen')}
                     onChange={(e) => patch({ lpMargen: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -807,6 +834,7 @@ export function FinanceModules({
                     step="0.5"
                     className="form-input mono fin-input-lg"
                     value={p.lpOp}
+                    disabled={paramLocked('lpOp')}
                     onChange={(e) => patch({ lpOp: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -816,6 +844,7 @@ export function FinanceModules({
                     step="1"
                     className="form-input mono fin-input-lg"
                     value={p.lpForm}
+                    disabled={paramLocked('lpForm')}
                     onChange={(e) => patch({ lpForm: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -825,6 +854,7 @@ export function FinanceModules({
                     step="1"
                     className="form-input mono fin-input-lg"
                     value={p.lpPostPct}
+                    disabled={paramLocked('lpPostPct')}
                     onChange={(e) => patch({ lpPostPct: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -834,6 +864,7 @@ export function FinanceModules({
                     step="0.5"
                     className="form-input mono fin-input-lg"
                     value={p.lpFondoRep}
+                    disabled={paramLocked('lpFondoRep')}
                     onChange={(e) => patch({ lpFondoRep: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -1072,6 +1103,7 @@ export function FinanceModules({
                     min={1}
                     className="form-input mono fin-input-lg"
                     value={p.estOp}
+                    disabled={paramLocked('estOp')}
                     onChange={(e) => patch({ estOp: parseInt(e.target.value, 10) || 1 })}
                   />
                 </FinParam>
@@ -1081,6 +1113,7 @@ export function FinanceModules({
                     min={1}
                     className="form-input mono fin-input-lg"
                     value={p.estSb}
+                    disabled={paramLocked('estSb')}
                     onChange={(e) => patch({ estSb: parseInt(e.target.value, 10) || 1 })}
                   />
                 </FinParam>
@@ -1090,6 +1123,7 @@ export function FinanceModules({
                     step="0.1"
                     className="form-input mono fin-input-lg"
                     value={p.estSeguro}
+                    disabled={paramLocked('estSeguro')}
                     onChange={(e) => patch({ estSeguro: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -1099,6 +1133,7 @@ export function FinanceModules({
                     step="1"
                     className="form-input mono fin-input-lg"
                     value={p.estSbPct}
+                    disabled={paramLocked('estSbPct')}
                     onChange={(e) => patch({ estSbPct: parseFloat(e.target.value) || 0 })}
                   />
                 </FinParam>
@@ -1214,6 +1249,7 @@ export function FinanceModules({
                 max={120}
                 className="form-input mono fin-input-lg"
                 value={p.cmpPeriod ?? 24}
+                disabled={paramLocked('cmpPeriod')}
                 onChange={(e) =>
                   patch({ cmpPeriod: Math.min(120, Math.max(1, parseInt(e.target.value, 10) || 24)) })
                 }

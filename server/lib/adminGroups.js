@@ -14,14 +14,14 @@ function sqlAdminOwnTeamCommercials(viewerAdminParam) {
   )`;
 }
 
-/** Proyectos de otros ADMIN del mismo grupo y comerciales bajo esos ADMIN. */
+/** Proyectos de otros SEMIADMIN del mismo grupo y comerciales de esos pares. */
 function sqlAdminGroupProjectAccess(viewerAdminParam) {
   return `EXISTS (
     SELECT 1
     FROM admin_group_members agm_viewer
     JOIN admin_group_members agm_peer ON agm_peer.group_id = agm_viewer.group_id
       AND agm_peer.admin_id <> agm_viewer.admin_id
-    JOIN users u_peer ON u_peer.id = agm_peer.admin_id AND u_peer.role = 'ADMIN' AND u_peer.active = true
+    JOIN users u_peer ON u_peer.id = agm_peer.admin_id AND u_peer.role = 'SEMIADMIN' AND u_peer.active = true
     WHERE agm_viewer.admin_id = ${viewerAdminParam}::uuid
       AND (
         p.created_by = agm_peer.admin_id
@@ -50,7 +50,7 @@ async function isGroupProjectAccessible(adminId, creatorId) {
      FROM admin_group_members agm_viewer
      JOIN admin_group_members agm_peer ON agm_peer.group_id = agm_viewer.group_id
        AND agm_peer.admin_id <> agm_viewer.admin_id
-     JOIN users u_peer ON u_peer.id = agm_peer.admin_id AND u_peer.role = 'ADMIN' AND u_peer.active = true
+     JOIN users u_peer ON u_peer.id = agm_peer.admin_id AND u_peer.role = 'SEMIADMIN' AND u_peer.active = true
      WHERE agm_viewer.admin_id = $1::uuid
        AND (
          $2::uuid = agm_peer.admin_id

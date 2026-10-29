@@ -31,7 +31,7 @@ async function fetchGroupsPayload() {
             TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre
      FROM users u
      LEFT JOIN employees e ON e.user_id = u.id
-     WHERE u.role = 'ADMIN'
+     WHERE u.role IN ('SEMIADMIN', 'ADMIN')
      ORDER BY u.email`
   );
 
@@ -69,7 +69,7 @@ async function fetchGroupsPayload() {
 async function assertValidAdminIds(adminIds) {
   if (!adminIds.length) return true;
   const { rows } = await pool.query(
-    `SELECT id FROM users WHERE id = ANY($1::uuid[]) AND role = 'ADMIN' AND active = true`,
+    `SELECT id FROM users WHERE id = ANY($1::uuid[]) AND role IN ('SEMIADMIN', 'ADMIN') AND active = true`,
     [adminIds]
   );
   return rows.length === adminIds.length;

@@ -5,19 +5,27 @@ const { requireAuth, requireRole } = require('../middleware/auth');
 
 const router = express.Router();
 router.use(requireAuth);
-router.use(requireRole('SUPERUSER'));
+router.use(requireRole('SUPERUSER', 'SEMIADMIN'));
 
-// ─── GET /api/admin-assignments — admins con sus comerciales ────
+const MANAGER_ROLES = `('SEMIADMIN', 'ADMIN')`;
+
+// ─── GET /api/admin-assignments — semiadmin/admin con sus comerciales ────
 router.get('/', async (req, res) => {
   try {
-    const { rows: admins } = await pool.query(
-      `SELECT u.id, u.email, u.active,
-              TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre
-       FROM users u
-       LEFT JOIN employees e ON e.user_id = u.id
-       WHERE u.role = 'ADMIN'
-       ORDER BY u.email`
-    );
+    const isSuper = req.user.role === 'SUPERUSER';
+    const managerSql = isSuper
+      ? `SELECT u.id, u.email, u.active, u.role,
+                TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre
+         FROM users u
+         LEFT JOIN employees e ON e.user_id = u.id
+         WHERE u.role IN ${MANAGER_ROLES}
+         ORDER BY u.role DESC, u.email`
+      : `SELECT u.id, u.email, u.active, u.role,
+                TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre
+         FROM users u
+         LEFT JOIN employees e ON e.user_id = u.id
+         WHERE u.id = $1`;
+    const { rows: admins } = await pool.query(managerSql, isSuper ? [] : [req.user.id]);
 
     const { rows: assignments } = await pool.query(
       `SELECT a.admin_id, a.commercial_id, a.assigned_by, a.created_at,
@@ -59,6 +67,7 @@ router.get('/', async (req, res) => {
           id: a.id,
           email: a.email,
           nombre: a.nombre || a.email,
+          role: a.role,
           active: a.active,
           assignedCommercials: byAdmin[a.id] || [],
         })),
@@ -93,15 +102,22 @@ router.put(
     const adminId = req.params.adminId;
     const commercialIds = [...new Set((req.body.commercialIds || []).filter(Boolean))];
 
+    if (req.user.role === 'SEMIADMIN' && adminId !== req.user.id) {
+      return res.status(403).json({
+        success: false,
+        error: { code: 'FORBIDDEN', message: 'Solo puede asignar comerciales a su propio equipo' },
+      });
+    }
+
     try {
       const { rows: ad } = await pool.query(
-        `SELECT id FROM users WHERE id = $1 AND role = 'ADMIN' AND active = true`,
+        `SELECT id FROM users WHERE id = $1 AND role IN ('SEMIADMIN', 'ADMIN') AND active = true`,
         [adminId]
       );
       if (!ad.length) {
         return res.status(404).json({
           success: false,
-          error: { code: 'NOT_FOUND', message: 'Administrador no encontrado' },
+          error: { code: 'NOT_FOUND', message: 'Usuario gestor no encontrado' },
         });
       }
 

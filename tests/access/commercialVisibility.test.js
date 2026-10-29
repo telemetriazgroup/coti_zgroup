@@ -1,3 +1,4 @@
+const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const {
   commercialModuleAllowed,
@@ -73,14 +74,30 @@ describe('visibilidad financiera del comercial', () => {
     assert.strictEqual(mods.m1, false);
   });
 
-  it('oculta precios unitarios pero conserva bases M1 en totales', () => {
+  it('el comercial ve precios unitarios (el cambio de catálogo va por solicitud)', () => {
     const data = sanitizeBudgetItemsResponse(comercialM1, {
       items: [{ id: '1', unitPrice: 100, subtotal: 200, applyAdjustment: true }],
       totals: { lista: 200, listaAdj: 200, listaExempt: 0, activos: 200, consumibles: 0 },
     });
-    assert.strictEqual(data.items[0].unitPrice, null);
+    assert.strictEqual(data.items[0].unitPrice, 100);
     assert.strictEqual(data.items[0].applyAdjustment, true);
     assert.strictEqual(data.totals.lista, 200);
-    assert.strictEqual(data.totals.listaAdj, 200);
+  });
+
+  it('oculta ítems no liberados a comercial y semiadmin', () => {
+    const { sanitizeCatalogData } = require('../../server/lib/commercialVisibility');
+    const raw = {
+      categories: [],
+      items: [
+        { id: 'a', released: true, unitPrice: 10 },
+        { id: 'b', released: false, unitPrice: 99 },
+      ],
+    };
+    const com = sanitizeCatalogData({ role: 'COMERCIAL' }, raw);
+    const semi = sanitizeCatalogData({ role: 'SEMIADMIN' }, raw);
+    const admin = sanitizeCatalogData({ role: 'ADMIN' }, raw);
+    assert.strictEqual(com.items.length, 1);
+    assert.strictEqual(semi.items.length, 1);
+    assert.strictEqual(admin.items.length, 2);
   });
 });

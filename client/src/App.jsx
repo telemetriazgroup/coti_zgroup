@@ -19,6 +19,7 @@ import { AdminAssignmentsPage } from './pages/AdminAssignmentsPage';
 import { AdminGroupsPage } from './pages/AdminGroupsPage';
 import { MeasuresPage } from './pages/MeasuresPage';
 import { ProfilePage } from './pages/ProfilePage';
+import { FinanceDefaultsPage } from './pages/FinanceDefaultsPage';
 
 function RequireAuth() {
   const { user, ready } = useAuth();
@@ -31,21 +32,6 @@ function RequireAuth() {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
-  return <Outlet />;
-}
-
-function RequireAdmin() {
-  const { user, ready, hasAdminPanelAccess } = useAuth();
-  if (!ready) {
-    return (
-      <div className="boot-screen">
-        <div className="boot-spinner" />
-        <p className="boot-text mono">Cargando…</p>
-      </div>
-    );
-  }
-  if (!user) return <Navigate to="/login" replace />;
-  if (!hasAdminPanelAccess()) return <Navigate to="/dashboard" replace />;
   return <Outlet />;
 }
 
@@ -75,7 +61,37 @@ function RequireUserManager() {
     );
   }
   if (!user) return <Navigate to="/login" replace />;
-  if (!hasRole('ADMIN', 'SUPERUSER', 'COMERCIAL')) return <Navigate to="/dashboard" replace />;
+  if (!hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER', 'COMERCIAL')) return <Navigate to="/dashboard" replace />;
+  return <Outlet />;
+}
+
+function RequireFullAdmin() {
+  const { user, ready, isAdmin } = useAuth();
+  if (!ready) {
+    return (
+      <div className="boot-screen">
+        <div className="boot-spinner" />
+        <p className="boot-text mono">Cargando…</p>
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (!isAdmin()) return <Navigate to="/dashboard" replace />;
+  return <Outlet />;
+}
+
+function RequireTeamAssign() {
+  const { user, ready, hasRole } = useAuth();
+  if (!ready) {
+    return (
+      <div className="boot-screen">
+        <div className="boot-spinner" />
+        <p className="boot-text mono">Cargando…</p>
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (!hasRole('SUPERUSER', 'SEMIADMIN')) return <Navigate to="/dashboard" replace />;
   return <Outlet />;
 }
 
@@ -91,6 +107,7 @@ export function App() {
           <Route path="projects/:projectId/presupuesto" element={<ProjectBudgetPage />} />
           <Route path="projects/:projectId/planos" element={<ProjectPlansPage />} />
           <Route path="catalog" element={<CatalogPage />} />
+          <Route path="clients" element={<ClientsPage />} />
           <Route path="profile" element={<ProfilePage />} />
           <Route path="guia" element={<UserGuidePage />} />
           <Route element={<RequireSuperuser />}>
@@ -100,13 +117,16 @@ export function App() {
             <Route path="superusuario/asignaciones" element={<AdminAssignmentsPage />} />
             <Route path="superusuario/grupos" element={<AdminGroupsPage />} />
           </Route>
+          <Route element={<RequireTeamAssign />}>
+            <Route path="equipo" element={<AdminAssignmentsPage />} />
+          </Route>
           <Route element={<RequireUserManager />}>
             <Route path="users" element={<UsersPage />} />
-            <Route path="clients" element={<ClientsPage />} />
           </Route>
-          <Route element={<RequireAdmin />}>
+          <Route element={<RequireFullAdmin />}>
             <Route path="employees" element={<EmployeesPage />} />
             <Route path="measures" element={<MeasuresPage />} />
+            <Route path="finance-defaults" element={<FinanceDefaultsPage />} />
           </Route>
         </Route>
       </Route>

@@ -4,7 +4,7 @@ import { api } from '../lib/api';
 
 const ROLE_HINT = {
   ADMIN: 'Ve y administra según alcance de administrador.',
-  SEMIADMIN: 'Panel admin limitado; mismos proyectos de su equipo.',
+  SEMIADMIN: 'Proyectos propios, de su equipo comercial y pares de su grupo. Catálogo en solo lectura (filtro). Finanzas: M1 y plazos.',
   COMERCIAL: 'Solo sus proyectos (propios o compartidos) y catálogo en lectura.',
   VIEWER: 'Solo lectura del proyecto asignado.',
 };

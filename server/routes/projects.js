@@ -25,6 +25,8 @@ const {
   loadUserFlags,
   pickCommercialShowPatch,
 } = require('../lib/commercialVisibility');
+const { pickSemiAdminFinancePatch } = require('../lib/financeAccess');
+const { getFinanceDefaults } = require('../lib/financeDefaults');
 
 const router = express.Router();
 router.use(requireAuth);
@@ -524,11 +526,20 @@ router.post('/', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), cr
 
     const creatorMarket = await getUserPricingMarket(req.user.id);
 
+    const financeDefaults = await getFinanceDefaults();
     const { rows } = await pool.query(
-      `INSERT INTO projects (nombre, odoo_ref, client_id, status, created_by, quotation_market)
-       VALUES ($1, $2, $3, COALESCE($4::project_status, 'BORRADOR'::project_status), $5, $6)
+      `INSERT INTO projects (nombre, odoo_ref, client_id, status, created_by, quotation_market, finance_params)
+       VALUES ($1, $2, $3, COALESCE($4::project_status, 'BORRADOR'::project_status), $5, $6, $7::jsonb)
        RETURNING *`,
-      [nombre.trim(), odooRefNorm, clientId || null, status || null, req.user.id, creatorMarket]
+      [
+        nombre.trim(),
+        odooRefNorm,
+        clientId || null,
+        status || null,
+        req.user.id,
+        creatorMarket,
+        JSON.stringify(financeDefaults || {}),
+      ]
     );
 
     const ip = getClientIp(req);
@@ -708,6 +719,16 @@ router.put('/:id', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), 
       if (req.user.role === 'COMERCIAL') {
         const flags = await loadUserFlags(req.user.id);
         const patch = pickCommercialShowPatch(financeParams, flags || req.user);
+        if (Object.keys(patch).length > 0) {
+          const current =
+            pr[0].finance_params && typeof pr[0].finance_params === 'object'
+              ? pr[0].finance_params
+              : {};
+          fields.push(`finance_params = $${i++}`);
+          vals.push(JSON.stringify({ ...current, ...patch }));
+        }
+      } else if (req.user.role === 'SEMIADMIN') {
+        const patch = pickSemiAdminFinancePatch(financeParams);
         if (Object.keys(patch).length > 0) {
           const current =
             pr[0].finance_params && typeof pr[0].finance_params === 'object'

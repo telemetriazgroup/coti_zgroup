@@ -14,12 +14,16 @@ function isCommercialRole(userOrRole) {
   return role === 'COMERCIAL';
 }
 
-/** Comercial nunca ve precios unitarios ni subtotales por línea. */
+/** VIEWER no ve precios. Comercial sí los ve (solo lectura; el cambio va por solicitud). */
 function canSeeItemPrices(userRow) {
   if (!userRow) return true;
   if (userRow.role === 'VIEWER') return false;
-  if (userRow.role === 'COMERCIAL') return false;
   return true;
+}
+
+function canSeeUnreleasedCatalog(userRow) {
+  const role = userRow?.role;
+  return role === 'ADMIN' || role === 'SUPERUSER';
 }
 
 /** Comercial no ve tablas/formulas M1–M5 salvo resumen autorizado. */
@@ -189,11 +193,14 @@ function sanitizeCatalogItem(item) {
 }
 
 function sanitizeCatalogData(userRow, data) {
-  if (canSeeItemPrices(userRow)) return data;
-  return {
-    ...data,
-    items: (data.items || []).map(sanitizeCatalogItem),
-  };
+  let items = data.items || [];
+  if (!canSeeUnreleasedCatalog(userRow)) {
+    items = items.filter((it) => it.released !== false);
+  }
+  if (!canSeeItemPrices(userRow)) {
+    items = items.map(sanitizeCatalogItem);
+  }
+  return { ...data, items };
 }
 
 function sanitizePriceLine(line) {
@@ -232,6 +239,7 @@ module.exports = {
   loadUserFlags,
   isCommercialRole,
   canSeeItemPrices,
+  canSeeUnreleasedCatalog,
   canSeeFinanceDetail,
   canSeeFinanceSummary,
   mapCommercialFinanceAccess,

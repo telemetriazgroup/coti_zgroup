@@ -15,7 +15,7 @@ function readSidebarOpenDesktop() {
 
 export function AppShell() {
   const location = useLocation();
-  const { user, logout, hasRole, isAdmin, isSuperuser, isImpersonating } = useAuth();
+  const { user, logout, hasRole, isAdmin, isSuperuser, isImpersonating, hasAdminPanelAccess } = useAuth();
   useReportUserActivity(Boolean(user));
   const prevFocusRef = useRef(false);
 
@@ -38,11 +38,11 @@ export function AppShell() {
   const [catalogPending, setCatalogPending] = useState(0);
 
   useEffect(() => {
-    if (!isAdmin()) return;
+    if (!hasAdminPanelAccess()) return;
     api.get('/api/catalog/requests/pending-count')
       .then((d) => setCatalogPending(d?.count ?? 0))
       .catch(() => setCatalogPending(0));
-  }, [isAdmin, user?.id]);
+  }, [hasAdminPanelAccess, user?.id]);
 
   const toggleTheme = useCallback(() => {
     setTheme((prev) => {
@@ -179,14 +179,14 @@ export function AppShell() {
             </svg>
             Mi perfil
           </NavLink>
-          {(isAdmin() || hasRole('COMERCIAL')) && (
+          {(hasAdminPanelAccess() || hasRole('COMERCIAL')) && (
             <NavLink to="/catalog" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
               <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path d="M4 19.5A2.5 2.5 0 016.5 17H20" />
                 <path d="M6.5 2H20v20H6.5A2.5 2.5 0 014 19.5v-15A2.5 2.5 0 016.5 2z" />
               </svg>
               Catálogo
-              {catalogPending > 0 && isAdmin() && (
+              {catalogPending > 0 && hasAdminPanelAccess() && (
                 <span className="tag" style={{ marginLeft: 'auto', fontSize: 10, borderColor: 'var(--amber)', color: 'var(--amber)' }}>
                   {catalogPending}
                 </span>
@@ -231,7 +231,7 @@ export function AppShell() {
                 <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                   <path d="M12 2l3 7h7l-5.5 4.5L18 21l-6-4-6 4 1.5-7.5L2 9h7z" />
                 </svg>
-                Grupos admin
+                Grupos semiadmin
               </NavLink>
               <NavLink
                 to="/superusuario/asignaciones"
@@ -245,15 +245,23 @@ export function AppShell() {
               </NavLink>
             </>
           )}
-          {(isAdmin() || hasRole('COMERCIAL')) && (
+          {hasRole('SEMIADMIN') && (
+            <NavLink to="/equipo" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+              <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8zM23 21v-2a4 4 0 00-3-3.87M16 3.13a4 4 0 010 7.75" />
+              </svg>
+              Mi equipo comercial
+            </NavLink>
+          )}
+          <NavLink to="/clients" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+            <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+              <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z" />
+            </svg>
+            Clientes
+          </NavLink>
+          {(isAdmin() || hasRole('COMERCIAL') || hasRole('SEMIADMIN')) && (
             <>
-              <div className="sb-section">{isAdmin() ? 'Administración' : 'Gestión'}</div>
-              <NavLink to="/clients" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
-                <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                  <path d="M17 21v-2a4 4 0 00-4-4H5a4 4 0 00-4 4v2M9 11a4 4 0 100-8 4 4 0 000 8z" />
-                </svg>
-                Clientes
-              </NavLink>
+              <div className="sb-section">{isAdmin() || hasRole('SEMIADMIN') ? 'Administración' : 'Gestión'}</div>
               {isAdmin() && (
                 <>
                   <NavLink to="/employees" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
@@ -268,6 +276,12 @@ export function AppShell() {
                       <path d="M18 9v6M15 12h6" />
                     </svg>
                     Medidas
+                  </NavLink>
+                  <NavLink to="/finance-defaults" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+                    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                      <path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
+                    </svg>
+                    Finanzas predet.
                   </NavLink>
                 </>
               )}

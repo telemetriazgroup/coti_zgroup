@@ -25,6 +25,7 @@ const adminAssignmentsRoutes = require('./routes/adminAssignments');
 const adminGroupsRoutes = require('./routes/adminGroups');
 const odooSyncRoutes = require('./routes/odooSync');
 const activityRoutes = require('./routes/activity');
+const settingsRoutes = require('./routes/settings');
 
 const app = express();
 
@@ -156,6 +157,7 @@ web.use('/api/superuser', superuserRoutes);
 web.use('/api/odoo/sync', odooSyncRoutes);
 web.use('/api/admin-assignments', adminAssignmentsRoutes);
 web.use('/api/admin-groups', adminGroupsRoutes);
+web.use('/api/settings', settingsRoutes);
 
 web.get('/api/health', (req, res) => {
   res.json({
