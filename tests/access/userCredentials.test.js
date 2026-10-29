@@ -2,7 +2,13 @@ const { describe, it } = require('node:test');
 const assert = require('node:assert');
 const { canChangeUserEmail } = require('../../server/utils/userRoles');
 const { allowedCreateRoles, canCreateRole } = require('../../server/lib/userCreation');
-const { buildDefaultPassword, isTemporaryPassword, TEMPORARY_PASSWORD } = require('../../server/lib/defaultPassword');
+const {
+  buildDefaultPassword,
+  isTemporaryPassword,
+  TEMPORARY_PASSWORD,
+  MIN_PASSWORD_LENGTH,
+  isValidPasswordLength,
+} = require('../../server/lib/defaultPassword');
 const { normalizeUserEmail, isValidUserEmail } = require('../../server/lib/userEmail');
 
 describe('correo y clave temporal', () => {
@@ -12,6 +18,12 @@ describe('correo y clave temporal', () => {
     assert.strictEqual(canChangeUserEmail({ role: 'SEMIADMIN' }), false);
     assert.strictEqual(canChangeUserEmail({ role: 'COMERCIAL' }), false);
     assert.strictEqual(canChangeUserEmail({ role: 'VIEWER' }), false);
+  });
+
+  it('acepta contraseñas de mínimo 6 caracteres', () => {
+    assert.strictEqual(MIN_PASSWORD_LENGTH, 6);
+    assert.strictEqual(isValidPasswordLength('12345'), false);
+    assert.strictEqual(isValidPasswordLength('123456'), true);
   });
 
   it('el reinicio usa 123456789 y se detecta como temporal', () => {

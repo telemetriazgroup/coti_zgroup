@@ -1,6 +1,7 @@
 const XLSX = require('xlsx');
 const bcrypt = require('bcrypt');
 const { pool } = require('../config/db');
+const { MIN_PASSWORD_LENGTH } = require('./defaultPassword');
 
 const EXPORT_HEADERS = ['Email', 'Rol', 'Activo', 'Nombres', 'Apellidos', 'Cargo', 'Teléfono', 'DNI'];
 
@@ -123,7 +124,7 @@ async function validateImportRows(parsedRows) {
     }
 
     const pwd = String(r.password || '');
-    if (!pwd || pwd.length < 8) {
+    if (!pwd || pwd.length < MIN_PASSWORD_LENGTH) {
       issues.push('PASSWORD_INVALIDO');
     }
 
@@ -147,7 +148,7 @@ async function validateImportRows(parsedRows) {
       cargo: r.cargo || '',
       telefono: r.telefono || '',
       dni: r.dni || '',
-      passwordOk: pwd.length >= 8,
+      passwordOk: pwd.length >= MIN_PASSWORD_LENGTH,
       activoImport: r.activoImport !== false,
       issues: uniq,
     });

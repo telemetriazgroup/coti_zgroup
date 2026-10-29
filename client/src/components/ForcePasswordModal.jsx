@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from './Modal';
+import { MIN_PASSWORD_LENGTH } from '../lib/passwordPolicy';
 
 export function ForcePasswordModal() {
   const { refreshProfile, logout } = useAuth();
@@ -19,8 +20,8 @@ export function ForcePasswordModal() {
       setErr('La confirmación no coincide con la nueva contraseña');
       return;
     }
-    if (newPassword.length < 8) {
-      setErr('La nueva contraseña debe tener al menos 8 caracteres');
+    if (newPassword.length < MIN_PASSWORD_LENGTH) {
+      setErr(`La nueva contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
       return;
     }
     if (newPassword === '123456789') {
@@ -82,7 +83,7 @@ export function ForcePasswordModal() {
             <input
               className="form-input mono pwd-input"
               type={showPwd ? 'text' : 'password'}
-              minLength={8}
+              minLength={MIN_PASSWORD_LENGTH}
               required
               autoComplete="new-password"
               value={newPassword}
@@ -106,7 +107,7 @@ export function ForcePasswordModal() {
           <input
             className="form-input mono"
             type={showPwd ? 'text' : 'password'}
-            minLength={8}
+            minLength={MIN_PASSWORD_LENGTH}
             required
             autoComplete="new-password"
             value={confirmPassword}

@@ -233,15 +233,14 @@ router.post('/login-lockouts/reset', async (req, res) => {
         error: { code: 'VALIDATION_ERROR', message: 'Indique email o userId' },
       });
     }
-    if (!cleared) {
-      return res.status(404).json({
-        success: false,
-        error: { code: 'NOT_FOUND', message: 'No hay bloqueo registrado para esa cuenta' },
-      });
-    }
     return res.json({
       success: true,
-      data: { message: 'Contador de intentos reiniciado. La cuenta puede iniciar sesión.' },
+      data: {
+        cleared,
+        message: cleared
+          ? 'Contador de intentos reiniciado. La cuenta puede iniciar sesión.'
+          : 'No había bloqueo activo. La cuenta ya puede iniciar sesión.',
+      },
     });
   } catch (err) {
     console.error('[SUPERUSER] login-lockouts reset:', err);

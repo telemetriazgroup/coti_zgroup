@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useState } from 'react';
 import { api } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
+import { MIN_PASSWORD_LENGTH } from '../lib/passwordPolicy';
 
 export function ProfilePage() {
   const { user, refreshProfile } = useAuth();
@@ -75,8 +76,8 @@ export function ProfilePage() {
       setErr('La confirmación no coincide con la nueva contraseña');
       return;
     }
-    if (pwdForm.newPassword.length < 8) {
-      setErr('La nueva contraseña debe tener al menos 8 caracteres');
+    if (pwdForm.newPassword.length < MIN_PASSWORD_LENGTH) {
+      setErr(`La nueva contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`);
       return;
     }
     setPwdBusy(true);
@@ -181,7 +182,7 @@ export function ProfilePage() {
             Cambiar contraseña
           </h2>
           <p className="muted mono" style={{ fontSize: 12, marginBottom: 12, lineHeight: 1.45 }}>
-            Debe ingresar su contraseña actual. Mínimo 8 caracteres en la nueva.
+            Debe ingresar su contraseña actual. Mínimo {MIN_PASSWORD_LENGTH} caracteres en la nueva.
           </p>
           <form className="stack-form" onSubmit={savePassword}>
             <label>
@@ -201,7 +202,7 @@ export function ProfilePage() {
                 type="password"
                 className="form-input mono"
                 required
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
                 value={pwdForm.newPassword}
                 onChange={(e) => setPwdForm((f) => ({ ...f, newPassword: e.target.value }))}
@@ -213,7 +214,7 @@ export function ProfilePage() {
                 type="password"
                 className="form-input mono"
                 required
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
                 value={pwdForm.confirmPassword}
                 onChange={(e) => setPwdForm((f) => ({ ...f, confirmPassword: e.target.value }))}

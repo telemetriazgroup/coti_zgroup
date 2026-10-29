@@ -13,8 +13,9 @@ const {
   fetchAllUsersForExport,
   applyUserImport,
 } = require('../lib/usersExcel');
-const { buildDefaultPassword, isTemporaryPassword } = require('../lib/defaultPassword');
+const { buildDefaultPassword, isTemporaryPassword, MIN_PASSWORD_LENGTH, isValidPasswordLength } = require('../lib/defaultPassword');
 const { normalizeUserEmail, isValidUserEmail } = require('../lib/userEmail');
+const { clearLoginLockout } = require('../lib/loginLockout');
 const { normalizeMarket, MARKETS, getUserPricingMarket } = require('../lib/pricingMarket');
 
 function commercialFinanceFromBody(body) {
@@ -353,6 +354,7 @@ router.post('/:id/reset-password', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL'
       `UPDATE users SET password_hash = $1, must_change_password = true, updated_at = NOW() WHERE id = $2`,
       [passwordHash, rows[0].id]
     );
+    await clearLoginLockout(rows[0].email);
 
     return res.json({
       success: true,
@@ -423,7 +425,7 @@ router.get('/:id', async (req, res) => {
 // ─── POST /api/users — Crear usuario + empleado (ADMIN) ─────────
 const createValidation = [
   body('email').isEmail().withMessage('Email inválido'),
-  body('password').isLength({ min: 8 }).withMessage('Contraseña mínimo 8 caracteres'),
+  body('password').isLength({ min: MIN_PASSWORD_LENGTH }).withMessage(`Contraseña mínimo ${MIN_PASSWORD_LENGTH} caracteres`),
   body('role').isIn(['SUPERUSER', 'ADMIN', 'SEMIADMIN', 'COMERCIAL', 'VIEWER']).withMessage('Rol inválido'),
   body('nombres')
     .if((_, { req }) => ['ADMIN', 'COMERCIAL'].includes(req.body.role))
@@ -684,6 +686,15 @@ router.put('/:id', async (req, res) => {
             error: {
               code: 'USE_PROFILE_PASSWORD',
               message: 'Use Mi perfil para cambiar su contraseña con verificación de la actual',
+            },
+          });
+        }
+        if (!isValidPasswordLength(password)) {
+          return res.status(400).json({
+            success: false,
+            error: {
+              code: 'VALIDATION_ERROR',
+              message: `Contraseña mínimo ${MIN_PASSWORD_LENGTH} caracteres`,
             },
           });
         }

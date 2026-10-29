@@ -17,6 +17,7 @@ export function SuperuserPage() {
   const [odooProjectBusy, setOdooProjectBusy] = useState(false);
   const [odooLink, setOdooLink] = useState(null);
   const fileRef = useRef(null);
+  const [unlockEmail, setUnlockEmail] = useState('');
 
   const loadAudit = useCallback(async () => {
     setAuditLoading(true);
@@ -34,7 +35,7 @@ export function SuperuserPage() {
   const loadLockouts = useCallback(async () => {
     setLockoutsLoading(true);
     try {
-      const data = await api.get('/api/superuser/login-lockouts');
+      const data = await api.get('/api/superuser/login-lockouts?all=true');
       setLockouts(Array.isArray(data) ? data : []);
     } catch (e) {
       setErr(e.message);
@@ -100,14 +101,29 @@ export function SuperuserPage() {
   async function resetLockout(row) {
     setErr(null);
     try {
-      await api.post('/api/superuser/login-lockouts/reset', {
+      const data = await api.post('/api/superuser/login-lockouts/reset', {
         email: row.email,
         userId: row.userId || undefined,
       });
-      setMsg(`Cuenta desbloqueada: ${row.userEmail || row.email}`);
+      setMsg(data?.message || `Cuenta desbloqueada: ${row.userEmail || row.email}`);
       loadLockouts();
     } catch (e) {
       setErr(e.message);
+    }
+  }
+
+  async function resetLockoutByEmail(e) {
+    e.preventDefault();
+    const email = unlockEmail.trim();
+    if (!email) return;
+    setErr(null);
+    try {
+      const data = await api.post('/api/superuser/login-lockouts/reset', { email });
+      setMsg(data?.message || `Login reiniciado: ${email}`);
+      setUnlockEmail('');
+      loadLockouts();
+    } catch (e2) {
+      setErr(e2.message);
     }
   }
 
@@ -337,8 +353,28 @@ export function SuperuserPage() {
           </button>
         </div>
         <p className="muted mono" style={{ fontSize: 12, padding: '0 16px 8px' }}>
-          El límite de intentos aplica por correo, no por IP. Puede reiniciar el conteo de una cuenta bloqueada.
+          Tras 5 intentos fallidos la cuenta se bloquea 5 minutos. El superadmin puede reiniciar el conteo al
+          instante (por correo, no por IP).
         </p>
+        <form
+          className="stack-form"
+          onSubmit={resetLockoutByEmail}
+          style={{ padding: '0 16px 12px', display: 'flex', gap: 8, alignItems: 'flex-end', flexWrap: 'wrap' }}
+        >
+          <label style={{ flex: '1 1 220px', marginBottom: 0 }}>
+            <span className="fg-lbl">Desbloquear por correo</span>
+            <input
+              className="form-input mono"
+              type="email"
+              placeholder="usuario@zgroup.pe"
+              value={unlockEmail}
+              onChange={(ev) => setUnlockEmail(ev.target.value)}
+            />
+          </label>
+          <button type="submit" className="btn btn-primary" disabled={!unlockEmail.trim()}>
+            Reiniciar bloqueo
+          </button>
+        </form>
         <div className="table-wrap" style={{ maxHeight: 240, overflow: 'auto' }}>
           <table className="data-table data-table--compact">
             <thead>

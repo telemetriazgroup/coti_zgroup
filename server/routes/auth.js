@@ -10,7 +10,7 @@ const {
   requireAuth,
 } = require('../middleware/auth');
 const { mapAuthUser, AUTH_USER_SELECT } = require('../lib/userProfile');
-const { isTemporaryPassword } = require('../lib/defaultPassword');
+const { isTemporaryPassword, MIN_PASSWORD_LENGTH } = require('../lib/defaultPassword');
 const {
   checkLoginLockout,
   recordFailedLogin,
@@ -498,7 +498,9 @@ router.put(
   requireAuth,
   [
     body('currentPassword').optional({ values: 'falsy' }).isString(),
-    body('newPassword').isLength({ min: 8 }).withMessage('La nueva contraseña debe tener al menos 8 caracteres'),
+    body('newPassword')
+      .isLength({ min: MIN_PASSWORD_LENGTH })
+      .withMessage(`La nueva contraseña debe tener al menos ${MIN_PASSWORD_LENGTH} caracteres`),
   ],
   async (req, res) => {
     const errors = validationResult(req);

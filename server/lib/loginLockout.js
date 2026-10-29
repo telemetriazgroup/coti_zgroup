@@ -3,7 +3,7 @@ const { pool } = require('../config/db');
 const LOGIN_RATE_LIMIT_MAX = Math.max(1, parseInt(process.env.LOGIN_RATE_LIMIT_MAX || '5', 10) || 5);
 const LOGIN_RATE_LIMIT_WINDOW_MS = Math.max(
   60_000,
-  parseInt(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || String(15 * 60 * 1000), 10) || 15 * 60 * 1000
+  parseInt(process.env.LOGIN_RATE_LIMIT_WINDOW_MS || String(5 * 60 * 1000), 10) || 5 * 60 * 1000
 );
 
 function normalizeLoginEmail(email) {

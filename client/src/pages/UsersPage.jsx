@@ -3,13 +3,14 @@ import { useAuth } from '../context/AuthContext';
 import { api, getBlob, postFormData } from '../lib/api';
 import { Modal } from '../components/Modal';
 import { MarketIcon } from '../components/MarketIcon';
+import { MIN_PASSWORD_LENGTH } from '../lib/passwordPolicy';
 
 const ISSUE_LABELS = {
   FALTA_EMAIL: 'Falta email',
   EMAIL_INVALIDO: 'Email inválido',
   EMAIL_DUP_LOTE: 'Email repetido en el archivo',
   EMAIL_EN_BD: 'Email ya registrado',
-  PASSWORD_INVALIDO: 'Contraseña obligatoria (mín. 8 caracteres)',
+  PASSWORD_INVALIDO: `Contraseña obligatoria (mín. ${MIN_PASSWORD_LENGTH} caracteres)`,
   ROL_INVALIDO: 'Rol inválido',
   FALTA_NOMBRES: 'Nombres obligatorios para este rol',
   FALTA_APELLIDOS: 'Apellidos obligatorios para este rol',
@@ -168,7 +169,7 @@ export function UsersPage() {
       if (isAdmin() && editForm.email) {
         body.email = editForm.email.trim().toLowerCase();
       }
-      if (editForm.password && editForm.password.length >= 8) {
+      if (editForm.password && editForm.password.length >= MIN_PASSWORD_LENGTH) {
         body.password = editForm.password;
       }
       if (canAssignMarket && editForm.role !== 'VIEWER' && editForm.pricingMarket) {
@@ -205,6 +206,20 @@ export function UsersPage() {
       window.alert(
         `Contraseña reiniciada.\n\nEmail: ${data.email}\nNueva contraseña: ${data.defaultPassword}\n\nAl ingresar, el sistema le pedirá actualizarla (se sugiere usar la de Odoo).`
       );
+    } catch (e2) {
+      setErr(e2.message);
+    }
+  }
+
+  async function unlockLogin(row) {
+    if (!isSuperuser()) return;
+    setErr(null);
+    try {
+      await api.post('/api/superuser/login-lockouts/reset', {
+        email: row.email,
+        userId: row.id,
+      });
+      window.alert(`Login desbloqueado para ${row.email}. Ya puede ingresar.`);
     } catch (e2) {
       setErr(e2.message);
     }
@@ -416,6 +431,11 @@ export function UsersPage() {
                           Reiniciar clave
                         </button>
                       )}
+                      {isSuperuser() && row.id !== me?.id && (
+                        <button type="button" className="btn-link mono" onClick={() => unlockLogin(row)}>
+                          Desbloquear login
+                        </button>
+                      )}
                       {row.active && row.id !== me?.id && (
                         <button type="button" className="btn-link btn-link--danger mono" onClick={() => deactivate(row)}>
                           Desactivar
@@ -464,7 +484,7 @@ export function UsersPage() {
           }
         >
           <p className="muted mono" style={{ fontSize: 12, marginBottom: 10 }}>
-            Filas: {importPreview.total}. Email y contraseña (mín. 8) obligatorios; rol ADMIN/COMERCIAL requiere nombres y
+            Filas: {importPreview.total}. Email y contraseña (mín. {MIN_PASSWORD_LENGTH}) obligatorios; rol ADMIN/COMERCIAL requiere nombres y
             apellidos. La confirmación vuelve a enviar el mismo archivo (las contraseñas no viajan por JSON).{' '}
             {importPreview.canApply ? (
               <span style={{ color: 'var(--green)' }}>Listo para importar.</span>
@@ -541,12 +561,12 @@ export function UsersPage() {
               />
             </label>
             <label>
-              <span className="fg-lbl">Contraseña * (mín. 8)</span>
+              <span className="fg-lbl">Contraseña * (mín. {MIN_PASSWORD_LENGTH})</span>
               <input
                 className="form-input mono"
                 type="password"
                 required
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
                 value={createForm.password}
                 onChange={(e) => setCreateForm((f) => ({ ...f, password: e.target.value }))}
@@ -705,11 +725,11 @@ export function UsersPage() {
               </p>
             )}
             <label>
-              <span className="fg-lbl">Nueva contraseña (opcional, mín. 8)</span>
+              <span className="fg-lbl">Nueva contraseña (opcional, mín. {MIN_PASSWORD_LENGTH})</span>
               <input
                 className="form-input mono"
                 type="password"
-                minLength={8}
+                minLength={MIN_PASSWORD_LENGTH}
                 autoComplete="new-password"
                 placeholder="••••••••"
                 value={editForm.password}

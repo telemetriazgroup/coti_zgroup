@@ -57,6 +57,10 @@ Si el comercial no puede generar el reporte, ve un **modal** con el recuento de 
 
 El comercial **sí puede cambiar el precio en el presupuesto** (no el catálogo). El valor queda `PENDING` con `*` hasta que un SEMIADMIN o ADMIN lo apruebe o rechace. Mientras haya precios pendientes, el comercial no puede generar vista previa ni PDF. Rechazar restaura el último precio aprobado.
 
+## Seguimiento — contraseña 6 caracteres y bloqueo 5 min
+
+Contraseña mínima: **6** caracteres. Tras 5 intentos fallidos la cuenta se bloquea **5 minutos**. El SUPERUSER puede reiniciar el bloqueo en Superusuario (por correo o en la tabla) y en Usuarios (**Desbloquear login**). Reiniciar clave también limpia el bloqueo.
+
 ## Seguimiento — admin: proyectos recientes y usuarios
 
 Al iniciar sesión, ADMIN (y SUPERUSER) ven un modal con los **últimos 5 proyectos de la última semana**. Al hacer clic se abre el presupuesto y ese proyecto no vuelve a salir en el próximo login. ADMIN ve, edita y reinicia clave de SEMIADMIN y COMERCIAL, y puede crear usuarios ADMIN, SEMIADMIN y COMERCIAL.
