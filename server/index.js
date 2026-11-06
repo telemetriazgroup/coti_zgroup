@@ -41,6 +41,8 @@ async function start() {
       console.warn('[EXPORT] Worker PDF:', e.message);
     }
     try {
+      const { hydrateOdooRuntime } = require('./lib/odoo/settingsStore');
+      await hydrateOdooRuntime();
       const { startOdooSyncScheduler } = require('./workers/odooSync.worker');
       startOdooSyncScheduler();
     } catch (e) {

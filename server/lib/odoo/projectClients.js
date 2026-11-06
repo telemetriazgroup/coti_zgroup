@@ -4,6 +4,7 @@
  */
 
 const { pool } = require('../../config/db');
+const { STALE_AFTER_MS } = require('./config');
 const { SYNC_MODEL_PARTNER, SYNC_ORIGIN, SYNC_STATUS } = require('./syncStatus');
 const {
   ilikeContains,
@@ -221,7 +222,7 @@ async function isSyncStale() {
   const lastOk = rows[0]?.last_ok_at;
   if (!lastOk) return { stale: false, lastOkAt: null };
   const age = Date.now() - new Date(lastOk).getTime();
-  return { stale: age > 45 * 60 * 1000, lastOkAt: lastOk };
+  return { stale: age > STALE_AFTER_MS, lastOkAt: lastOk };
 }
 
 function mapPickerPartner(row, cats, extra = {}) {

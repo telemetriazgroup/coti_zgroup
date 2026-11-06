@@ -65,6 +65,21 @@ function RequireUserManager() {
   return <Outlet />;
 }
 
+function RequireAdminPanel() {
+  const { user, ready, hasAdminPanelAccess } = useAuth();
+  if (!ready) {
+    return (
+      <div className="boot-screen">
+        <div className="boot-spinner" />
+        <p className="boot-text mono">Cargando…</p>
+      </div>
+    );
+  }
+  if (!user) return <Navigate to="/login" replace />;
+  if (!hasAdminPanelAccess()) return <Navigate to="/dashboard" replace />;
+  return <Outlet />;
+}
+
 function RequireFullAdmin() {
   const { user, ready, isAdmin } = useAuth();
   if (!ready) {
@@ -123,9 +138,11 @@ export function App() {
           <Route element={<RequireUserManager />}>
             <Route path="users" element={<UsersPage />} />
           </Route>
-          <Route element={<RequireFullAdmin />}>
+          <Route element={<RequireAdminPanel />}>
             <Route path="employees" element={<EmployeesPage />} />
             <Route path="measures" element={<MeasuresPage />} />
+          </Route>
+          <Route element={<RequireFullAdmin />}>
             <Route path="finance-defaults" element={<FinanceDefaultsPage />} />
           </Route>
         </Route>

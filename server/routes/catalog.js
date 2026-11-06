@@ -1189,7 +1189,7 @@ router.delete('/items/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').is
 });
 
 // ─── GET /api/catalog/categories/:id/next-codigo — sugerencia ───
-router.get('/categories/:id/next-codigo', requireRole('ADMIN', 'SUPERUSER', 'COMERCIAL'), [param('id').isUUID()], async (req, res) => {
+router.get('/categories/:id/next-codigo', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER', 'COMERCIAL'), [param('id').isUUID()], async (req, res) => {
   try {
     const { rows } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [req.params.id]);
     if (!rows[0]) {

@@ -23,10 +23,14 @@ function canWriteProject(user, row, ctx = {}) {
   return false;
 }
 
-/** Compartir y archivar — dueño ADMIN/SEMIADMIN o superusuario. */
-function canManageProject(user, row) {
+/**
+ * Archivar: dueño ADMIN/SEMIADMIN o superusuario.
+ * Compartir: lo mismo, y el SEMIADMIN también en proyectos de su equipo o de su grupo.
+ */
+function canManageProject(user, row, ctx = {}) {
   if (isSuperuser(user)) return true;
   if (isAdminLikeRole(user.role) && row.created_by === user.id) return true;
+  if (user.role === 'SEMIADMIN' && (ctx.isTeamCommercial === true || ctx.isGroupAccess === true)) return true;
   return false;
 }
 

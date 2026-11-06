@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { api, getBlob, postFormDataWithProgress } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
-import { canWriteProjects, isAdmin as checkIsAdmin } from '../lib/userRoles';
+import { canWriteProjects, hasAdminPanelAccess } from '../lib/userRoles';
 import { Modal } from '../components/Modal';
 import { ProjectWorkNav } from '../components/ProjectWorkNav';
 import { QuotationStatusFlow } from '../components/QuotationStatusFlow';
@@ -28,7 +28,7 @@ export function ProjectPlansPage() {
   const { projectId } = useParams();
   const { user } = useAuth();
   const canWrite = canWriteProjects(user);
-  const canSeeHistory = checkIsAdmin(user);
+  const canSeeHistory = hasAdminPanelAccess(user);
   const viewerMode = user?.role === 'VIEWER';
 
   const [project, setProject] = useState(null);
@@ -319,7 +319,7 @@ export function ProjectPlansPage() {
 
       {!canSeeHistory && (
         <p className="muted mono" style={{ marginTop: 16, fontSize: 12 }}>
-          Solo ves la versión actual de cada plano. El historial de versiones está disponible para administradores.
+          Solo ves la versión actual de cada plano. El historial de versiones está disponible para admin y semiadmin.
         </p>
       )}
 

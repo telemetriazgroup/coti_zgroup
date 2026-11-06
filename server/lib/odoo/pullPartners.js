@@ -5,7 +5,7 @@
 
 const { pool } = require('../../config/db');
 const { createOdooClient } = require('./xmlrpcClient');
-const { loadOdooConfig, isOdooConfigured } = require('./config');
+const { loadOdooConfig, isOdooConfigured, STALE_AFTER_MS } = require('./config');
 const { normalizePartner } = require('./normalizePartner');
 const { PARTNER_FIELDS, PARTNER_FIELDS_OPTIONAL_PE, X_ZTRACK_UID_FIELD } = require('./partnerFields');
 const { SYNC_MODEL_PARTNER, SYNC_STATUS, mapSyncStateRow } = require('./syncStatus');
@@ -78,6 +78,11 @@ let sharedClient = null;
 function getClient() {
   if (!sharedClient) sharedClient = createOdooClient();
   return sharedClient;
+}
+
+function resetSharedOdooClient() {
+  sharedClient = null;
+  searchFieldsCached = null;
 }
 
 async function loadSyncState() {
@@ -405,6 +410,8 @@ async function getSyncHealth() {
   return {
     configured: isOdooConfigured(cfg),
     syncEnabled: Boolean(cfg.syncEnabled),
+    intervalMinutes: Math.round((cfg.syncIntervalMs || 5 * 60 * 1000) / 60000),
+    configSource: cfg.configSource || 'env',
     https: Boolean(cfg.url && cfg.url.startsWith('https://')),
     urlHost: cfg.url ? new URL(cfg.url).host : null,
     circuit,
@@ -421,7 +428,7 @@ async function getSyncHealth() {
       total: Number(crm.total) || 0,
     },
     watermarkAgeMs,
-    stale: watermarkAgeMs != null && watermarkAgeMs > 45 * 60 * 1000,
+    stale: watermarkAgeMs != null && watermarkAgeMs > STALE_AFTER_MS,
     outbox: await loadOutboxCounts(),
   };
 }
@@ -519,5 +526,6 @@ module.exports = {
   getSyncHealth,
   loadSyncState,
   getClient,
+  resetSharedOdooClient,
   lookupPartnersByQuery,
 };

@@ -338,13 +338,21 @@ export function ProjectsPage() {
     }
   }
 
-  function canManageRow(row) {
+  function canArchiveRow(row) {
     if (isSuperuser()) return true;
-    return isAdmin() && row.createdBy === user?.id;
+    return (isAdmin() || user?.role === 'SEMIADMIN') && row.createdBy === user?.id;
+  }
+
+  function canShareRow(row) {
+    if (canArchiveRow(row)) return true;
+    return user?.role === 'SEMIADMIN' && (row.accessKind === 'team' || row.accessKind === 'group');
   }
 
   function canEditProjectMeta(row) {
     if (isSuperuser()) return true;
+    if (user?.role === 'SEMIADMIN') {
+      return row.createdBy === user?.id || row.accessKind === 'team';
+    }
     if (!isAdmin()) return false;
     return row.accessKind === 'own' || row.accessKind === 'team';
   }
@@ -559,7 +567,7 @@ export function ProjectsPage() {
                             Auditoría
                           </button>
                         )}
-                        {canShareProjects() && canManageRow(row) && !row.deletedAt && (
+                        {canShareProjects() && canShareRow(row) && !row.deletedAt && (
                           <button
                             type="button"
                             className="btn-action btn-action--cyan"
@@ -590,7 +598,7 @@ export function ProjectsPage() {
                             Editar
                           </button>
                         )}
-                        {canManageRow(row) && !row.deletedAt && (
+                        {canArchiveRow(row) && !row.deletedAt && (
                           <button
                             type="button"
                             className="btn-action btn-action--danger"
@@ -809,7 +817,7 @@ export function ProjectsPage() {
           }
         >
           <p className="muted mono" style={{ marginBottom: 12, fontSize: 12 }}>
-            Proyecto: <strong>{sel.nombre}</strong> — seleccione ADMIN o COMERCIAL con acceso de edición.
+            Proyecto: <strong>{sel.nombre}</strong> — seleccione ADMIN, SEMIADMIN o COMERCIAL con acceso de edición.
           </p>
           <form id="share-form" className="stack-form" onSubmit={saveShare}>
             <label>

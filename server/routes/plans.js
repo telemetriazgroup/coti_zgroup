@@ -8,7 +8,7 @@ const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
 const { canReadProject, canWriteProject } = require('../utils/projectAccess');
 const { loadShareContext } = require('../utils/projectShare');
-const { isSuperuser, isAdmin } = require('../utils/userRoles');
+const { isSuperuser, hasAdminPanelAccess } = require('../utils/userRoles');
 const storage = require('../services/storage.service');
 
 const router = express.Router();
@@ -73,9 +73,9 @@ function safeBasename(name) {
   return b.slice(0, 200).toLowerCase() || 'file';
 }
 
-/** ADMIN y SUPERUSER ven todas las versiones; resto solo la actual. */
+/** ADMIN, SEMIADMIN y SUPERUSER ven todas las versiones; comercial y viewer solo la actual. */
 function canSeePlanHistory(user) {
-  return isAdmin(user);
+  return hasAdminPanelAccess(user);
 }
 
 function canAccessPlanVersion(user, plan) {
@@ -138,7 +138,7 @@ function runUpload(req, res, next) {
 }
 
 // ─── POST /api/projects/:id/plans ──────────────────────────────
-router.post('/:id/plans', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), runUpload, async (req, res) => {
+router.post('/:id/plans', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), runUpload, async (req, res) => {
   if (!storage.isStorageConfigured()) {
     return res.status(503).json({
       success: false,
@@ -330,7 +330,7 @@ router.get('/:id/plans/:planId/preview', async (req, res) => {
 });
 
 // ─── DELETE /api/projects/:id/plans/:planId ──────────────────
-router.delete('/:id/plans/:planId', requireRole('ADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
+router.delete('/:id/plans/:planId', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), async (req, res) => {
   if (!storage.isStorageConfigured()) {
     return res.status(503).json({
       success: false,

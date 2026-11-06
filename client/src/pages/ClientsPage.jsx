@@ -1,4 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { api, getBlob, postFormData } from '../lib/api';
 import { useAuth } from '../context/AuthContext';
 import { Modal } from '../components/Modal';
@@ -195,7 +196,14 @@ export function ClientsPage() {
         <div>
           <h1 className="page-title">Clientes</h1>
           <p className="page-sub muted">
-            Ficha tipo Odoo. Alta y edición se envían a staging (outbox); el HTTP no espera XML-RPC.
+            El listado y la ficha salen de la base local. Con el vínculo activo, Odoo se consulta cada 5 minutos y la
+            copia se queda aquí. Alta y edición se encolan; la pantalla no espera la respuesta de Odoo.
+            {isSuperuser() ? (
+              <>
+                {' '}
+                <Link to="/superusuario">Configurar vínculo Odoo</Link>.
+              </>
+            ) : null}
           </p>
         </div>
         <div className="page-header-actions" style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>

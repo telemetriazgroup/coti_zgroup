@@ -42,7 +42,7 @@ export function AppShell() {
   const [recentProjects, setRecentProjects] = useState(null);
 
   useEffect(() => {
-    if (!user || user.mustChangePassword || isImpersonating || !isAdmin()) return;
+    if (!user || user.mustChangePassword || isImpersonating || !hasAdminPanelAccess()) return;
     let justLoggedIn = false;
     try {
       justLoggedIn = sessionStorage.getItem('zgroup_admin_just_logged_in') === '1';
@@ -61,7 +61,7 @@ export function AppShell() {
         if (Array.isArray(rows) && rows.length) setRecentProjects(rows);
       })
       .catch(() => setRecentProjects(null));
-  }, [user, user?.mustChangePassword, isImpersonating, isAdmin]);
+  }, [user, user?.mustChangePassword, isImpersonating, hasAdminPanelAccess]);
 
   useEffect(() => {
     if (!hasAdminPanelAccess()) return;
@@ -301,7 +301,7 @@ export function AppShell() {
           {(isAdmin() || hasRole('COMERCIAL') || hasRole('SEMIADMIN')) && (
             <>
               <div className="sb-section">{isAdmin() || hasRole('SEMIADMIN') ? 'Administración' : 'Gestión'}</div>
-              {isAdmin() && (
+              {(isAdmin() || hasRole('SEMIADMIN')) && (
                 <>
                   <NavLink to="/employees" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
                     <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
@@ -316,12 +316,14 @@ export function AppShell() {
                     </svg>
                     Medidas
                   </NavLink>
-                  <NavLink to="/finance-defaults" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
-                    <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                      <path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
-                    </svg>
-                    Finanzas predet.
-                  </NavLink>
+                  {isAdmin() && (
+                    <NavLink to="/finance-defaults" className={({ isActive }) => 'nav-item' + (isActive ? ' active' : '')} onClick={closeSidebarMobile}>
+                      <svg width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
+                        <path d="M12 1v22M17 5H9.5a3.5 3.5 0 000 7h5a3.5 3.5 0 010 7H6" />
+                      </svg>
+                      Finanzas predet.
+                    </NavLink>
+                  )}
                 </>
               )}
               <NavLink

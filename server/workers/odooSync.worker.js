@@ -1,6 +1,6 @@
 /**
- * Scheduler pull Odoo (15 min) + reconciliación diaria + bomba del outbox (etapa 5).
- * El cron de pull solo corre si ODOO_SYNC_ENABLED=1.
+ * Scheduler pull Odoo (5 min) + reconciliación diaria + bomba del outbox (etapa 5).
+ * El cron de pull corre si la config efectiva (pantalla o ODOO_SYNC_ENABLED) está activa.
  * El outbox de create/write corre igual (pruebas en staging con cron OFF).
  */
 
@@ -8,13 +8,13 @@ const { loadOdooConfig, isOdooConfigured } = require('../lib/odoo/config');
 const { runIncrementalPull, runReconcileDeletes } = require('../lib/odoo/pullPartners');
 const { processOutboxBatch } = require('../lib/odoo/pushPartners');
 
-const PULL_EVERY_MS = 15 * 60 * 1000;
 const RECONCILE_CHECK_MS = 30 * 60 * 1000;
 const OUTBOX_EVERY_MS = 5 * 1000;
 
 let pullTimer = null;
 let reconcileTimer = null;
 let outboxTimer = null;
+let pullKickTimer = null;
 let lastReconcileDay = null;
 let running = false;
 
@@ -88,32 +88,60 @@ function startOutboxPump() {
   setTimeout(() => safeOutbox(), 2 * 1000);
 }
 
-function startOdooSyncScheduler() {
-  startOutboxPump();
-  const cfg = loadOdooConfig();
-  if (!cfg.syncEnabled) {
-    console.log('[ODOO SYNC] cron desactivado (ODOO_SYNC_ENABLED=0). Outbox de escritura sí corre. Use POST /api/odoo/sync/partners a mano para el pull.');
-    return { started: false, outbox: true };
-  }
-  if (pullTimer) return { started: true, already: true };
+function armPullSchedule(reason) {
+  if (pullTimer) clearInterval(pullTimer);
+  if (reconcileTimer) clearInterval(reconcileTimer);
+  if (pullKickTimer) clearTimeout(pullKickTimer);
+  pullTimer = null;
+  reconcileTimer = null;
+  pullKickTimer = null;
 
-  pullTimer = setInterval(() => safePull('interval-15m'), PULL_EVERY_MS);
+  const cfg = loadOdooConfig();
+  if (!cfg.syncEnabled || !isOdooConfigured(cfg)) {
+    const why = !isOdooConfigured(cfg) ? 'Odoo sin vínculo' : 'sync apagada';
+    console.log(
+      `[ODOO SYNC] cron desactivado (${why}, ${reason}). Outbox de escritura sí corre. Configure el vínculo en Superusuario o use POST /api/odoo/sync/partners.`
+    );
+    return { started: false, outbox: true, configured: isOdooConfigured(cfg) };
+  }
+
+  const every = cfg.syncIntervalMs || 5 * 60 * 1000;
+  pullTimer = setInterval(() => safePull('interval-5m'), every);
   if (pullTimer.unref) pullTimer.unref();
   reconcileTimer = setInterval(() => safeReconcile(), RECONCILE_CHECK_MS);
   if (reconcileTimer.unref) reconcileTimer.unref();
 
-  setTimeout(() => safePull('startup'), 15 * 1000);
-  console.log('[ODOO SYNC] cron cada 15 min + reconcile ≥05:00 America/Lima');
-  return { started: true };
+  const delay = reason === 'startup' ? 15 * 1000 : 2 * 1000;
+  pullKickTimer = setTimeout(() => safePull(reason), delay);
+  if (pullKickTimer.unref) pullKickTimer.unref();
+  console.log(`[ODOO SYNC] cron cada ${Math.round(every / 60000)} min + reconcile ≥05:00 America/Lima (${reason})`);
+  return { started: true, intervalMs: every };
+}
+
+function startOdooSyncScheduler() {
+  startOutboxPump();
+  return armPullSchedule('startup');
+}
+
+function restartOdooPullScheduler() {
+  return armPullSchedule('settings');
 }
 
 function stopOdooSyncScheduler() {
   if (pullTimer) clearInterval(pullTimer);
   if (reconcileTimer) clearInterval(reconcileTimer);
   if (outboxTimer) clearInterval(outboxTimer);
+  if (pullKickTimer) clearTimeout(pullKickTimer);
   pullTimer = null;
   reconcileTimer = null;
   outboxTimer = null;
+  pullKickTimer = null;
 }
 
-module.exports = { startOdooSyncScheduler, stopOdooSyncScheduler, safePull, safeOutbox };
+module.exports = {
+  startOdooSyncScheduler,
+  restartOdooPullScheduler,
+  stopOdooSyncScheduler,
+  safePull,
+  safeOutbox,
+};

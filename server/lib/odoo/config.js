@@ -1,7 +1,18 @@
 /**
- * Configuración de conexión a Odoo 17 (etapa 0).
- * ODOO_SYNC_ENABLED debe quedar en 0 hasta la etapa 3 (worker de pull).
+ * Configuración de conexión a Odoo 17.
+ * El entorno (ODOO_*) es el respaldo. Si hay fila en app_settings, pisa URL, BD, usuario, clave y el cron.
+ * El pull de contactos corre cada 5 minutos cuando syncEnabled está activo.
  */
+
+const PULL_INTERVAL_MS = 5 * 60 * 1000;
+const STALE_AFTER_MS = 15 * 60 * 1000;
+
+/** @type {null | { url?: string, db?: string, user?: string, apiKey?: string, syncEnabled?: boolean }} */
+let runtimeSettings = null;
+
+function setOdooRuntime(next) {
+  runtimeSettings = next && typeof next === 'object' ? { ...next } : null;
+}
 
 function envFlag(name, fallback = false, env = process.env) {
   const raw = env[name];
@@ -31,7 +42,7 @@ function loadOdooConfig(env = process.env) {
     url = normalizeOdooBaseUrl(urlRaw);
   }
   const timeoutMs = Number.parseInt(env.ODOO_TIMEOUT_MS || '20000', 10);
-  return {
+  const base = {
     url,
     db: (env.ODOO_DB || '').trim(),
     user: (env.ODOO_USER || '').trim(),
@@ -39,8 +50,25 @@ function loadOdooConfig(env = process.env) {
     timeoutMs: Number.isFinite(timeoutMs) && timeoutMs > 0 ? timeoutMs : 20000,
     tlsInsecure: envFlag('ODOO_TLS_INSECURE', false, env),
     syncEnabled: envFlag('ODOO_SYNC_ENABLED', false, env),
+    syncIntervalMs: PULL_INTERVAL_MS,
+    configSource: 'env',
     failureThreshold: Number.parseInt(env.ODOO_CIRCUIT_FAILURES || '5', 10) || 5,
     cooldownMs: Number.parseInt(env.ODOO_CIRCUIT_COOLDOWN_MS || String(10 * 60 * 1000), 10) || 10 * 60 * 1000,
+  };
+  if (env !== process.env || !runtimeSettings) return base;
+  const rt = runtimeSettings;
+  let runtimeUrl = base.url;
+  if (String(rt.url || '').trim()) {
+    runtimeUrl = normalizeOdooBaseUrl(rt.url);
+  }
+  return {
+    ...base,
+    url: runtimeUrl,
+    db: String(rt.db || '').trim() || base.db,
+    user: String(rt.user || '').trim() || base.user,
+    apiKey: String(rt.apiKey || '').trim() || base.apiKey,
+    syncEnabled: typeof rt.syncEnabled === 'boolean' ? rt.syncEnabled : base.syncEnabled,
+    configSource: 'database',
   };
 }
 
@@ -94,6 +122,9 @@ function xmlrpcEndpoint(cfg, kind) {
 }
 
 module.exports = {
+  PULL_INTERVAL_MS,
+  STALE_AFTER_MS,
+  setOdooRuntime,
   loadOdooConfig,
   isOdooConfigured,
   isOdooWriteAllowed,

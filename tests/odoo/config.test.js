@@ -1,6 +1,12 @@
 const assert = require('node:assert');
 const { CircuitBreaker, CircuitOpenError } = require('../../server/lib/odoo/circuitBreaker');
-const { loadOdooConfig, isOdooConfigured, normalizeOdooBaseUrl } = require('../../server/lib/odoo/config');
+const {
+  loadOdooConfig,
+  isOdooConfigured,
+  normalizeOdooBaseUrl,
+  setOdooRuntime,
+  PULL_INTERVAL_MS,
+} = require('../../server/lib/odoo/config');
 
 describe('odoo circuitBreaker + config', () => {
   it('abre tras N fallos y se cierra al pasar el cooldown', () => {
@@ -71,5 +77,38 @@ describe('odoo circuitBreaker + config', () => {
       {}
     );
     assert.strictEqual(stg.ok, true);
+  });
+
+  it('la config de pantalla pisa el entorno y fija el pull en 5 min', () => {
+    setOdooRuntime({
+      url: 'https://desde-bd.example',
+      db: 'bd',
+      user: 'integracion',
+      apiKey: 'secreta',
+      syncEnabled: true,
+    });
+    try {
+      const cfg = loadOdooConfig();
+      assert.strictEqual(cfg.url, 'https://desde-bd.example');
+      assert.strictEqual(cfg.db, 'bd');
+      assert.strictEqual(cfg.user, 'integracion');
+      assert.strictEqual(cfg.apiKey, 'secreta');
+      assert.strictEqual(cfg.syncEnabled, true);
+      assert.strictEqual(cfg.configSource, 'database');
+      assert.strictEqual(cfg.syncIntervalMs, PULL_INTERVAL_MS);
+      assert.strictEqual(PULL_INTERVAL_MS, 5 * 60 * 1000);
+      const isolated = loadOdooConfig({
+        ODOO_URL: 'https://odoo.example',
+        ODOO_DB: 'prod',
+        ODOO_USER: 'u',
+        ODOO_API_KEY: 'k',
+        ODOO_SYNC_ENABLED: '0',
+      });
+      assert.strictEqual(isolated.url, 'https://odoo.example');
+      assert.strictEqual(isolated.syncEnabled, false);
+      assert.strictEqual(isolated.configSource, 'env');
+    } finally {
+      setOdooRuntime(null);
+    }
   });
 });

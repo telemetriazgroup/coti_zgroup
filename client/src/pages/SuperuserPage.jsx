@@ -13,6 +13,16 @@ export function SuperuserPage() {
   const [importBusy, setImportBusy] = useState(false);
   const [importMode, setImportMode] = useState('merge');
   const [odooHealth, setOdooHealth] = useState(null);
+  const [odooSettings, setOdooSettings] = useState(null);
+  const [odooForm, setOdooForm] = useState({
+    url: '',
+    db: '',
+    user: '',
+    apiKey: '',
+    syncEnabled: true,
+  });
+  const [odooSaveBusy, setOdooSaveBusy] = useState(false);
+  const [odooTestBusy, setOdooTestBusy] = useState(false);
   const [odooBusy, setOdooBusy] = useState(false);
   const [odooProjectBusy, setOdooProjectBusy] = useState(false);
   const [odooLink, setOdooLink] = useState(null);
@@ -44,6 +54,22 @@ export function SuperuserPage() {
     }
   }, []);
 
+  const loadOdooSettings = useCallback(async () => {
+    try {
+      const data = await api.get('/api/odoo/sync/settings');
+      setOdooSettings(data);
+      setOdooForm({
+        url: data.url || '',
+        db: data.db || '',
+        user: data.user || '',
+        apiKey: '',
+        syncEnabled: data.configSource === 'none' ? true : Boolean(data.syncEnabled),
+      });
+    } catch (e) {
+      setOdooSettings({ error: e.message });
+    }
+  }, []);
+
   const loadOdooHealth = useCallback(async () => {
     try {
       const data = await api.get('/api/odoo/sync/health');
@@ -63,7 +89,8 @@ export function SuperuserPage() {
     loadAudit();
     loadLockouts();
     loadOdooHealth();
-  }, [loadAudit, loadLockouts, loadOdooHealth]);
+    loadOdooSettings();
+  }, [loadAudit, loadLockouts, loadOdooHealth, loadOdooSettings]);
 
   async function triggerOdooProject() {
     setErr(null);
@@ -79,6 +106,61 @@ export function SuperuserPage() {
       setErr(e.message);
     } finally {
       setOdooProjectBusy(false);
+    }
+  }
+
+  function patchOdooForm(field, value) {
+    setOdooForm((f) => ({ ...f, [field]: value }));
+  }
+
+  async function saveOdooLink(e) {
+    e.preventDefault();
+    setErr(null);
+    setMsg(null);
+    setOdooSaveBusy(true);
+    try {
+      const data = await api.put('/api/odoo/sync/settings', {
+        url: odooForm.url.trim(),
+        db: odooForm.db.trim(),
+        user: odooForm.user.trim(),
+        apiKey: odooForm.apiKey,
+        syncEnabled: odooForm.syncEnabled,
+      });
+      setOdooForm((f) => ({ ...f, apiKey: '' }));
+      setMsg(
+        data.syncEnabled && data.configured
+          ? 'Vínculo guardado. Los contactos se copian a la base local y se vuelven a pedir cada 5 minutos.'
+          : 'Vínculo guardado. La sincronización automática quedó apagada; la copia que ya está en la base se conserva.'
+      );
+      await loadOdooSettings();
+      await loadOdooHealth();
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setOdooSaveBusy(false);
+    }
+  }
+
+  async function testOdooLink() {
+    setErr(null);
+    setMsg(null);
+    setOdooTestBusy(true);
+    try {
+      const data = await api.post('/api/odoo/sync/settings/test', {
+        url: odooForm.url.trim(),
+        db: odooForm.db.trim(),
+        user: odooForm.user.trim(),
+        apiKey: odooForm.apiKey,
+      });
+      setMsg(
+        `Conexión correcta${data.serverVersion ? ` · Odoo ${data.serverVersion}` : ''}${
+          data.uid ? ` · uid ${data.uid}` : ''
+        }. Guarde el vínculo para empezar a copiar contactos.`
+      );
+    } catch (e2) {
+      setErr(e2.message);
+    } finally {
+      setOdooTestBusy(false);
     }
   }
 
@@ -214,8 +296,85 @@ export function SuperuserPage() {
       <div className="panel" style={{ marginBottom: 16 }}>
         <h2 className="panel-title">Contactos Odoo</h2>
         <p className="muted mono" style={{ fontSize: 12, marginBottom: 12 }}>
-          Caché local de res.partner. El picker de proyecto busca aquí (etapa 4), sin llamar a Odoo.
+          Los clientes de la pantalla Clientes se leen de PostgreSQL. Este vínculo baja res.partner, lo deja en la
+          base y lo vuelve a pedir cada 5 minutos. La clave API no se muestra de nuevo.
         </p>
+        <form className="stack-form" style={{ maxWidth: 560, marginBottom: 16 }} onSubmit={saveOdooLink}>
+          <label>
+            <span className="fg-lbl">URL de Odoo</span>
+            <input
+              className="form-input"
+              value={odooForm.url}
+              onChange={(e) => patchOdooForm('url', e.target.value)}
+              placeholder="https://zgroup.odoo.com"
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            <span className="fg-lbl">Base de datos</span>
+            <input
+              className="form-input"
+              value={odooForm.db}
+              onChange={(e) => patchOdooForm('db', e.target.value)}
+              placeholder="zgroup"
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            <span className="fg-lbl">Usuario técnico</span>
+            <input
+              className="form-input"
+              value={odooForm.user}
+              onChange={(e) => patchOdooForm('user', e.target.value)}
+              placeholder="integracion.ztrack"
+              autoComplete="off"
+            />
+          </label>
+          <label>
+            <span className="fg-lbl">Clave API</span>
+            <input
+              className="form-input"
+              type="password"
+              value={odooForm.apiKey}
+              onChange={(e) => patchOdooForm('apiKey', e.target.value)}
+              placeholder={
+                odooSettings?.apiKeySet
+                  ? `Guardada (${odooSettings.apiKeyHint || '••••'}). Déjela vacía para conservarla.`
+                  : 'Pegue la clave API de Odoo'
+              }
+              autoComplete="new-password"
+            />
+          </label>
+          <label style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+            <input
+              type="checkbox"
+              checked={odooForm.syncEnabled}
+              onChange={(e) => patchOdooForm('syncEnabled', e.target.checked)}
+            />
+            <span className="fg-lbl" style={{ margin: 0 }}>
+              Sincronizar contactos cada 5 minutos
+            </span>
+          </label>
+          {odooSettings?.configSource && odooSettings.configSource !== 'none' && (
+            <p className="muted mono" style={{ fontSize: 11, margin: 0 }}>
+              Origen actual: {odooSettings.configSource === 'database' ? 'esta pantalla' : 'variables de entorno del servidor'}
+              {odooSettings.configured ? '' : ' · aún incompleto'}
+            </p>
+          )}
+          <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+            <button type="submit" className="btn btn-primary" disabled={odooSaveBusy || odooTestBusy}>
+              {odooSaveBusy ? 'Guardando…' : 'Guardar vínculo'}
+            </button>
+            <button
+              type="button"
+              className="btn btn-ghost"
+              disabled={odooSaveBusy || odooTestBusy}
+              onClick={testOdooLink}
+            >
+              {odooTestBusy ? 'Probando…' : 'Probar conexión'}
+            </button>
+          </div>
+        </form>
         {odooHealth?.error ? (
           <p className="muted">{odooHealth.error}</p>
         ) : odooHealth ? (
@@ -225,7 +384,7 @@ export function SuperuserPage() {
               <div className="kpi-value" style={{ fontSize: 16 }}>{odooHealth.configured ? 'Sí' : 'No'}</div>
             </div>
             <div className="kpi-card">
-              <div className="kpi-label mono">Cron 15 min</div>
+              <div className="kpi-label mono">Cron {odooHealth.intervalMinutes || 5} min</div>
               <div className="kpi-value" style={{ fontSize: 16 }}>{odooHealth.syncEnabled ? 'ON' : 'OFF'}</div>
             </div>
             <div className="kpi-card">
@@ -262,7 +421,7 @@ export function SuperuserPage() {
         )}
         {odooHealth?.stale && (
           <p className="muted" style={{ marginBottom: 8 }}>
-            Última sync con más de 45 min. Si el cron está OFF, pulse actualizar.
+            Última sync con más de 15 min. Si el cron está OFF, pulse actualizar.
           </p>
         )}
         {odooHealth?.state?.lastError && (

@@ -35,6 +35,9 @@ function canShareProjects(user) {
   return user?.role === 'ADMIN' || isSemiAdmin(user) || isSuperuser(user);
 }
 
+/** Destino de un proyecto compartido: pares de gestión y comerciales. */
+const SHARE_TARGET_ROLES = Object.freeze(['ADMIN', 'SEMIADMIN', 'COMERCIAL']);
+
 /** Archivados y restauración: solo SUPERUSER. */
 function canViewArchivedProjects(user) {
   return isSuperuser(user);
@@ -68,6 +71,7 @@ module.exports = {
   canReviewCatalogRequests,
   canSeeUnreleasedCatalog,
   canShareProjects,
+  SHARE_TARGET_ROLES,
   canViewArchivedProjects,
   canViewInactiveCatalog,
   isAdminLikeRole,

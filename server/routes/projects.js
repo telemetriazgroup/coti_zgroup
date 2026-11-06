@@ -2,7 +2,7 @@ const express = require('express');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
 const { requireAuth, requireRole } = require('../middleware/auth');
-const { canViewArchivedProjects, isSuperuser, canChangeQuotationMarket } = require('../utils/userRoles');
+const { canViewArchivedProjects, isSuperuser, canChangeQuotationMarket, SHARE_TARGET_ROLES } = require('../utils/userRoles');
 const { logAuditEvent } = require('../middleware/audit');
 const { getClientIp } = require('../utils/ip');
 const {
@@ -93,9 +93,9 @@ router.get('/', async (req, res) => {
 });
 
 // ─── GET /api/projects/admin-recent — últimos 5 de la semana (ADMIN) ──
-router.get('/admin-recent', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.get('/admin-recent', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
-    const data = await listUnreviewedRecentProjects(req.user.id);
+    const data = await listUnreviewedRecentProjects(req.user);
     return res.json({ success: true, data });
   } catch (err) {
     console.error('[PROJECTS] admin-recent:', err);
@@ -103,9 +103,9 @@ router.get('/admin-recent', requireRole('ADMIN', 'SUPERUSER'), async (req, res) 
   }
 });
 
-router.post('/:id/admin-review', requireRole('ADMIN', 'SUPERUSER'), async (req, res) => {
+router.post('/:id/admin-review', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (req, res) => {
   try {
-    const ok = await markProjectReviewed(req.user.id, req.params.id);
+    const ok = await markProjectReviewed(req.user, req.params.id);
     if (!ok) {
       return res.status(404).json({
         success: false,
@@ -174,7 +174,8 @@ router.get('/:id/shares', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async 
     if (!pr[0]) {
       return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
     }
-    if (!canManageProject(req.user, pr[0])) {
+    const shareCtx = await loadProjectAccessContext(req.user, pr[0]);
+    if (!canManageProject(req.user, pr[0], shareCtx)) {
       return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
     }
 
@@ -228,8 +229,9 @@ router.put(
       if (!pr[0]) {
         return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
       }
-      if (!canManageProject(req.user, pr[0])) {
-        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Solo el dueño puede compartir' } });
+      const shareCtx = await loadProjectAccessContext(req.user, pr[0]);
+      if (!canManageProject(req.user, pr[0], shareCtx)) {
+        return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Solo el dueño o el semiadmin del equipo puede compartir' } });
       }
       if (pr[0].deleted_at) {
         return res.status(400).json({ success: false, error: { code: 'DELETED', message: 'Proyecto archivado' } });
@@ -244,13 +246,13 @@ router.put(
 
       if (userIds.length) {
         const { rows: valid } = await pool.query(
-          `SELECT id FROM users WHERE id = ANY($1::uuid[]) AND active = true AND role IN ('ADMIN', 'COMERCIAL')`,
-          [userIds]
+          `SELECT id FROM users WHERE id = ANY($1::uuid[]) AND active = true AND role = ANY($2::text[])`,
+          [userIds, SHARE_TARGET_ROLES]
         );
         if (valid.length !== userIds.length) {
           return res.status(400).json({
             success: false,
-            error: { code: 'INVALID_USERS', message: 'Solo usuarios ADMIN o COMERCIAL activos' },
+            error: { code: 'INVALID_USERS', message: 'Solo usuarios ADMIN, SEMIADMIN o COMERCIAL activos' },
           });
         }
       }

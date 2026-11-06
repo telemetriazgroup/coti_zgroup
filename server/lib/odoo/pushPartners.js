@@ -61,6 +61,10 @@ function getClient() {
   return sharedClient;
 }
 
+function resetSharedOdooClient() {
+  sharedClient = null;
+}
+
 async function loadCategoryClienteId() {
   const { rows } = await pool.query(
     `SELECT category_cliente_id FROM odoo_sync_state WHERE model = $1`,
@@ -638,5 +642,6 @@ module.exports = {
   kickOutbox,
   latestOutboxForClient,
   outboxCounts,
+  resetSharedOdooClient,
   MAX_ATTEMPTS,
 };

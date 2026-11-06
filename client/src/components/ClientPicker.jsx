@@ -265,7 +265,7 @@ export function ClientPicker({
           autoComplete="off"
         />
         {stale && (
-          <p className="client-picker__stale muted mono">Contactos Odoo desactualizados (&gt;45 min)</p>
+          <p className="client-picker__stale muted mono">Contactos Odoo desactualizados (&gt;15 min)</p>
         )}
         {pickErr && (
           <p className="client-picker__stale" style={{ color: 'var(--red)' }}>

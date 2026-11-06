@@ -8,7 +8,7 @@ const emptyForm = { suffix: '', nombre: '', sortOrder: '0', active: true };
 
 export function MeasuresPage() {
   const { hasRole } = useAuth();
-  const canWrite = hasRole('ADMIN', 'SUPERUSER');
+  const canWrite = hasRole('ADMIN', 'SEMIADMIN', 'SUPERUSER');
 
   const [list, setList] = useState([]);
   const [loading, setLoading] = useState(true);

@@ -114,7 +114,7 @@ export function ProjectShareModal({ projectId, projectName, open, onClose, onSav
       }
     >
       <p className="muted mono" style={{ marginBottom: 12, fontSize: 12 }}>
-        Proyecto: <strong>{projectName || projectId}</strong> — seleccione ADMIN o COMERCIAL con acceso de edición.
+        Proyecto: <strong>{projectName || projectId}</strong> — seleccione ADMIN, SEMIADMIN o COMERCIAL con acceso de edición.
       </p>
       {err && (
         <div className="banner banner--err mono" style={{ marginBottom: 10, fontSize: 12 }}>

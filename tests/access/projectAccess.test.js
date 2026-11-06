@@ -1,7 +1,7 @@
 const { describe, it } = require('node:test');
 const assert = require('node:assert');
-const { canReadProject, canWriteProject, canViewProjectAudit, canEditProjectKits } = require('../../server/utils/projectAccess');
-const { canViewArchivedProjects } = require('../../server/utils/userRoles');
+const { canReadProject, canWriteProject, canViewProjectAudit, canEditProjectKits, canManageProject } = require('../../server/utils/projectAccess');
+const { canViewArchivedProjects, SHARE_TARGET_ROLES } = require('../../server/utils/userRoles');
 
 describe('visibilidad de proyectos por rol', () => {
   const owner = { id: 'a1', role: 'COMERCIAL' };
@@ -27,6 +27,18 @@ describe('visibilidad de proyectos por rol', () => {
     assert.strictEqual(canReadProject(viewer, project, {}), true);
     assert.strictEqual(canReadProject(viewer, { ...project, assigned_viewer: 'otro' }, {}), false);
     assert.strictEqual(canWriteProject(viewer, project, {}), false);
+  });
+
+  it('SEMIADMIN comparte los propios y los de su equipo, y puede elegir a otro SEMIADMIN', () => {
+    const semi = { id: 's1', role: 'SEMIADMIN' };
+    const own = { id: 'p2', created_by: semi.id };
+    assert.strictEqual(canManageProject(semi, own), true);
+    assert.strictEqual(canManageProject(semi, project), false);
+    assert.strictEqual(canManageProject(semi, project, { isTeamCommercial: true }), true);
+    assert.strictEqual(canManageProject(semi, project, { isGroupAccess: true }), true);
+    assert.ok(SHARE_TARGET_ROLES.includes('SEMIADMIN'));
+    assert.ok(SHARE_TARGET_ROLES.includes('COMERCIAL'));
+    assert.ok(SHARE_TARGET_ROLES.includes('ADMIN'));
   });
 
   it('SEMIADMIN lee y escribe proyectos de su comercial de equipo y los compartidos', () => {

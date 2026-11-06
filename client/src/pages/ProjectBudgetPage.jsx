@@ -343,7 +343,10 @@ export function ProjectBudgetPage() {
   }, [projectId]);
 
   const canManageShare =
-    canShareProjects() && (isSuperuser() || project?.createdBy === user?.id);
+    canShareProjects() &&
+    (isSuperuser() ||
+      project?.createdBy === user?.id ||
+      (user?.role === 'SEMIADMIN' && (project?.accessKind === 'team' || project?.accessKind === 'group')));
 
   const loadShareCount = useCallback(async () => {
     if (!projectId || !canManageShare) return;

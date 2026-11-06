@@ -3,7 +3,7 @@ const multer = require('multer');
 const bcrypt = require('bcrypt');
 const { body, validationResult } = require('express-validator');
 const { pool } = require('../config/db');
-const { isAdminLikeRole, canChangeQuotationMarket, canChangeUserEmail } = require('../utils/userRoles');
+const { isAdminLikeRole, canChangeQuotationMarket, canChangeUserEmail, SHARE_TARGET_ROLES } = require('../utils/userRoles');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { canCreateRole, allowedCreateRoles } = require('../lib/userCreation');
 const {
@@ -183,15 +183,15 @@ router.get('/shareable', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'), async (
              TRIM(CONCAT(e.nombres, ' ', e.apellidos)) AS nombre
       FROM users u
       LEFT JOIN employees e ON e.user_id = u.id
-      WHERE u.active = true AND u.role IN ('ADMIN', 'SEMIADMIN', 'COMERCIAL') AND u.id != $1`;
-    const params = [req.user.id];
+      WHERE u.active = true AND u.role = ANY($2::text[]) AND u.id != $1`;
+    const params = [req.user.id, SHARE_TARGET_ROLES];
     if (q) {
       params.push(`%${q}%`);
       sql += ` AND (
-        LOWER(u.email) LIKE $2 OR
-        LOWER(COALESCE(e.nombres, '')) LIKE $2 OR
-        LOWER(COALESCE(e.apellidos, '')) LIKE $2 OR
-        LOWER(TRIM(CONCAT(COALESCE(e.nombres, ''), ' ', COALESCE(e.apellidos, '')))) LIKE $2
+        LOWER(u.email) LIKE $3 OR
+        LOWER(COALESCE(e.nombres, '')) LIKE $3 OR
+        LOWER(COALESCE(e.apellidos, '')) LIKE $3 OR
+        LOWER(TRIM(CONCAT(COALESCE(e.nombres, ''), ' ', COALESCE(e.apellidos, '')))) LIKE $3
       )`;
     }
     sql += ` ORDER BY u.email LIMIT 50`;

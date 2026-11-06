@@ -1,6 +1,8 @@
 const express = require('express');
 const { requireAuth, requireRole } = require('../middleware/auth');
 const { loadOdooConfig, isOdooConfigured } = require('../lib/odoo/config');
+const { createOdooClient } = require('../lib/odoo/xmlrpcClient');
+const { getOdooSettingsView, saveOdooConnection, readStoredOdooConnection, isMaskedSecret } = require('../lib/odoo/settingsStore');
 const { getSyncHealth, runIncrementalPull, runReconcileDeletes } = require('../lib/odoo/pullPartners');
 const { projectEligibleClients, linkLocalClientsByRuc, projectionCounts } = require('../lib/odoo/projectClients');
 const { CircuitOpenError } = require('../lib/odoo/circuitBreaker');
@@ -19,6 +21,82 @@ function mapErr(err) {
   }
   return { code: 'ODOO_SYNC_ERROR', message: err.message || 'Error de sincronización', status: 500 };
 }
+
+router.get('/settings', async (req, res) => {
+  try {
+    const data = await getOdooSettingsView();
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[ODOO SYNC] settings get:', err);
+    return res.status(500).json({
+      success: false,
+      error: { code: 'SERVER_ERROR', message: 'No se pudo leer la configuración de Odoo' },
+    });
+  }
+});
+
+router.put('/settings', async (req, res) => {
+  try {
+    const data = await saveOdooConnection(req.body || {}, req.user.id);
+    const { restartOdooPullScheduler } = require('../workers/odooSync.worker');
+    restartOdooPullScheduler();
+    return res.json({ success: true, data });
+  } catch (err) {
+    console.error('[ODOO SYNC] settings put:', err);
+    const badUrl = /ODOO_URL inválida/i.test(err.message || '');
+    return res.status(badUrl ? 400 : 500).json({
+      success: false,
+      error: {
+        code: badUrl ? 'ODOO_URL_INVALID' : 'SERVER_ERROR',
+        message: badUrl ? err.message : 'No se pudo guardar la configuración de Odoo',
+      },
+    });
+  }
+});
+
+router.post('/settings/test', async (req, res) => {
+  try {
+    const body = req.body || {};
+    const stored = await readStoredOdooConnection();
+    const current = loadOdooConfig();
+    const apiKey = isMaskedSecret(body.apiKey) ? stored?.apiKey || current.apiKey : String(body.apiKey).trim();
+    const cfg = loadOdooConfig({
+      ODOO_URL: body.url != null ? String(body.url) : current.url,
+      ODOO_DB: body.db != null ? String(body.db) : current.db,
+      ODOO_USER: body.user != null ? String(body.user) : current.user,
+      ODOO_API_KEY: apiKey,
+      ODOO_TIMEOUT_MS: String(current.timeoutMs || 20000),
+      ODOO_TLS_INSECURE: current.tlsInsecure ? '1' : '0',
+    });
+    if (!isOdooConfigured(cfg)) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'ODOO_NOT_CONFIGURED',
+          message: 'Indique URL, base de datos, usuario y clave API',
+        },
+      });
+    }
+    const client = createOdooClient(cfg);
+    const ver = await client.version();
+    const auth = await client.authenticate();
+    const serverVersion =
+      ver && ver.version && typeof ver.version === 'object' ? ver.version.server_version || null : null;
+    return res.json({
+      success: true,
+      data: {
+        ok: true,
+        uid: auth.uid,
+        serverVersion,
+        host: cfg.url,
+      },
+    });
+  } catch (err) {
+    console.error('[ODOO SYNC] settings test:', err.message);
+    const m = mapErr(err);
+    return res.status(m.status).json({ success: false, error: { code: m.code, message: m.message } });
+  }
+});
 
 router.get('/health', async (req, res) => {
   try {
