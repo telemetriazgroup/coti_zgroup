@@ -6,6 +6,7 @@ const path = require('path');
 const { pathToFileURL } = require('url');
 const puppeteer = require('puppeteer-core');
 const { pool } = require('../config/db');
+const { totalsFromRows, chargedLinesByTipo } = require('../lib/budgetTotals');
 
 /** Alpine instala Chromium en /usr/lib/chromium/chromium; /usr/bin/chromium puede no existir. */
 function resolveChromiumExecutable() {
@@ -77,29 +78,16 @@ async function loadExportPayload(projectId) {
     [projectId]
   );
 
-  let activos = 0;
-  let consumibles = 0;
-  let activosAdj = 0;
-  let consumiblesAdj = 0;
-  let activosExempt = 0;
-  let consumiblesExempt = 0;
-  for (const r of items) {
-    if (r.is_bundle_component === true) continue;
-    const st = r.subtotal != null ? Number(r.subtotal) : 0;
-    const applies = r.apply_adjustment !== false;
-    if (r.tipo === 'ACTIVO') {
-      activos += st;
-      if (applies) activosAdj += st;
-      else activosExempt += st;
-    } else if (r.tipo === 'CONSUMIBLE') {
-      consumibles += st;
-      if (applies) consumiblesAdj += st;
-      else consumiblesExempt += st;
-    }
-  }
-  const lista = Math.round((activos + consumibles) * 100) / 100;
-  const listaAdj = Math.round((activosAdj + consumiblesAdj) * 100) / 100;
-  const listaExempt = Math.round((activosExempt + consumiblesExempt) * 100) / 100;
+  const bucket = totalsFromRows(items);
+  const activos = bucket.activos;
+  const consumibles = bucket.consumibles;
+  const activosAdj = bucket.activosAdj;
+  const consumiblesAdj = bucket.consumiblesAdj;
+  const activosExempt = bucket.activosExempt;
+  const consumiblesExempt = bucket.consumiblesExempt;
+  const lista = bucket.lista;
+  const listaAdj = bucket.listaAdj;
+  const listaExempt = bucket.listaExempt;
 
   const { mergeFinanceParams, computeFinance } = await loadFinanceEngine();
   const params = mergeFinanceParams(pr[0].finance_params || {});
@@ -551,7 +539,7 @@ function pdfV12NumSec(n, t) {
 
 function buildGerenciaResumenKpis(fin, totals, items) {
   const { m1, m2, m3 } = fin;
-  const nAct = (items || []).filter((i) => i.tipo !== 'CONSUMIBLE').length;
+  const nAct = chargedLinesByTipo(items).activos.length;
   const labAdj = m1.adjType === 'margin' ? `+ Margen` : '− Descuento';
   const subCp = m2.enabled ? `Contrato: ${m2.cpPlazo}m · capital propio` : '—';
   const subLp =
@@ -569,9 +557,10 @@ function buildGerenciaResumenKpis(fin, totals, items) {
 }
 
 function buildGerenciaPartidasBloque(items, m1) {
+  const classified = chargedLinesByTipo(items);
+  const actItems = classified.activos;
+  const consItems = classified.consumibles;
   const billable = (items || []).filter((i) => i.is_bundle_component !== true);
-  const actItems = billable.filter((i) => i.tipo !== 'CONSUMIBLE');
-  const consItems = billable.filter((i) => i.tipo === 'CONSUMIBLE');
   const bundleHeaders = billable.filter((i) => i.is_bundle_header === true);
   const hasBundles = bundleHeaders.length > 0;
   const base = Number(m1.baseAdj ?? m1.base) || 0;
@@ -645,6 +634,10 @@ function buildGerenciaPartidasBloque(items, m1) {
       if (!byBundle.has(it.bundle_id)) byBundle.set(it.bundle_id, []);
       byBundle.get(it.bundle_id).push(it);
     }
+    const chargedById = new Map();
+    for (const line of [...actItems, ...consItems]) {
+      if (line.id) chargedById.set(line.id, line);
+    }
     const bundleSections = [];
     for (const [, lines] of byBundle) {
       const sorted = [...lines].sort((a, b) => {
@@ -657,19 +650,26 @@ function buildGerenciaPartidasBloque(items, m1) {
         if (it.is_bundle_header) return s + (Number(it.subtotal) || 0);
         return s;
       }, 0);
+      const tagged = sorted.map((it) => {
+        const charged = it.is_bundle_component ? chargedById.get(it.id) : null;
+        const src = charged || it;
+        const kind = it.is_bundle_header ? 'CONJUNTO' : it.tipo || '';
+        const cat = [it.category_nombre, kind].filter(Boolean).join(' · ');
+        return { ...src, category_nombre: cat };
+      });
       bundleSections.push(
         `<div style="font-weight:700;font-size:9pt;color:#805ad5;margin:8pt 0 3pt">CONJUNTO — ${esc(header.descripcion || header.bundle_display_name || 'KIT')}</div>
-        <table style="width:100%;border-collapse:collapse;border:1pt solid #e2e8f0;margin-bottom:6pt">${rowsHdr}${sorted.map(oneRow).join('')}${subtot('Subtotal conjunto', sub)}</table>`
+        <table style="width:100%;border-collapse:collapse;border:1pt solid #e2e8f0;margin-bottom:6pt">${rowsHdr}${tagged.map(oneRow).join('')}${subtot('Subtotal conjunto', sub)}</table>`
       );
     }
-    bundleBlock = `<div style="font-weight:700;font-size:10pt;color:#553c9a;margin:0 0 4pt">PARTIDAS POR CONJUNTOS (KIT)</div>${bundleSections.join('')}`;
+    bundleBlock = `<div style="font-weight:700;font-size:10pt;color:#553c9a;margin:0 0 4pt">PARTIDAS POR CONJUNTOS (KIT)</div>
+    <p style="font-size:7.5pt;color:#718096;margin:0 0 6pt">La cabecera es el precio cobrado del conjunto (CONJUNTO, no un activo). Cada componente muestra la parte que le toca de ese precio, según su tipo. Esa parte es la que suma en ACTIVOS o CONSUMIBLES.</p>
+    ${bundleSections.join('')}`;
   }
 
   const aggMap = new Map();
-  for (const it of items || []) {
-    if (it.is_bundle_header) continue;
-    const key = String(it.codigo || it.descripcion || it.id).trim();
-    if (!key) continue;
+  for (const it of [...actItems, ...consItems]) {
+    const key = `${it.tipo || ''}|${String(it.codigo || it.descripcion || it.id).trim()}`;
     const prev = aggMap.get(key) || {
       codigo: it.codigo,
       descripcion: it.descripcion,
@@ -679,7 +679,7 @@ function buildGerenciaPartidasBloque(items, m1) {
       subtotal: 0,
     };
     prev.qty += Number(it.qty) || 0;
-    prev.subtotal += Number(it.qty) * Number(it.unit_price);
+    prev.subtotal += Number(it.subtotal) || 0;
     aggMap.set(key, prev);
   }
   const aggRows = [...aggMap.values()].sort((a, b) => String(a.codigo).localeCompare(String(b.codigo)));
@@ -1084,19 +1084,30 @@ function buildHtmlCliente(payload, options = {}) {
   ${igvHtml}`
     : '';
 
-  /** Sin importes por línea ni totales de lista: solo alcance comercial (PDF Cliente). */
-  const rowsItems = (items || [])
-    .map(
-      (it) => `<tr>
+  /** Sin importes por línea: el kit no se lista como un solo activo. */
+  const scopeRow = (it, tipoLabel) => `<tr>
       <td>${esc(it.codigo)}</td>
       <td>${esc(it.descripcion)}</td>
       <td>${esc(it.category_nombre || '—')}</td>
-      <td>${esc(it.tipo)}</td>
+      <td>${esc(tipoLabel)}</td>
       <td class="num">${esc(it.qty)}</td>
       <td class="num">${esc(it.unidad || 'UND')}</td>
-    </tr>`
-    )
-    .join('');
+    </tr>`;
+  const headers = (items || []).filter((it) => it.is_bundle_header === true);
+  const { activos: actScope, consumibles: consScope } = chargedLinesByTipo(items);
+  const scopeTable = (title, lines, tipoOf) => {
+    if (!lines.length) return '';
+    const body = lines.map((it) => scopeRow(it, tipoOf(it))).join('');
+    return `<h3 style="margin:14px 0 6px;font-size:12px">${esc(title)} (${lines.length})</h3>
+    <table><thead><tr>
+      <th>Código</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th class="num">Cant.</th><th class="num">Und.</th>
+    </tr></thead><tbody>${body}</tbody></table>`;
+  };
+  const rowsItems = [
+    scopeTable('Conjuntos', headers, () => 'CONJUNTO'),
+    scopeTable('Activos', actScope, (it) => it.tipo || 'ACTIVO'),
+    scopeTable('Consumibles', consScope, (it) => it.tipo || 'CONSUMIBLE'),
+  ].join('');
 
   return `<!DOCTYPE html>
 <html><head><meta charset="utf-8"/><style>${baseStyles()}</style></head><body>
@@ -1104,11 +1115,8 @@ function buildHtmlCliente(payload, options = {}) {
   <div class="muted" style="margin-bottom:14px">Propuesta comercial · ${esc(new Date().toLocaleDateString('es-PE'))}</div>
 
   <h2>Partidas incluidas en esta propuesta</h2>
-  <p class="muted">Descripción del alcance (sin valores unitarios ni desglose de lista de costos).</p>
-  <table><thead><tr>
-    <th>Código</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th class="num">Cant.</th><th class="num">Und.</th>
-  </tr></thead>
-  <tbody>${rowsItems || '<tr><td colspan="6">Sin partidas</td></tr>'}</tbody></table>
+  <p class="muted">Descripción del alcance (sin valores unitarios ni desglose de lista de costos). El producto final figura como conjunto; cada componente va en activos o consumibles según su tipo.</p>
+  ${rowsItems || '<p class="muted">Sin partidas</p>'}
 
   ${m1Block}
 

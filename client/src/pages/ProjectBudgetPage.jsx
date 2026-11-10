@@ -138,6 +138,9 @@ export function ProjectBudgetPage() {
   const itemsRef = useRef([]);
   const flushTimers = useRef({});
   const [financeParams, setFinanceParams] = useState(() => mergeFinanceParams({}));
+  const [financeEdits, setFinanceEdits] = useState([]);
+  const [financeMetaOpen, setFinanceMetaOpen] = useState(false);
+  const [financeSaving, setFinanceSaving] = useState(false);
   const financeTcPersistRef = useRef('');
   const commercialAllowed = useMemo(
     () => (isCommercial ? resolveCommercialAllowedModules(user) : null),
@@ -306,6 +309,15 @@ export function ProjectBudgetPage() {
     };
   }, [budgetLineMetaId]);
 
+  useEffect(() => {
+    if (!financeMetaOpen) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') setFinanceMetaOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [financeMetaOpen]);
+
   const loadAll = useCallback(async () => {
     if (!projectId) return;
     setLoading(true);
@@ -322,6 +334,10 @@ export function ProjectBudgetPage() {
       const mergedFp = mergeFinanceParams(proj.financeParams);
       setFinanceParams(mergedFp);
       financeTcPersistRef.current = `${JSON.stringify(mergedFp)}|${Number(proj.tc ?? 3.75)}`;
+      api
+        .get(`/api/projects/${projectId}/finance-edits`)
+        .then((rows) => setFinanceEdits(Array.isArray(rows) ? rows : []))
+        .catch(() => setFinanceEdits([]));
       setProjectStatus(budget.projectStatus);
       setItems(budget.items || []);
       setTotals(budget.totals || { activos: 0, consumibles: 0, lista: 0 });
@@ -387,32 +403,36 @@ export function ProjectBudgetPage() {
     setProject((prev) => (prev ? { ...prev, tc: n } : prev));
   }, []);
 
-  useEffect(() => {
-    if (!projectId || !canWrite || !project) return;
-    if (isCommercial && !hasAnyCommercialFinance) return;
-    const fpJson = JSON.stringify(financeParams);
+  const financeSig = project
+    ? `${JSON.stringify(mergeFinanceParams(financeParams))}|${project.tc != null ? Number(project.tc) : 3.75}`
+    : '';
+  const financeDirty = Boolean(
+    project && canWrite && showFinancePanel && financeTcPersistRef.current && financeSig !== financeTcPersistRef.current
+  );
+
+  const saveFinanceModule = useCallback(async () => {
+    if (!projectId || !project || financeSaving) return;
     const tcVal = project.tc != null ? Number(project.tc) : 3.75;
-    const sig = `${fpJson}|${tcVal}`;
-    if (sig === financeTcPersistRef.current) return;
-    const t = setTimeout(async () => {
-      try {
-        const data = await api.put(`/api/projects/${projectId}`, {
-          financeParams: mergeFinanceParams(financeParams),
-          tc: tcVal,
-        });
-        const next = mergeFinanceParams(data.financeParams);
-        const nextTc = data.tc != null ? Number(data.tc) : tcVal;
-        financeTcPersistRef.current = `${JSON.stringify(next)}|${nextTc}`;
-        setProject((prev) =>
-          prev ? { ...prev, financeParams: data.financeParams, tc: nextTc } : prev
-        );
-        setFinanceParams(next);
-      } catch (e) {
-        setErr(e.message);
-      }
-    }, 500);
-    return () => clearTimeout(t);
-  }, [financeParams, project, projectId, canWrite, isCommercial, hasAnyCommercialFinance]);
+    setFinanceSaving(true);
+    setErr(null);
+    try {
+      const data = await api.put(`/api/projects/${projectId}`, {
+        financeParams: mergeFinanceParams(financeParams),
+        tc: tcVal,
+      });
+      const next = mergeFinanceParams(data.financeParams);
+      const nextTc = data.tc != null ? Number(data.tc) : tcVal;
+      financeTcPersistRef.current = `${JSON.stringify(next)}|${nextTc}`;
+      setProject((prev) => (prev ? { ...prev, financeParams: data.financeParams, tc: nextTc } : prev));
+      setFinanceParams(next);
+      const rows = await api.get(`/api/projects/${projectId}/finance-edits`);
+      setFinanceEdits(Array.isArray(rows) ? rows : []);
+    } catch (e) {
+      setErr(e.message);
+    } finally {
+      setFinanceSaving(false);
+    }
+  }, [financeParams, financeSaving, project, projectId]);
 
   const syncDraftFromItems = useCallback((list) => {
     const dm = { ...draftsRef.current };
@@ -1622,6 +1642,7 @@ export function ProjectBudgetPage() {
             <h2 className="budget-panel-title">Líneas del presupuesto</h2>
             <div className="budget-panel-title-row__tools">
               {showFinancePanel && (
+                <div className="budget-fin-tools">
                 <label
                   className="budget-fin-toggle"
                   title={
@@ -1646,6 +1667,90 @@ export function ProjectBudgetPage() {
                   />
                   <span>Módulos financieros</span>
                 </label>
+                {financeDirty && (
+                  <button
+                    type="button"
+                    className="btn btn-primary budget-fin-update"
+                    disabled={financeSaving}
+                    onClick={saveFinanceModule}
+                  >
+                    {financeSaving ? 'Guardando…' : 'Actualizar'}
+                  </button>
+                )}
+                <div className="budget-line-meta">
+                  <button
+                    type="button"
+                    className="budget-line-meta__btn budget-fin-meta__btn"
+                    title="Últimas modificaciones del módulo financiero"
+                    aria-label="Últimas modificaciones del módulo financiero"
+                    aria-expanded={financeMetaOpen}
+                    onClick={() => setFinanceMetaOpen((open) => !open)}
+                  >
+                    <svg
+                      className="budget-line-meta__icon"
+                      width="18"
+                      height="18"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="9" opacity="0.35" />
+                      <path d="M12 10v4M12 8h.01" />
+                    </svg>
+                  </button>
+                  {financeMetaOpen &&
+                    createPortal(
+                      <div
+                        className="budget-line-meta__backdrop"
+                        role="presentation"
+                        onClick={() => setFinanceMetaOpen(false)}
+                      >
+                        <div
+                          className="budget-line-meta__modal"
+                          role="dialog"
+                          aria-label="Modificaciones del módulo financiero"
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <p className="budget-line-meta__line">
+                            <span className="budget-line-meta__k">Módulo financiero</span>
+                            <span className="mono budget-line-meta__v">Últimas actualizaciones</span>
+                          </p>
+                          {financeEdits.length === 0 ? (
+                            <p className="budget-line-meta__line">
+                              <span className="muted">Todavía no hay actualizaciones registradas.</span>
+                            </p>
+                          ) : (
+                            financeEdits.map((ed, idx) => (
+                              <p className="budget-line-meta__line" key={ed.id}>
+                                <span className="budget-line-meta__k">
+                                  {idx === 0 ? 'Último' : 'Anterior'}
+                                </span>
+                                <span className="mono budget-line-meta__v">
+                                  {formatItemTraceUser(ed.actorName, ed.actorEmail)}
+                                  {ed.createdAt
+                                    ? ` · ${new Date(ed.createdAt).toLocaleString('es-PE')}`
+                                    : ''}
+                                </span>
+                              </p>
+                            ))
+                          )}
+                          <button
+                            type="button"
+                            className="btn btn-primary budget-line-meta__dismiss"
+                            onClick={() => setFinanceMetaOpen(false)}
+                          >
+                            Cerrar
+                          </button>
+                        </div>
+                      </div>,
+                      document.body
+                    )}
+                </div>
+                </div>
               )}
               {items.length > 0 && (
                 <input

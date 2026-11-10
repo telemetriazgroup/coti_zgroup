@@ -1,5 +1,6 @@
 const { pool } = require('../config/db');
 const { logAuditEvent } = require('../middleware/audit');
+const { stableJson, recordFinanceEdit } = require('./financeEdits');
 const { num, hashPayload, diffBudgetPayloads, payloadLineTotals } = require('./budgetRevisionDiff');
 
 const CAUSE_LABEL = {
@@ -396,10 +397,13 @@ async function insertBudgetFromPayload(client, projectId, payload, { actorId, ke
 
   if (!applyFinance) return;
   if (payload.financeParams && typeof payload.financeParams === 'object') {
+    const { rows: prevFp } = await client.query(`SELECT finance_params FROM projects WHERE id = $1`, [projectId]);
+    const changed = stableJson(prevFp[0]?.finance_params || {}) !== stableJson(payload.financeParams);
     await client.query(`UPDATE projects SET finance_params = $2::jsonb, updated_at = NOW() WHERE id = $1`, [
       projectId,
       JSON.stringify(payload.financeParams),
     ]);
+    if (changed) await recordFinanceEdit(projectId, actorId, client);
   } else {
     await client.query(`UPDATE projects SET updated_at = NOW() WHERE id = $1`, [projectId]);
   }

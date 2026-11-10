@@ -26,6 +26,7 @@ const {
   recalcBundleHeaderTotals,
 } = require('../lib/projectItemBundles');
 const { resolveUnitPrice, getProjectQuotationMarket } = require('../lib/pricingMarket');
+const { totalsFromRows } = require('../lib/budgetTotals');
 const {
   loadUserFlags,
   canSeeItemPrices,
@@ -147,42 +148,6 @@ function itemsResponse(mappedItems, extra = {}) {
     items: mappedItems,
     ...priceApprovalMeta(mappedItems),
     ...extra,
-  };
-}
-
-function totalsFromRows(rows) {
-  let activos = 0;
-  let consumibles = 0;
-  let activosAdj = 0;
-  let consumiblesAdj = 0;
-  let activosExempt = 0;
-  let consumiblesExempt = 0;
-  for (const r of rows) {
-    if (r.is_bundle_component === true) continue;
-    const st = r.subtotal != null ? Number(r.subtotal) : 0;
-    const applies = r.apply_adjustment !== false;
-    if (r.tipo === 'ACTIVO') {
-      activos += st;
-      if (applies) activosAdj += st;
-      else activosExempt += st;
-    } else if (r.tipo === 'CONSUMIBLE') {
-      consumibles += st;
-      if (applies) consumiblesAdj += st;
-      else consumiblesExempt += st;
-    }
-  }
-  const listaAdj = activosAdj + consumiblesAdj;
-  const listaExempt = activosExempt + consumiblesExempt;
-  return {
-    activos: Math.round(activos * 100) / 100,
-    consumibles: Math.round(consumibles * 100) / 100,
-    lista: Math.round((activos + consumibles) * 100) / 100,
-    activosAdj: Math.round(activosAdj * 100) / 100,
-    consumiblesAdj: Math.round(consumiblesAdj * 100) / 100,
-    activosExempt: Math.round(activosExempt * 100) / 100,
-    consumiblesExempt: Math.round(consumiblesExempt * 100) / 100,
-    listaAdj: Math.round(listaAdj * 100) / 100,
-    listaExempt: Math.round(listaExempt * 100) / 100,
   };
 }
 

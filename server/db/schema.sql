@@ -631,6 +631,18 @@ CREATE INDEX idx_audit_event_type ON project_audit_log(event_type);
 CREATE INDEX idx_audit_actor_id ON project_audit_log(actor_id);
 CREATE INDEX idx_audit_created_at ON project_audit_log(created_at);
 
+-- ─── EDICIONES DEL MÓDULO FINANCIERO ───────────────────────────
+
+CREATE TABLE project_finance_edits (
+  id          UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+  project_id  UUID NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+  actor_id    UUID REFERENCES users(id) ON DELETE SET NULL,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+CREATE INDEX idx_project_finance_edits_project
+  ON project_finance_edits (project_id, created_at DESC);
+
 -- ─── USER ACTIVITY (accesos y módulo/proyecto) ─────────────────
 
 CREATE TABLE user_activity_log (

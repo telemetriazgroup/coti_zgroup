@@ -1,8 +1,8 @@
 # -*- coding: utf-8 -*-
 {
     'name': 'ZGROUP Partner Ext',
-    'version': '17.0.1.0.0',
-    'category': 'Hidden',
+    'version': '17.0.1.0.1',
+    'category': 'Sales/CRM',
     'summary': 'UID externo e índice write_date en res.partner (integración Cotizaciones)',
     'description': """
 Módulo mínimo para integrar Contactos Odoo 17 con ZGROUP Cotizaciones.
@@ -17,6 +17,7 @@ No hereda create/write. No hace HTTP. No toca el core más allá de este inherit
     'depends': ['base'],
     'data': [],
     'installable': True,
-    'application': False,
+    # True para que aparezca con el filtro «Aplicaciones» de Apps. No abre menú propio.
+    'application': True,
     'auto_install': False,
 }

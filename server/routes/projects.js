@@ -27,6 +27,7 @@ const {
 } = require('../lib/commercialVisibility');
 const { pickSemiAdminFinancePatch } = require('../lib/financeAccess');
 const { getFinanceDefaults } = require('../lib/financeDefaults');
+const { stableJson, recordFinanceEdit, listFinanceEdits } = require('../lib/financeEdits');
 const { listUnreviewedRecentProjects, markProjectReviewed } = require('../lib/adminRecentProjects');
 
 const router = express.Router();
@@ -115,6 +116,28 @@ router.post('/:id/admin-review', requireRole('ADMIN', 'SEMIADMIN', 'SUPERUSER'),
     return res.json({ success: true, data: { reviewed: true } });
   } catch (err) {
     console.error('[PROJECTS] admin-review:', err);
+    return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
+  }
+});
+
+// ─── GET /api/projects/:id/finance-edits — quién actualizó el módulo ─
+router.get('/:id/finance-edits', async (req, res) => {
+  try {
+    const { rows: pr } = await pool.query(
+      `SELECT id, created_by, assigned_viewer, deleted_at FROM projects WHERE id = $1`,
+      [req.params.id]
+    );
+    if (!pr[0] || pr[0].deleted_at) {
+      return res.status(404).json({ success: false, error: { code: 'NOT_FOUND', message: 'Proyecto no encontrado' } });
+    }
+    const ctx = await loadProjectAccessContext(req.user, pr[0]);
+    if (!canReadProject(req.user, pr[0], ctx)) {
+      return res.status(403).json({ success: false, error: { code: 'FORBIDDEN', message: 'Acceso denegado' } });
+    }
+    const edits = await listFinanceEdits(req.params.id);
+    return res.json({ success: true, data: edits });
+  } catch (err) {
+    console.error('[PROJECTS] finance-edits:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
 });
@@ -745,33 +768,32 @@ router.put('/:id', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), 
       fields.push(`tc = $${i++}`);
       vals.push(tc);
     }
+    const prevFinance =
+      pr[0].finance_params && typeof pr[0].finance_params === 'object' ? pr[0].finance_params : {};
+    let nextFinance = null;
     if (financeParams !== undefined) {
       if (req.user.role === 'COMERCIAL') {
         const flags = await loadUserFlags(req.user.id);
         const patch = pickCommercialShowPatch(financeParams, flags || req.user);
         if (Object.keys(patch).length > 0) {
-          const current =
-            pr[0].finance_params && typeof pr[0].finance_params === 'object'
-              ? pr[0].finance_params
-              : {};
-          fields.push(`finance_params = $${i++}`);
-          vals.push(JSON.stringify({ ...current, ...patch }));
+          nextFinance = { ...prevFinance, ...patch };
         }
       } else if (req.user.role === 'SEMIADMIN') {
         const patch = pickSemiAdminFinancePatch(financeParams);
         if (Object.keys(patch).length > 0) {
-          const current =
-            pr[0].finance_params && typeof pr[0].finance_params === 'object'
-              ? pr[0].finance_params
-              : {};
-          fields.push(`finance_params = $${i++}`);
-          vals.push(JSON.stringify({ ...current, ...patch }));
+          nextFinance = { ...prevFinance, ...patch };
         }
       } else {
+        nextFinance = financeParams;
+      }
+      if (nextFinance && stableJson(nextFinance) !== stableJson(prevFinance)) {
         fields.push(`finance_params = $${i++}`);
-        vals.push(JSON.stringify(financeParams));
+        vals.push(JSON.stringify(nextFinance));
+      } else {
+        nextFinance = null;
       }
     }
+    const tcChanged = tc !== undefined && Number(tc) !== Number(pr[0].tc);
     if (quotationMarket !== undefined) {
       if (!canChangeQuotationMarket(req.user)) {
         return res.status(403).json({
@@ -806,6 +828,13 @@ router.put('/:id', requireRole('ADMIN', 'SEMIADMIN', 'COMERCIAL', 'SUPERUSER'), 
 
     const { rows: newRows } = await pool.query(`SELECT * FROM projects WHERE id = $1`, [req.params.id]);
     const ip = getClientIp(req);
+    if (nextFinance || tcChanged) {
+      try {
+        await recordFinanceEdit(req.params.id, req.user.id);
+      } catch (editErr) {
+        console.error('[PROJECTS] finance edit log:', editErr.message);
+      }
+    }
     logAuditEvent({
       projectId: req.params.id,
       eventType: 'PROJECT_UPDATE',

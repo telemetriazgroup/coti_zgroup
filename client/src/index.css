@@ -4061,6 +4061,21 @@ select.form-input {
   min-width: 0;
   flex: 1 1 220px;
 }
+.budget-fin-tools {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.budget-fin-update {
+  padding: 4px 10px;
+  font-size: 11px;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.budget-fin-meta__btn {
+  width: 32px;
+  height: 32px;
+}
 .budget-fin-toggle {
   display: inline-flex;
   align-items: center;
