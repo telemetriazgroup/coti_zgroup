@@ -279,7 +279,8 @@ export function CatalogPage() {
     setModalCat(null);
     setPwdConfirm(null);
     setPwdValue('');
-    load();
+    clearLocalCatalog();
+    load({ fresh: true });
   }
 
   async function saveCategory(e) {
@@ -292,13 +293,6 @@ export function CatalogPage() {
       .trim()
       .toUpperCase();
     const creatingTelemetry = modalCat === 'new' && (prefixUp === 'TEL' || nombrePlano === 'TELEMETRIA');
-    const telemetryTaken = categories.some(
-      (c) => c.isTelemetryCategory === true || String(c.codigoPrefix || '').toUpperCase() === 'TEL'
-    );
-    if (creatingTelemetry && telemetryTaken) {
-      setErr('La categoría Telemetría ya está en la lista. Edite el ítem y cámbielo a esa categoría.');
-      return;
-    }
     const body = {
       nombre: catForm.nombre.trim(),
       sortOrder: catForm.sortOrder === '' ? undefined : parseInt(catForm.sortOrder, 10),
@@ -1097,9 +1091,7 @@ export function CatalogPage() {
             {(catForm.isTelemetryCategory === true ||
               (modalCat === 'new' && String(catForm.codigoPrefix || '').toUpperCase() === 'TEL')) && (
               <p className="muted mono" style={{ fontSize: 11, margin: '-4px 0 0', lineHeight: 1.45 }}>
-                {categories.some((c) => c.isTelemetryCategory === true)
-                  ? 'Telemetría ya existe en la lista. No se crea otra: edite el ítem y cámbielo a esa categoría.'
-                  : 'Este alta crea la categoría Telemetría, con prefijo TEL. Solo puede haber una, y no es producto final.'}
+                Este alta deja la categoría Telemetría con prefijo TEL. Si ya estaba registrada, se muestra en la lista. No es producto final.
               </p>
             )}
             <p className="muted mono" style={{ fontSize: 11, margin: '-4px 0 0', lineHeight: 1.45 }}>

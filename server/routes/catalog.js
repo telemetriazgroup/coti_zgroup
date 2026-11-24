@@ -396,18 +396,34 @@ router.post('/categories', requireRole(...CATALOG_WRITE_ROLES), catBody, async (
   const kitCat = wantsTelemetry ? false : isKit === true;
   if (wantsTelemetry) {
     const { rows: taken } = await pool.query(
-      `SELECT id, nombre FROM catalog_categories
+      `SELECT * FROM catalog_categories
        WHERE is_telemetry_category IS TRUE OR upper(coalesce(codigo_prefix, '')) = 'TEL'
+       ORDER BY is_telemetry_category DESC, active DESC
        LIMIT 1`
     );
     if (taken.length) {
-      return res.status(400).json({
-        success: false,
-        error: {
-          code: 'PREFIX_RESERVED',
-          message: `La categoría Telemetría ya existe («${taken[0].nombre}»). Edite el ítem y cámbielo a esa categoría: el código pasa a TEL-####.`,
-        },
-      });
+      const row = taken[0];
+      const { rows: maxRows } = await pool.query(
+        `SELECT COALESCE(MAX(sort_order), -1) + 1 AS n
+         FROM catalog_categories
+         WHERE active IS TRUE AND id <> $1 AND sort_order < 90`,
+        [row.id]
+      );
+      const nextOrder = Number(row.sort_order) >= 90 ? Number(maxRows[0].n) : Number(row.sort_order);
+      await pool.query(
+        `UPDATE catalog_categories
+         SET active = true,
+             is_telemetry_category = true,
+             is_kit_category = false,
+             codigo_prefix = 'TEL',
+             sort_order = $2,
+             updated_at = NOW()
+         WHERE id = $1`,
+        [row.id, nextOrder]
+      );
+      const { rows: refreshed } = await pool.query(`SELECT * FROM catalog_categories WHERE id = $1`, [row.id]);
+      await invalidateCatalogCache();
+      return res.status(200).json({ success: true, data: mapCategory(refreshed[0]) });
     }
   }
   const prefixGuard = prefixReservedForTelemetry(prefix, wantsTelemetry);
