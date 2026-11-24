@@ -241,6 +241,7 @@ export function CatalogPage() {
       active: true,
       defaultApplyAdjustment: true,
       isKitCategory: false,
+      isTelemetryCategory: false,
     });
     setModalCat('new');
   }
@@ -253,6 +254,7 @@ export function CatalogPage() {
       active: c.active,
       defaultApplyAdjustment: c.defaultApplyAdjustment !== false,
       isKitCategory: c.isKitCategory === true,
+      isTelemetryCategory: c.isTelemetryCategory === true,
       _id: c.id,
     });
     setModalCat('edit');
@@ -283,13 +285,27 @@ export function CatalogPage() {
   async function saveCategory(e) {
     e.preventDefault();
     setErr(null);
+    const prefixUp = catForm.codigoPrefix.trim().toUpperCase();
+    const nombrePlano = catForm.nombre
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .trim()
+      .toUpperCase();
+    const creatingTelemetry = modalCat === 'new' && (prefixUp === 'TEL' || nombrePlano === 'TELEMETRIA');
+    const telemetryTaken = categories.some(
+      (c) => c.isTelemetryCategory === true || String(c.codigoPrefix || '').toUpperCase() === 'TEL'
+    );
+    if (creatingTelemetry && telemetryTaken) {
+      setErr('La categoría Telemetría ya está en la lista. Edite el ítem y cámbielo a esa categoría.');
+      return;
+    }
     const body = {
       nombre: catForm.nombre.trim(),
       sortOrder: catForm.sortOrder === '' ? undefined : parseInt(catForm.sortOrder, 10),
-      codigoPrefix: catForm.codigoPrefix.trim() || null,
+      codigoPrefix: creatingTelemetry ? 'TEL' : catForm.codigoPrefix.trim() || null,
       active: catForm.active,
       defaultApplyAdjustment: catForm.defaultApplyAdjustment !== false,
-      isKitCategory: catForm.isKitCategory === true,
+      isKitCategory: creatingTelemetry ? false : catForm.isKitCategory === true,
     };
     const orig = categories.find((c) => c.id === catForm._id);
     const willDeactivate =
@@ -328,13 +344,37 @@ export function CatalogPage() {
   }
 
   async function onItemCategoryChange(categoryId) {
-    setItemForm((f) => ({ ...f, categoryId }));
-    if (modalItem !== 'new' && modalItem !== 'duplicate') return;
+    const cat = categories.find((c) => c.id === categoryId);
+    const backToOriginal = modalItem === 'edit' && categoryId && categoryId === itemForm._origCategoryId;
+    if (backToOriginal) {
+      setItemForm((f) => ({
+        ...f,
+        categoryId,
+        codigo: f._origCodigo || f.codigo,
+        telemetryEligible: cat?.isTelemetryCategory === true ? false : f.telemetryEligible,
+      }));
+      setItemCodigoHint(null);
+      return;
+    }
+    setItemForm((f) => ({
+      ...f,
+      categoryId,
+      telemetryEligible: cat?.isTelemetryCategory === true ? false : f.telemetryEligible,
+    }));
     try {
       const data = await fetchCategoryNextCodigo(categoryId);
       if (data?.suggestedCodigo) {
-        setItemForm((f) => ({ ...f, categoryId, codigo: data.suggestedCodigo }));
-        setItemCodigoHint({ minCodigo: data.suggestedCodigo, prefix: data.prefix });
+        setItemForm((f) => ({
+          ...f,
+          categoryId,
+          codigo: data.suggestedCodigo,
+          telemetryEligible: cat?.isTelemetryCategory === true ? false : f.telemetryEligible,
+        }));
+        setItemCodigoHint({
+          minCodigo: data.suggestedCodigo,
+          prefix: data.prefix,
+          edit: modalItem === 'edit',
+        });
       }
     } catch {
       /* ignore */
@@ -412,6 +452,7 @@ export function CatalogPage() {
       sortOrder: '',
       active: true,
       released: true,
+      telemetryEligible: false,
       dependencies: [],
     });
     setModalItem('new');
@@ -431,6 +472,7 @@ export function CatalogPage() {
       sortOrder: '',
       active: true,
       released: row.released !== false,
+      telemetryEligible: row.telemetryEligible === true,
       dependencies: [],
     });
     setModalItem('duplicate');
@@ -462,7 +504,10 @@ export function CatalogPage() {
       sortOrder: String(row.sortOrder ?? 0),
       active: row.active,
       released: row.released !== false,
+      telemetryEligible: row.telemetryEligible === true,
       _id: row.id,
+      _origCategoryId: row.categoryId,
+      _origCodigo: row.codigo,
       dependencies: [],
     });
     setModalItem('edit');
@@ -525,6 +570,7 @@ export function CatalogPage() {
       sortOrder: itemForm.sortOrder === '' ? undefined : parseInt(itemForm.sortOrder, 10),
       active: itemForm.active,
       released: itemForm.released !== false,
+      telemetryEligible: itemForm.telemetryEligible === true,
       dependencies: deps,
     };
     try {
@@ -981,8 +1027,16 @@ export function CatalogPage() {
                 placeholder="SF"
                 maxLength={12}
                 value={catForm.codigoPrefix}
+                disabled={catForm.isTelemetryCategory === true}
                 onChange={(e) =>
-                  setCatForm((f) => ({ ...f, codigoPrefix: e.target.value.toUpperCase().replace(/\s/g, '') }))
+                  setCatForm((f) => {
+                    const codigoPrefix = e.target.value.toUpperCase().replace(/\s/g, '');
+                    return {
+                      ...f,
+                      codigoPrefix,
+                      isKitCategory: codigoPrefix === 'TEL' ? false : f.isKitCategory,
+                    };
+                  })
                 }
               />
               <span className="muted mono" style={{ fontSize: 11 }}>
@@ -1032,10 +1086,22 @@ export function CatalogPage() {
               <input
                 type="checkbox"
                 checked={catForm.isKitCategory === true}
+                disabled={
+                  catForm.isTelemetryCategory === true ||
+                  (modalCat === 'new' && String(catForm.codigoPrefix || '').toUpperCase() === 'TEL')
+                }
                 onChange={(e) => setCatForm((f) => ({ ...f, isKitCategory: e.target.checked }))}
               />
               <span>Productos finales (KIT)</span>
             </label>
+            {(catForm.isTelemetryCategory === true ||
+              (modalCat === 'new' && String(catForm.codigoPrefix || '').toUpperCase() === 'TEL')) && (
+              <p className="muted mono" style={{ fontSize: 11, margin: '-4px 0 0', lineHeight: 1.45 }}>
+                {categories.some((c) => c.isTelemetryCategory === true)
+                  ? 'Telemetría ya existe en la lista. No se crea otra: edite el ítem y cámbielo a esa categoría.'
+                  : 'Este alta crea la categoría Telemetría, con prefijo TEL. Solo puede haber una, y no es producto final.'}
+              </p>
+            )}
             <p className="muted mono" style={{ fontSize: 11, margin: '-4px 0 0', lineHeight: 1.45 }}>
               Ítems de esta categoría tienen precio calculado por componentes y se agregan al presupuesto como
               conjuntos configurables (instancias).
@@ -1170,9 +1236,17 @@ export function CatalogPage() {
                 {sortedCats.map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nombre}
+                    {c.isTelemetryCategory ? ' (TEL)' : ''}
                   </option>
                 ))}
               </select>
+              {categories.find((c) => c.id === itemForm.categoryId)?.isTelemetryCategory === true &&
+                modalItem === 'edit' &&
+                itemForm.categoryId !== itemForm._origCategoryId && (
+                  <span className="muted mono" style={{ fontSize: 11 }}>
+                    El ítem pasa a Telemetría. El código cambia al siguiente TEL-#### y deja de usar el check «Usable en telemetría».
+                  </span>
+                )}
             </label>
             <label>
               <span className="fg-lbl">Código *</span>
@@ -1313,6 +1387,16 @@ export function CatalogPage() {
               />
               <span>Liberar al catálogo (semiadmin y comercial). Si se desmarca, solo lo ven admin y superusuario.</span>
             </label>
+            {categories.find((c) => c.id === itemForm.categoryId)?.isTelemetryCategory !== true && (
+              <label className="chk-row">
+                <input
+                  type="checkbox"
+                  checked={itemForm.telemetryEligible === true}
+                  onChange={(e) => setItemForm((f) => ({ ...f, telemetryEligible: e.target.checked }))}
+                />
+                <span>Usable en telemetría (además de su categoría). Entra al bloque del kit sin mudarse a TEL.</span>
+              </label>
+            )}
             <CatalogItemDependenciesEditor
               excludeItemId={modalItem === 'edit' ? itemForm._id : null}
               catalogItems={items}

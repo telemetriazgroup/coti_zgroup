@@ -454,7 +454,7 @@ export function ProjectBudgetPage() {
   }, [catItems, project?.quotationMarket]);
 
   const filteredCatalog = useMemo(() => {
-    let list = catalogPricedForProject.filter((it) => it.active !== false);
+    let list = catalogPricedForProject.filter((it) => it.active !== false && it.isTelemetry !== true);
     if (filterCat) list = list.filter((it) => it.categoryId === filterCat);
     if (filterTipo) list = list.filter((it) => it.tipo === filterTipo);
     const qq = qDebounced.trim().toLowerCase();
@@ -610,6 +610,10 @@ export function ProjectBudgetPage() {
       if (!Number.isNaN(p) && p >= 0) unitPrice = p;
     }
     const cat = catById.get(catalogItem.categoryId);
+    if (catalogItem.isTelemetry === true || cat?.isTelemetryCategory === true) {
+      setErr('Los insumos de Telemetría se agregan dentro de un kit, con el check «Tiene telemetría».');
+      return;
+    }
     const isKitProduct = catalogItem.isKit === true || cat?.isKitCategory === true;
     const depCount = Number(catalogItem.dependencyCount) || 0;
     const hasDeps = depCount > 0 || catalogItem.hasDependencies === true;
@@ -666,6 +670,7 @@ export function ProjectBudgetPage() {
           qty: payload.qty,
           lines: payload.lines,
           discountPct: payload.discountPct,
+          telemetryEnabled: payload.telemetryEnabled === true,
         });
       } else {
         data = await api.post(`/api/projects/${projectId}/bundles`, {
@@ -675,6 +680,7 @@ export function ProjectBudgetPage() {
           qty: payload.qty,
           lines: payload.lines,
           discountPct: payload.discountPct,
+          telemetryEnabled: payload.telemetryEnabled === true,
         });
       }
       setItems(data.items);
@@ -1504,7 +1510,7 @@ export function ProjectBudgetPage() {
             <div className="budget-toolbar__row">
               <select className="form-input" value={filterCat} onChange={(e) => setFilterCat(e.target.value)}>
                 <option value="">Todas las categorías</option>
-                {sortedCats.map((c) => (
+                {sortedCats.filter((c) => c.isTelemetryCategory !== true).map((c) => (
                   <option key={c.id} value={c.id}>
                     {c.nombre}
                   </option>
@@ -1868,6 +1874,15 @@ export function ProjectBudgetPage() {
                           {isHeader && row.bundleInstanceLabel ? (
                             <span className="tag budget-kit-zona-tag" title="Zona / instancia" style={{ marginRight: 6, fontSize: 9 }}>
                               {row.bundleInstanceLabel}
+                            </span>
+                          ) : null}
+                          {isHeader && row.bundleTelemetryEnabled ? (
+                            <span
+                              className="tag"
+                              title="Este conjunto incluye telemetría"
+                              style={{ marginRight: 6, fontSize: 9, borderColor: 'var(--violet)', color: 'var(--violet)' }}
+                            >
+                              TEL
                             </span>
                           ) : null}
                           {isHeader && Number(row.bundleDiscountPct) > 0 ? (
@@ -2912,6 +2927,11 @@ export function ProjectBudgetPage() {
         fetchDependencyBundle={(id, qty) =>
           api.get(
             `/api/catalog/items/${id}/dependency-bundle?qty=${qty}&projectId=${encodeURIComponent(projectId)}`
+          )
+        }
+        fetchKitTemplate={(id) =>
+          api.get(
+            `/api/catalog/items/${id}/kit-template?qty=1&projectId=${encodeURIComponent(projectId)}`
           )
         }
         onClose={() => !kitAddBusy && setKitModal(null)}

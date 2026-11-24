@@ -19,6 +19,7 @@ const {
   normalizePrefix,
   suggestNextCodigo,
   validateCategoryCodigo,
+  codigoMatchesPrefix,
   afterItemCodigoSaved,
   syncCategoryNextSeq,
 } = require('../lib/catalogCodigo');
@@ -33,6 +34,7 @@ const {
 } = require('../lib/catalogCategoryLifecycle');
 const { normalizeBool, regularizeCatalogActiveFlags } = require('../lib/catalogNormalize');
 const { assertUniqueDescription } = require('../lib/catalogItemUniqueness');
+const { prefixReservedForTelemetry } = require('../lib/telemetry');
 const {
   fetchDirectDependencies,
   setItemDependencies,
@@ -87,6 +89,7 @@ function mapCategory(row) {
     active: normalizeBool(row.active, true),
     defaultApplyAdjustment: row.default_apply_adjustment !== false,
     isKitCategory: row.is_kit_category === true,
+    isTelemetryCategory: row.is_telemetry_category === true,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -110,6 +113,8 @@ function mapItem(row) {
     dependencyCount: row.dependency_count != null ? Number(row.dependency_count) : 0,
     hasDependencies: row.dependency_count != null ? Number(row.dependency_count) > 0 : false,
     isKit: row.is_kit_category === true,
+    isTelemetry: row.is_telemetry_category === true,
+    telemetryEligible: row.telemetry_eligible === true,
     createdBy: row.created_by,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -126,14 +131,14 @@ async function fetchCatalogFromDb(includeInactive) {
   let itemSql;
   if (includeInactive) {
     itemSql = `
-      SELECT i.*, c.nombre AS category_nombre, c.is_kit_category,
+      SELECT i.*, c.nombre AS category_nombre, c.is_kit_category, c.is_telemetry_category,
         (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
       FROM catalog_items i
       JOIN catalog_categories c ON c.id = i.category_id
       ORDER BY c.sort_order ASC, i.sort_order ASC, i.codigo ASC`;
   } else {
     itemSql = `
-      SELECT i.*, c.nombre AS category_nombre, c.is_kit_category,
+      SELECT i.*, c.nombre AS category_nombre, c.is_kit_category, c.is_telemetry_category,
         (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
       FROM catalog_items i
       INNER JOIN catalog_categories c ON c.id = i.category_id
@@ -379,9 +384,39 @@ router.post('/categories', requireRole(...CATALOG_WRITE_ROLES), catBody, async (
   }
 
   const { nombre, codigoPrefix, sortOrder, active, defaultApplyAdjustment, isKitCategory: isKit } = req.body;
-  const prefix = normalizePrefix(codigoPrefix);
+  const nombrePlano = String(nombre || '')
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim()
+    .toUpperCase();
+  let prefix = normalizePrefix(codigoPrefix);
+  const wantsTelemetry = prefix === 'TEL' || nombrePlano === 'TELEMETRIA';
+  if (wantsTelemetry) prefix = 'TEL';
   const defaultAdj = defaultApplyAdjustment !== false;
-  const kitCat = isKit === true;
+  const kitCat = wantsTelemetry ? false : isKit === true;
+  if (wantsTelemetry) {
+    const { rows: taken } = await pool.query(
+      `SELECT id, nombre FROM catalog_categories
+       WHERE is_telemetry_category IS TRUE OR upper(coalesce(codigo_prefix, '')) = 'TEL'
+       LIMIT 1`
+    );
+    if (taken.length) {
+      return res.status(400).json({
+        success: false,
+        error: {
+          code: 'PREFIX_RESERVED',
+          message: `La categoría Telemetría ya existe («${taken[0].nombre}»). Edite el ítem y cámbielo a esa categoría: el código pasa a TEL-####.`,
+        },
+      });
+    }
+  }
+  const prefixGuard = prefixReservedForTelemetry(prefix, wantsTelemetry);
+  if (!prefixGuard.ok) {
+    return res.status(400).json({
+      success: false,
+      error: { code: prefixGuard.code, message: prefixGuard.message },
+    });
+  }
 
   try {
     let so = sortOrder;
@@ -391,9 +426,10 @@ router.post('/categories', requireRole(...CATALOG_WRITE_ROLES), catBody, async (
     }
 
     const { rows } = await pool.query(
-      `INSERT INTO catalog_categories (nombre, codigo_prefix, sort_order, active, default_apply_adjustment, is_kit_category)
-       VALUES ($1, $2, $3, COALESCE($4, true), $5, $6) RETURNING *`,
-      [nombre.trim(), prefix, so, active, defaultAdj, kitCat]
+      `INSERT INTO catalog_categories
+        (nombre, codigo_prefix, sort_order, active, default_apply_adjustment, is_kit_category, is_telemetry_category)
+       VALUES ($1, $2, $3, COALESCE($4, true), $5, $6, $7) RETURNING *`,
+      [nombre.trim(), prefix, so, active, defaultAdj, kitCat, wantsTelemetry]
     );
     if (prefix) {
       await syncCategoryNextSeq(rows[0].id, prefix);
@@ -411,6 +447,15 @@ router.post('/categories', requireRole(...CATALOG_WRITE_ROLES), catBody, async (
     await invalidateCatalogCache();
     return res.status(201).json({ success: true, data: mapCategory(rows[0]) });
   } catch (err) {
+    if (err.code === '23505') {
+      return res.status(409).json({
+        success: false,
+        error: {
+          code: 'PREFIX_RESERVED',
+          message: 'La categoría Telemetría ya existe. Edite el ítem y cámbielo a esa categoría.',
+        },
+      });
+    }
     console.error('[CATALOG] create category:', err);
     return res.status(500).json({ success: false, error: { code: 'SERVER_ERROR', message: 'Error interno' } });
   }
@@ -573,8 +618,27 @@ router.put('/categories/:id', requireRole(...CATALOG_WRITE_ROLES), catPutValidat
         vals.push(String(nombre).trim());
       }
       if (codigoPrefix !== undefined) {
+        const nextPrefix = normalizePrefix(codigoPrefix);
+        const prefixGuard = prefixReservedForTelemetry(nextPrefix, before[0].is_telemetry_category === true);
+        if (!prefixGuard.ok) {
+          await client.query('ROLLBACK');
+          return res.status(400).json({
+            success: false,
+            error: { code: prefixGuard.code, message: prefixGuard.message },
+          });
+        }
         fields.push(`codigo_prefix = $${i++}`);
-        vals.push(normalizePrefix(codigoPrefix));
+        vals.push(nextPrefix);
+      }
+      if (before[0].is_telemetry_category === true && isKit === true) {
+        await client.query('ROLLBACK');
+        return res.status(400).json({
+          success: false,
+          error: {
+            code: 'TELEMETRY_NOT_KIT',
+            message: 'Telemetría no es una categoría de producto final',
+          },
+        });
       }
       if (sortOrder !== undefined) {
         fields.push(`sort_order = $${i++}`);
@@ -720,6 +784,7 @@ const itemBody = [
   body('sortOrder').optional().isInt(),
   body('active').optional().isBoolean(),
   body('released').optional().isBoolean(),
+  body('telemetryEligible').optional().isBoolean(),
 ];
 
 // ─── POST /api/catalog/items — ADMIN ───────────────────────────
@@ -771,14 +836,15 @@ router.post('/items', requireRole(...CATALOG_WRITE_ROLES), itemBody, async (req,
     }
 
     const isKitCat = cat.is_kit_category === true;
+    const telemetryEligible = cat.is_telemetry_category === true ? false : req.body.telemetryEligible === true;
     const priceToInsert = isKitCat ? 0 : unitPrice;
     const dual = hasDualPrice === true && !isKitCat;
     const intlPrice = dual && unitPriceIntl != null ? unitPriceIntl : priceToInsert;
 
     const { rows } = await pool.query(
       `INSERT INTO catalog_items
-        (category_id, codigo, descripcion, unidad, tipo, unit_price, unit_price_intl, has_dual_price, sort_order, active, released, created_by)
-       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, true), $11, $12)
+        (category_id, codigo, descripcion, unidad, tipo, unit_price, unit_price_intl, has_dual_price, sort_order, active, released, telemetry_eligible, created_by)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, COALESCE($10, true), $11, $12, $13)
        RETURNING *`,
       [
         categoryId,
@@ -792,6 +858,7 @@ router.post('/items', requireRole(...CATALOG_WRITE_ROLES), itemBody, async (req,
         so,
         active,
         releasedFlag,
+        telemetryEligible,
         req.user.id,
       ]
     );
@@ -815,7 +882,7 @@ router.post('/items', requireRole(...CATALOG_WRITE_ROLES), itemBody, async (req,
       }
       await recalcKitItemPrice(rows[0].id);
       const { rows: refreshed } = await pool.query(
-        `SELECT i.*, c.nombre AS category_nombre, c.is_kit_category,
+        `SELECT i.*, c.nombre AS category_nombre, c.is_kit_category, c.is_telemetry_category,
           (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
          FROM catalog_items i JOIN catalog_categories c ON c.id = i.category_id WHERE i.id = $1`,
         [rows[0].id]
@@ -861,6 +928,7 @@ router.put('/items/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUI
     sortOrder,
     active,
     released,
+    telemetryEligible,
   } = req.body;
 
   if (tipo !== undefined && !['ACTIVO', 'CONSUMIBLE'].includes(tipo)) {
@@ -878,10 +946,27 @@ router.put('/items/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUI
 
     const targetCatId = categoryId !== undefined ? categoryId : cur[0].category_id;
     const { rows: catKitRows } = await pool.query(
-      `SELECT is_kit_category FROM catalog_categories WHERE id = $1`,
+      `SELECT * FROM catalog_categories WHERE id = $1`,
       [targetCatId]
     );
-    const isKitItemCat = catKitRows[0]?.is_kit_category === true;
+    if (!catKitRows[0]) {
+      return res.status(400).json({
+        success: false,
+        error: { code: 'INVALID_CATEGORY', message: 'Categoría no existe' },
+      });
+    }
+    const isKitItemCat = catKitRows[0].is_kit_category === true;
+    const isTelemetryItemCat = catKitRows[0].is_telemetry_category === true;
+    const categoryChanged = categoryId !== undefined && String(categoryId) !== String(cur[0].category_id);
+    let nextCodigo = codigo !== undefined ? String(codigo).trim() : cur[0].codigo;
+    if (
+      categoryChanged &&
+      catKitRows[0].codigo_prefix &&
+      !codigoMatchesPrefix(nextCodigo, catKitRows[0].codigo_prefix)
+    ) {
+      const suggestion = await suggestNextCodigo(catKitRows[0]);
+      if (suggestion.suggestedCodigo) nextCodigo = suggestion.suggestedCodigo;
+    }
 
     const fields = [];
     const vals = [];
@@ -891,9 +976,9 @@ router.put('/items/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUI
       fields.push(`category_id = $${i++}`);
       vals.push(categoryId);
     }
-    if (codigo !== undefined) {
+    if (codigo !== undefined || nextCodigo !== cur[0].codigo) {
       fields.push(`codigo = $${i++}`);
-      vals.push(codigo.trim());
+      vals.push(nextCodigo);
     }
     if (descripcion !== undefined) {
       fields.push(`descripcion = $${i++}`);
@@ -914,6 +999,10 @@ router.put('/items/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUI
     if (hasDualPrice !== undefined && !isKitItemCat) {
       fields.push(`has_dual_price = $${i++}`);
       vals.push(!!hasDualPrice);
+    }
+    if (telemetryEligible !== undefined || isTelemetryItemCat) {
+      fields.push(`telemetry_eligible = $${i++}`);
+      vals.push(isTelemetryItemCat ? false : telemetryEligible === true);
     }
     if (unitPriceIntl !== undefined && !isKitItemCat) {
       fields.push(`unit_price_intl = $${i++}`);
@@ -942,7 +1031,7 @@ router.put('/items/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUI
     let updatedRow = cur[0];
     if (fields.length > 0) {
       const targetCatId = categoryId !== undefined ? categoryId : cur[0].category_id;
-      const targetCodigo = codigo !== undefined ? codigo.trim() : cur[0].codigo;
+      const targetCodigo = nextCodigo;
       const targetDesc = descripcion !== undefined ? descripcion.trim() : cur[0].descripcion;
       if (descripcion !== undefined) {
         const descCheck = await assertUniqueDescription(targetDesc, req.params.id);
@@ -1017,7 +1106,7 @@ router.put('/items/:id', requireRole(...CATALOG_WRITE_ROLES), [param('id').isUUI
 
     await invalidateCatalogCache();
     const { rows: outItem } = await pool.query(
-      `SELECT i.*, c.nombre AS category_nombre, c.is_kit_category,
+      `SELECT i.*, c.nombre AS category_nombre, c.is_kit_category, c.is_telemetry_category,
         (SELECT COUNT(*)::int FROM catalog_item_dependencies d WHERE d.parent_item_id = i.id) AS dependency_count
        FROM catalog_items i JOIN catalog_categories c ON c.id = i.category_id WHERE i.id = $1`,
       [req.params.id]

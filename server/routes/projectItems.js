@@ -91,7 +91,8 @@ const ITEMS_SELECT = `
     uu.email AS updated_by_email,
     TRIM(CONCAT(ue.nombres, ' ', ue.apellidos)) AS updated_by_name,
     b.display_name AS bundle_display_name, b.instance_label AS bundle_instance_label,
-    b.discount_pct AS bundle_discount_pct
+    b.discount_pct AS bundle_discount_pct,
+    b.telemetry_enabled AS bundle_telemetry_enabled
   FROM project_items pi
   LEFT JOIN catalog_categories cc ON cc.id = pi.category_id
   LEFT JOIN users u ON u.id = pi.created_by
@@ -132,6 +133,7 @@ function mapItem(row) {
     bundleDisplayName: row.bundle_display_name ?? null,
     bundleInstanceLabel: row.bundle_instance_label ?? null,
     bundleDiscountPct: row.bundle_discount_pct != null ? Number(row.bundle_discount_pct) : 0,
+    bundleTelemetryEnabled: row.bundle_telemetry_enabled === true,
     componentGroupKey: row.component_group_key ?? null,
     componentGroupLabel: row.component_group_label ?? null,
     componentGroupSort: row.component_group_sort != null ? Number(row.component_group_sort) : 0,
@@ -1199,6 +1201,7 @@ router.post(
     body('lines.*.unitPrice').optional().isFloat({ min: 0 }),
     body('lines.*.included').optional().isBoolean(),
     body('discountPct').optional().isFloat({ min: 0, max: 100 }),
+    body('telemetryEnabled').optional().isBoolean(),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -1244,6 +1247,7 @@ router.post(
         qty: req.body.qty,
         lines: req.body.lines,
         discountPct: req.body.discountPct,
+        telemetryEnabled: req.body.telemetryEnabled,
         ip,
         actorRole: req.user.role,
       });
@@ -1332,6 +1336,7 @@ router.put(
     body('lines.*.unitPrice').optional().isFloat({ min: 0 }),
     body('lines.*.included').optional().isBoolean(),
     body('discountPct').optional().isFloat({ min: 0, max: 100 }),
+    body('telemetryEnabled').optional().isBoolean(),
   ],
   async (req, res) => {
     const errors = validationResult(req);
@@ -1371,6 +1376,7 @@ router.put(
         qty: req.body.qty,
         lines: req.body.lines,
         discountPct: req.body.discountPct,
+        telemetryEnabled: req.body.telemetryEnabled,
         ip,
         preservePriceOverrides: true,
         actorRole: req.user.role,

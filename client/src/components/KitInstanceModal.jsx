@@ -38,6 +38,7 @@ export function KitInstanceModal({
   onClose,
   onConfirm,
   fetchDependencyBundle,
+  fetchKitTemplate,
   busy = false,
   hidePrices = false,
 }) {
@@ -49,6 +50,9 @@ export function KitInstanceModal({
   const [pickErr, setPickErr] = useState(null);
   const [extraAddBusy, setExtraAddBusy] = useState(false);
   const [pendingExtraDep, setPendingExtraDep] = useState(null);
+  const [telemetryOn, setTelemetryOn] = useState(false);
+  const [telItemId, setTelItemId] = useState('');
+  const [telBusy, setTelBusy] = useState(false);
 
   const kitBase = useMemo(() => kitBaseFromTemplate(template), [template]);
 
@@ -70,6 +74,9 @@ export function KitInstanceModal({
       setDisplayName(buildDisplayNameClient(kitBase, initLabel));
       setAddItemId('');
       setDiscountPct(Number(template.discountPct) > 0 ? Number(template.discountPct) : 0);
+      const seeded = (template.lines || []).some((l) => l.componentGroupKey === 'telemetry');
+      setTelemetryOn(template.telemetryEnabled === true || seeded);
+      setTelItemId('');
       setPickErr(null);
     }
   }, [open, template, suggestedLabel, editMode, kitBase]);
@@ -105,7 +112,7 @@ export function KitInstanceModal({
   const addOptions = useMemo(() => {
     const used = new Set(lines.map((l) => l.catalogItemId));
     return (catalogItems || [])
-      .filter((it) => it.active !== false && !it.isKit && it.id !== template?.catalogItemId)
+      .filter((it) => it.active !== false && !it.isKit && !it.isTelemetry && it.id !== template?.catalogItemId)
       .map((it) => ({
         value: it.id,
         label: `${it.codigo} — ${it.descripcion}`,
@@ -113,6 +120,17 @@ export function KitInstanceModal({
         disabledOption: used.has(it.id),
       }));
   }, [catalogItems, lines, template?.catalogItemId]);
+
+  const telemetryOptions = useMemo(() => {
+    return (catalogItems || [])
+      .filter((it) => it.active !== false && it.released !== false && it.id !== template?.catalogItemId)
+      .filter((it) => it.isTelemetry === true || it.telemetryEligible === true || it.isKit === true)
+      .map((it) => ({
+        value: it.id,
+        label: `${it.codigo} — ${it.descripcion}${it.isKit ? ' (kit)' : ''}`,
+        searchText: [it.codigo, it.descripcion, it.categoryNombre].filter(Boolean).join(' '),
+      }));
+  }, [catalogItems, template?.catalogItemId]);
 
   if (!open || !template) return null;
 
@@ -248,6 +266,81 @@ export function KitInstanceModal({
     setAddItemId('');
   }
 
+  async function addTelemetryItem() {
+    if (!telemetryOn || !telItemId || telBusy) return;
+    const it = catalogItems.find((x) => x.id === telItemId);
+    if (!it) return;
+    setTelBusy(true);
+    setPickErr(null);
+    try {
+      if (it.isKit && fetchKitTemplate) {
+        const kit = await fetchKitTemplate(it.id);
+        const parts = (kit?.lines || []).filter((l) => l.catalogItemId);
+        if (!parts.length) {
+          setPickErr('Ese kit no tiene componentes para aplanar en telemetría.');
+          return;
+        }
+        const label = `Telemetría — ${it.descripcion}`;
+        const groupSort = nextTelemetrySort(lines, label);
+        appendExtraLines(
+          parts.map((l) => ({
+            catalogItemId: l.catalogItemId,
+            codigo: l.codigo,
+            descripcion: l.descripcion,
+            unidad: l.unidad,
+            tipo: l.tipo,
+            unitPrice: Number(l.unitPrice) || 0,
+            qty: Number(l.qty) || 1,
+          })),
+          { groupKey: 'telemetry', groupLabel: label, groupSort, warnDuplicates: true }
+        );
+      } else if ((Number(it.dependencyCount) || 0) > 0 && fetchDependencyBundle) {
+        const bundle = await fetchDependencyBundle(it.id, 1);
+        const parts = bundle?.lines || [];
+        if (!parts.length) {
+          setPickErr('No se pudieron cargar las dependencias.');
+          return;
+        }
+        const label = 'Telemetría';
+        const groupSort = nextTelemetrySort(lines, label);
+        appendExtraLines(
+          parts.map((l) => ({
+            catalogItemId: l.catalogItemId,
+            codigo: l.codigo,
+            descripcion: l.descripcion,
+            unidad: l.unidad,
+            tipo: l.tipo,
+            unitPrice: Number(l.unitPrice) || 0,
+            qty: Number(l.qty) || 1,
+          })),
+          { groupKey: 'telemetry', groupLabel: label, groupSort, warnDuplicates: true }
+        );
+      } else {
+        const label = 'Telemetría';
+        const groupSort = nextTelemetrySort(lines, label);
+        appendExtraLines(
+          [
+            {
+              catalogItemId: it.id,
+              codigo: it.codigo,
+              descripcion: it.descripcion,
+              unidad: it.unidad,
+              tipo: it.tipo,
+              unitPrice: Number(it.unitPrice) || 0,
+              qty: 1,
+            },
+          ],
+          { groupKey: 'telemetry', groupLabel: label, groupSort, warnDuplicates: false }
+        );
+      }
+      setTelItemId('');
+    } catch (e) {
+      setPickErr(e.message || 'No se pudo agregar a telemetría.');
+    } finally {
+      setTelBusy(false);
+    }
+  }
+
   function confirmExtraDepAdd(selectedLines) {
     const main = selectedLines.find((l) => l.isMain) || selectedLines[0];
     const groupKey = `extra-${main?.catalogItemId || 'dep'}-${Date.now()}`;
@@ -305,10 +398,31 @@ export function KitInstanceModal({
       instanceLabel: label,
       displayName: name,
       qty: template.mainQty || 1,
-      lines: selected,
+      lines: telemetryOn ? selected : selected.filter((l) => l.componentGroupKey !== 'telemetry'),
       discountPct: discount,
+      telemetryEnabled: telemetryOn,
       ...(hidePrices ? {} : { unitPrice: totalNet }),
     });
+  }
+
+  function setTelemetry(on) {
+    if (!on && lines.some((l) => l.componentGroupKey === 'telemetry')) {
+      const ok = window.confirm(
+        'Se quitarán las líneas de telemetría de este conjunto. El resto del kit no cambia.'
+      );
+      if (!ok) return;
+      setLines((prev) => prev.filter((l) => l.componentGroupKey !== 'telemetry'));
+    }
+    setTelemetryOn(on);
+    setPickErr(null);
+  }
+
+  function nextTelemetrySort(prev, label) {
+    const tel = prev.filter((l) => l.componentGroupKey === 'telemetry');
+    const same = tel.find((l) => (l.componentGroupLabel || 'Telemetría') === label);
+    if (same) return Number(same.componentGroupSort) || 1000;
+    const max = tel.reduce((m, l) => Math.max(m, Number(l.componentGroupSort) || 0), 999);
+    return max + 1;
   }
 
   const helpText = editMode
@@ -582,6 +696,44 @@ export function KitInstanceModal({
             </div>
           </div>
         )}
+        <div className="kit-telemetry" style={{ marginTop: 14, padding: 10, border: '1px solid var(--border-dim)', borderRadius: 8 }}>
+          <label className="chk-row">
+            <input
+              type="checkbox"
+              checked={telemetryOn}
+              disabled={busy || telBusy}
+              onChange={(e) => setTelemetry(e.target.checked)}
+            />
+            <span>Tiene telemetría</span>
+          </label>
+          <p className="muted mono" style={{ fontSize: 11, margin: '6px 0 8px', lineHeight: 1.4 }}>
+            Apagado por defecto. Al activarlo, las piezas van dentro de este conjunto, no como otra cotización.
+          </p>
+          {telemetryOn && (
+            <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+              <label style={{ flex: 1 }}>
+                <span className="fg-lbl">Agregar a telemetría</span>
+                <SearchableSelect
+                  className="form-input mono"
+                  value={telItemId}
+                  onChange={setTelItemId}
+                  options={telemetryOptions}
+                  placeholder="Insumo TEL, ítem habilitado o kit…"
+                  emptyLabel="Sin ítems de telemetría"
+                  disabled={busy || telBusy}
+                />
+              </label>
+              <button
+                type="button"
+                className="btn btn-ghost"
+                disabled={busy || telBusy || !telItemId}
+                onClick={addTelemetryItem}
+              >
+                {telBusy ? 'Cargando…' : '+ Telemetría'}
+              </button>
+            </div>
+          )}
+        </div>
         <div className="kit-instance-add" style={{ marginTop: 12, display: 'flex', gap: 8, alignItems: 'flex-end' }}>
           <label style={{ flex: 1 }}>
             <span className="fg-lbl">Agregar componente extra</span>

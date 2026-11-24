@@ -59,6 +59,7 @@ function mapBundleForPayload(row) {
     discountPct: num(row.discount_pct, 0),
     qty: num(row.qty, 1),
     sortOrder: num(row.sort_order, 0),
+    telemetryEnabled: row.telemetry_enabled === true,
     createdBy: row.created_by || null,
     createdAt: iso(row.created_at),
     updatedAt: iso(row.updated_at),
@@ -268,8 +269,8 @@ async function insertBudgetFromPayload(client, projectId, payload, { actorId, ke
     if (keepIds && b.id) {
       await client.query(
         `INSERT INTO project_item_bundles
-           (id, project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)`,
+           (id, project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by, created_at, updated_at, telemetry_enabled)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)`,
         [
           b.id,
           projectId,
@@ -283,14 +284,15 @@ async function insertBudgetFromPayload(client, projectId, payload, { actorId, ke
           createdBy,
           b.createdAt || new Date(),
           b.updatedAt || new Date(),
+          b.telemetryEnabled === true,
         ]
       );
       bundleIdMap.set(b.id, b.id);
     } else {
       const { rows } = await client.query(
         `INSERT INTO project_item_bundles
-           (project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)
+           (project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by, telemetry_enabled)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)
          RETURNING id`,
         [
           projectId,
@@ -302,6 +304,7 @@ async function insertBudgetFromPayload(client, projectId, payload, { actorId, ke
           num(b.qty, 1),
           num(b.sortOrder, 0),
           createdBy,
+          b.telemetryEnabled === true,
         ]
       );
       if (b.id) bundleIdMap.set(b.id, rows[0].id);

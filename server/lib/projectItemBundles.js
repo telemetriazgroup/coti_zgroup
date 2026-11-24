@@ -12,6 +12,7 @@ const {
 } = require('./catalogKit');
 const { resolveUnitPrice, getProjectQuotationMarket } = require('./pricingMarket');
 const { pricesDiffer } = require('./projectItemPriceApproval');
+const { prepareBundleTelemetry } = require('./telemetryAccess');
 
 const INSTANCE_LABEL_MAX = 50;
 const GROUP_KEY_MAX = 64;
@@ -329,6 +330,7 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
     mainQty: bundle.qty != null ? Number(bundle.qty) : 1,
     unitPrice: bundle.unit_price != null ? Number(bundle.unit_price) : 0,
     discountPct: bundle.discount_pct != null ? Number(bundle.discount_pct) : 0,
+    telemetryEnabled: bundle.telemetry_enabled === true,
     lines,
   };
 }
@@ -338,15 +340,18 @@ async function fetchBundleEditPayload(projectId, bundleId, client = null) {
  */
 async function createProjectBundle(
   client,
-  { projectId, userId, catalogItemId, instanceLabel, displayName, qty, lines, discountPct, ip, actorRole }
+  { projectId, userId, catalogItemId, instanceLabel, displayName, qty, lines, discountPct, telemetryEnabled, ip, actorRole }
 ) {
   const kit = await fetchItemWithCategory(catalogItemId, client);
   if (!kit?.is_kit_category) {
     return { errorCode: 'NOT_KIT_ITEM', message: 'El ítem no es un producto final (KIT)' };
   }
 
+  const telemetry = await prepareBundleTelemetry(client, lines, telemetryEnabled, actorRole);
+  if (telemetry.errorCode) return telemetry;
+
   const market = await getProjectQuotationMarket(projectId, client);
-  const included = await resolveKitLinesForMarket(client, lines, market, { preserveOverrides: true });
+  const included = await resolveKitLinesForMarket(client, telemetry.lines, market, { preserveOverrides: true });
 
   const parsedLabel = parseInstanceLabel(instanceLabel, 'ZONA 1');
   if (typeof parsedLabel === 'object' && parsedLabel.errorCode) return parsedLabel;
@@ -364,9 +369,9 @@ async function createProjectBundle(
 
   const { rows: bundleIns } = await client.query(
     `INSERT INTO project_item_bundles
-      (project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9) RETURNING *`,
-    [projectId, catalogItemId, label, name, unitPrice, discount, bundleQty, bundleSort[0].n, userId]
+      (project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by, telemetry_enabled)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10) RETURNING *`,
+    [projectId, catalogItemId, label, name, unitPrice, discount, bundleQty, bundleSort[0].n, userId, telemetry.enabled]
   );
   const bundle = bundleIns[0];
 
@@ -456,7 +461,7 @@ async function createProjectBundle(
  */
 async function updateProjectBundle(
   client,
-  { projectId, userId, bundleId, instanceLabel, displayName, qty, lines, discountPct, ip, preservePriceOverrides = true, actorRole }
+  { projectId, userId, bundleId, instanceLabel, displayName, qty, lines, discountPct, telemetryEnabled, ip, preservePriceOverrides = true, actorRole }
 ) {
   const { rows: bundleRows } = await client.query(
     `SELECT b.*, i.descripcion AS kit_descripcion, i.codigo AS kit_codigo, i.unidad, i.tipo
@@ -469,6 +474,9 @@ async function updateProjectBundle(
   if (!bundle) {
     return { errorCode: 'NOT_FOUND', message: 'Conjunto no encontrado' };
   }
+
+  const telemetry = await prepareBundleTelemetry(client, lines, telemetryEnabled, actorRole);
+  if (telemetry.errorCode) return telemetry;
 
   const market = await getProjectQuotationMarket(projectId, client);
   const { rows: existingComps } = await client.query(
@@ -486,7 +494,7 @@ async function updateProjectBundle(
       });
     }
   }
-  const linesWithPrices = (lines || []).map((line) => {
+  const linesWithPrices = (telemetry.lines || []).map((line) => {
     const prev = existingMetaByCat.get(line.catalogItemId);
     const next = { ...line };
     if (next.unitPrice == null && prev != null && Number.isFinite(prev.unitPrice)) {
@@ -545,9 +553,9 @@ async function updateProjectBundle(
 
   await client.query(
     `UPDATE project_item_bundles SET
-       instance_label = $1, display_name = $2, qty = $3, updated_at = NOW()
-     WHERE id = $4`,
-    [label, name, bundleQty, bundleId]
+       instance_label = $1, display_name = $2, qty = $3, telemetry_enabled = $4, updated_at = NOW()
+     WHERE id = $5`,
+    [label, name, bundleQty, telemetry.enabled, bundleId]
   );
 
   await client.query(

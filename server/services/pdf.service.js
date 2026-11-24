@@ -516,6 +516,14 @@ function buildClienteModalidadesSection(fin, mergedParams, commercialModules = n
   ${filtered ? '' : '<p class="muted" style="margin-top:10px"><strong>Venta directa</strong> es compra; el resto son esquemas de alquiler con cuotas mensuales estimadas. Elija una línea de negociación según su preferencia.</p>'}`;
 }
 
+function markTelemetryCategory(it) {
+  const key = it?.component_group_key || it?.componentGroupKey;
+  if (key !== 'telemetry') return it;
+  const cat = String(it.category_nombre || '');
+  if (/telemetr/i.test(cat)) return it;
+  return { ...it, category_nombre: cat ? `${cat} · Telemetría` : 'Telemetría' };
+}
+
 function fmtPct1(n) {
   return `${Number(n || 0).toFixed(1)}%`;
 }
@@ -558,8 +566,8 @@ function buildGerenciaResumenKpis(fin, totals, items) {
 
 function buildGerenciaPartidasBloque(items, m1) {
   const classified = chargedLinesByTipo(items);
-  const actItems = classified.activos;
-  const consItems = classified.consumibles;
+  const actItems = classified.activos.map(markTelemetryCategory);
+  const consItems = classified.consumibles.map(markTelemetryCategory);
   const billable = (items || []).filter((i) => i.is_bundle_component !== true);
   const bundleHeaders = billable.filter((i) => i.is_bundle_header === true);
   const hasBundles = bundleHeaders.length > 0;
@@ -652,7 +660,7 @@ function buildGerenciaPartidasBloque(items, m1) {
       }, 0);
       const tagged = sorted.map((it) => {
         const charged = it.is_bundle_component ? chargedById.get(it.id) : null;
-        const src = charged || it;
+        const src = markTelemetryCategory(charged || it);
         const kind = it.is_bundle_header ? 'CONJUNTO' : it.tipo || '';
         const cat = [it.category_nombre, kind].filter(Boolean).join(' · ');
         return { ...src, category_nombre: cat };
@@ -1097,7 +1105,7 @@ function buildHtmlCliente(payload, options = {}) {
   const { activos: actScope, consumibles: consScope } = chargedLinesByTipo(items);
   const scopeTable = (title, lines, tipoOf) => {
     if (!lines.length) return '';
-    const body = lines.map((it) => scopeRow(it, tipoOf(it))).join('');
+    const body = lines.map((it) => scopeRow(markTelemetryCategory(it), tipoOf(it))).join('');
     return `<h3 style="margin:14px 0 6px;font-size:12px">${esc(title)} (${lines.length})</h3>
     <table><thead><tr>
       <th>Código</th><th>Descripción</th><th>Categoría</th><th>Tipo</th><th class="num">Cant.</th><th class="num">Und.</th>

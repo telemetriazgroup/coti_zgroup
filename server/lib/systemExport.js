@@ -441,8 +441,8 @@ async function importSystemData(payload, { mode = 'merge', keepUserId = null } =
       if (!row.id || !row.project_id) continue;
       await client.query(
         `INSERT INTO project_item_bundles
-           (id, project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by, created_at, updated_at)
-         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12)
+           (id, project_id, catalog_item_id, instance_label, display_name, unit_price, discount_pct, qty, sort_order, created_by, created_at, updated_at, telemetry_enabled)
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13)
          ON CONFLICT (id) DO UPDATE SET
            instance_label = EXCLUDED.instance_label,
            display_name = EXCLUDED.display_name,
@@ -450,6 +450,7 @@ async function importSystemData(payload, { mode = 'merge', keepUserId = null } =
            discount_pct = EXCLUDED.discount_pct,
            qty = EXCLUDED.qty,
            sort_order = EXCLUDED.sort_order,
+           telemetry_enabled = EXCLUDED.telemetry_enabled,
            updated_at = NOW()`,
         [
           row.id,
@@ -464,6 +465,7 @@ async function importSystemData(payload, { mode = 'merge', keepUserId = null } =
           uid(row.created_by),
           row.created_at || new Date(),
           row.updated_at || new Date(),
+          row.telemetry_enabled === true,
         ]
       );
       stats.projectBundles++;

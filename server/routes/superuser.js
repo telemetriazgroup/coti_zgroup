@@ -21,10 +21,33 @@ const router = express.Router();
 router.use(requireAuth);
 router.use(requireRole('SUPERUSER'));
 
+function importMaxBytes() {
+  const mb = parseInt(process.env.SUPERUSER_IMPORT_MAX_MB || '256', 10);
+  const clamped = Number.isFinite(mb) ? Math.min(1024, Math.max(50, mb)) : 256;
+  return clamped * 1024 * 1024;
+}
+
 const upload = multer({
   storage: multer.memoryStorage(),
-  limits: { fileSize: 50 * 1024 * 1024 },
+  limits: { fileSize: importMaxBytes() },
 });
+
+function receiveImportFile(req, res, next) {
+  upload.single('file')(req, res, (err) => {
+    if (!err) return next();
+    if (err.code === 'LIMIT_FILE_SIZE') {
+      const mb = Math.round(importMaxBytes() / (1024 * 1024));
+      return res.status(413).json({
+        success: false,
+        error: {
+          code: 'FILE_TOO_LARGE',
+          message: `El JSON supera ${mb} MB. Sube SUPERUSER_IMPORT_MAX_MB (máximo 1024) y recrea el contenedor app.`,
+        },
+      });
+    }
+    return next(err);
+  });
+}
 
 router.get('/export', async (req, res) => {
   try {
@@ -88,7 +111,7 @@ router.get('/audit', async (req, res) => {
   }
 });
 
-router.post('/import/preview', upload.single('file'), async (req, res) => {
+router.post('/import/preview', receiveImportFile, async (req, res) => {
   try {
     if (!req.file?.buffer) {
       return res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'Archivo requerido' } });
@@ -119,7 +142,7 @@ router.post('/import/preview', upload.single('file'), async (req, res) => {
   }
 });
 
-router.post('/import/apply', upload.single('file'), async (req, res) => {
+router.post('/import/apply', receiveImportFile, async (req, res) => {
   try {
     if (!req.file?.buffer) {
       return res.status(400).json({ success: false, error: { code: 'NO_FILE', message: 'Archivo requerido' } });

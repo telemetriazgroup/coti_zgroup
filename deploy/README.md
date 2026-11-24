@@ -140,7 +140,7 @@ https://ztrack.app/madurador/api/health
 1. **Assets 404 bajo `/madurador`** — No reconstruiste la imagen con `VITE_BASE_PATH=/madurador/` o `PUBLIC_BASE_PATH` no coincide.
 2. **Login / cookies** — `FRONTEND_URL` debe ser `https://ztrack.app`, `COOKIE_SECURE=true`, `TRUST_PROXY=1`, Apache envía `X-Forwarded-Proto: https`.
 3. **CORS al abrir por IP** — Añade ese origen en `ALLOWED_ORIGINS`.
-4. **Planos / MinIO** — `S3_PUBLIC_ENDPOINT` debe ser una URL que el **navegador** alcance (IP:9010 o dominio dedicado a MinIO), no `http://localhost:9010` desde un PC remoto.
+4. **Planos / S3** — `S3_PUBLIC_ENDPOINT` debe ser una URL que el **navegador** alcance (IP:9010 o dominio dedicado), no `http://localhost:9010` desde un PC remoto. La imagen es `pgsty/silo` (fork compatible); `minio/minio` ya no se puede descargar. Al recrear el contenedor, no usar `docker compose down -v` y no cambiar `MINIO_ROOT_USER` / `MINIO_ROOT_PASSWORD` de un volumen que ya tiene planos. Ver `incidente/incidente04.md`.
 5. **Postgres “password authentication failed”** — La clave en `.env` no coincide con el volumen ya creado: alinea `DB_PASSWORD` o elimina el volumen con cuidado (`down -v`).
 
 ---

@@ -12,7 +12,8 @@
 # `depends_on` espera Postgres sano antes de levantar la app.
 #
 # App: host ${APP_HOST_PORT:-3000} → contenedor :3000; API: {PUBLIC_BASE_PATH}/api/*; Hash #/login
-# MinIO en host: MINIO_API_HOST_PORT (9010) / consola MINIO_CONSOLE_HOST_PORT (9011)
+# Planos S3 en host: MINIO_API_HOST_PORT (9010) / consola MINIO_CONSOLE_HOST_PORT (9011)
+# Imagen: pgsty/silo (fork compatible). minio/minio ya no está en Docker Hub. Ver incidente/incidente04.md
 
 services:
 
@@ -72,6 +73,8 @@ services:
       ODOO_SYNC_ENABLED: ${ODOO_SYNC_ENABLED:-0}
       ODOO_TLS_INSECURE: ${ODOO_TLS_INSECURE:-0}
       ODOO_WRITE_ENABLED: ${ODOO_WRITE_ENABLED:-0}
+      # Tope del JSON de Superusuario → importar (preview y apply). El archivo se carga en memoria.
+      SUPERUSER_IMPORT_MAX_MB: ${SUPERUSER_IMPORT_MAX_MB:-256}
     depends_on:
       postgres:
         condition: service_healthy
@@ -139,9 +142,10 @@ services:
     networks:
       - zgroup_net
 
-  # ── MinIO (S3-compatible) ────────────────────────────────────
+  # ── Planos (S3). Silo lee el mismo volumen /data que MinIO. ──
+  # No cambiar el nombre del servicio ni el volumen: un nombre nuevo montaría un disco vacío.
   minio:
-    image: minio/minio:latest
+    image: pgsty/silo:RELEASE.2026-11-12T00-00-00Z@sha256:c20d112390b9a9ce8c11b8af95ad35bcaa62f4759663c09c936cd8d2b511f329
     container_name: zgroup_minio
     restart: unless-stopped
     command: server /data --console-address ":9001"
@@ -155,10 +159,11 @@ services:
       - "${MINIO_API_HOST_PORT:-9010}:9000"   # S3 API (host)
       - "${MINIO_CONSOLE_HOST_PORT:-9011}:9001"   # Console web (host)
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:9000/minio/health/live"]
-      interval: 10s
-      timeout: 5s
+      test: ["CMD", "silo", "healthcheck", "ready"]
+      interval: 15s
+      timeout: 10s
       retries: 5
+      start_period: 20s
     networks:
       - zgroup_net
 
